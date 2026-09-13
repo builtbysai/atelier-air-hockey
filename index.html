@@ -263,7 +263,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v14</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v15</span></div>
   </div>
 </div>
 
@@ -340,6 +340,7 @@
     <h1>Paused</h1>
     <p class="tagline">The puck waits for no one. Except now.</p>
     <button class="btn primary" id="btnResume">Resume</button>
+    <button class="btn" id="btnRestart">Restart match</button>
     <button class="btn" id="btnQuit">Quit to menu</button>
   </div>
 </div>
@@ -2205,6 +2206,11 @@ Net.onEvent = function (ev) {
       break;
     case 'rematch':
       Net.onRematch(ev.phase || '');
+      break;
+    case 'restart-req':
+      // ONLINE: guest asks mid-match for a restart — host authority performs
+      // it; the countdown event pulls the guest along via Net.onCountdown.
+      if (Net.role === 'host' && Net.active) Net.restartMatchAsHost();
       break;
     case 'leave':
       if (Net.active || Net.waitingForRival) Net.onRivalLeft();
@@ -4187,17 +4193,38 @@ function showWin() {
 function togglePause(force, silent) {
   // ONLINE: silent=true applies a pause that arrived over the wire — it must
   // not echo back, or the two clients would ping-pong pause events forever.
-  if (G.state === 'play' || G.state === 'count') {
-    G.pausedFrom = G.state; G.state = 'pause';
+  // Pausing is allowed from 'goal' too: the ceremony is cleared so a frozen
+  // GOAL! banner / slow-mo can't sit under the pause card, and resume replays
+  // the ceremony from its start (goalT=0) rather than a stale timeScale.
+  if (G.state === 'play' || G.state === 'count' || G.state === 'goal') {
+    G.pausedFrom = G.state;
+    if (G.state === 'goal') clearCeremony();
+    G.state = 'pause';
     hideAll(); $('pauseov').classList.remove('hidden');
     AudioSys.ui();
     if (G.mode === 'online' && !silent) Net.sendPause(true);
   } else if (G.state === 'pause' && force !== true) {
     G.state = G.pausedFrom;
     hideAll();
-    if (G.state === 'play' || G.state === 'count') $('topbar').classList.remove('hidden');
+    if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
     if (G.mode === 'online' && !silent) Net.sendPause(false);
   }
+}
+// Restart the current match from the pause menu.
+// LOCAL (ai/2p): immediate — startGame resets score, board, stats, and counts
+// down. ONLINE: host authority — the host restarts directly (the countdown
+// event pulls the guest along via Net.onCountdown); the guest sends a
+// restart request and the host performs it, so both sides stay in sync.
+// Never changes net snapshot/input behavior — restart flows through the
+// existing countdown handshake.
+function restartMatch() {
+  AudioSys.ui();
+  if (G.mode === 'online') {
+    if (Net.role === 'host') Net.restartMatchAsHost();
+    else if (Net.wire) Net.wire.sendEv({ t: 'restart-req' });
+    return;
+  }
+  startGame(G.mode, G.difficulty);
 }
 function quitToMenu() {
   if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first — leave() resets mode
@@ -4862,6 +4889,7 @@ function wireUI() {
   $('helpClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
   $('btnPause').addEventListener('click', () => togglePause());
   $('btnResume').addEventListener('click', () => togglePause());
+  $('btnRestart').addEventListener('click', restartMatch);
   $('btnQuit').addEventListener('click', quitToMenu);
   // ONLINE: rival-left overlay — back to the menu (leave() runs inside quitToMenu)
   $('dropMenu').addEventListener('click', quitToMenu);
@@ -4882,7 +4910,7 @@ function wireUI() {
     else if (e.key === 'm' || e.key === 'M') $('btnSound').click();
     else if (e.key === 'Escape') {
       if (G.state === 'pause') togglePause();
-      else if (G.state === 'play' || G.state === 'count') togglePause(true);
+      else if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
     }
