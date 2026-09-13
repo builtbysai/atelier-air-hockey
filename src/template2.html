@@ -161,6 +161,10 @@
   .online-err{ color:#e0685c; font-size:13px; min-height:18px; margin:8px 0 0; }
   .pulse{ animation:opulse 1.6s ease-in-out infinite; }
   @keyframes opulse{ 0%,100%{ opacity:0.45; } 50%{ opacity:1; } }
+  /* win-card confetti rain — theme-colored pieces spawned by showWin() */
+  #winov .card{ position:relative; overflow:hidden; }
+  .confetti{ position:absolute; top:-14px; z-index:5; pointer-events:none; border-radius:2px; animation:cfall linear forwards; }
+  @keyframes cfall{ to{ transform:translateY(110vh) rotate(720deg); opacity:0.85; } }
   .foot a{ color:var(--title); }
   .foot b{ color:var(--title); }
   #settings .card{ max-width:500px; text-align:left; }
@@ -183,7 +187,7 @@
     .ctrack{ padding:4px 26px; }
     .foot{ margin-top:6px; font-size:11px; }
     .foot button{ padding:6px; }
-    .setrow{ margin:8px 0; }
+    .setrow{ margin:6px 0; }
     .setrow .seg button{ padding:8px 4px; font-size:13px; }
     #settings h1{ font-size:20px; }
   }
@@ -235,7 +239,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v6</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v7</span></div>
   </div>
 </div>
 
@@ -245,6 +249,7 @@
     <p><b>Move your mallet</b> with mouse or finger — it tracks you one-to-one. Flick it to <b>smash</b> the puck; ease it to deaden and control.</p>
     <p>Your mallet can't cross the center line. First to <b id="helpFirst">7</b> goals wins the table.</p>
     <p><b>Two players:</b> each takes an end — mouse and touch work at once, or two fingers on mobile.</p>
+    <p><b>Effects</b> scales the spectacle — particles, flashes, confetti, room glow — without touching the physics. Minimal also caps screen shake at Subtle.</p>
     <p><b>Keys:</b> P pause &middot; M mute &middot; Esc menu.</p>
     <p style="text-align:center"><button class="btn" id="helpClose" style="width:auto;padding:10px 34px;margin:14px auto 0;">Back to the table</button></p>
   </div>
@@ -261,6 +266,14 @@
         <button data-set="shake" data-val="off">Off</button>
         <button data-set="shake" data-val="subtle">Subtle</button>
         <button data-set="shake" data-val="full">Full</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Effects</div>
+      <div class="seg">
+        <button data-set="effects" data-val="full">Full</button>
+        <button data-set="effects" data-val="subtle">Subtle</button>
+        <button data-set="effects" data-val="minimal">Minimal</button>
       </div>
     </div>
     <div class="setrow">

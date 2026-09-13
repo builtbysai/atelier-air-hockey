@@ -1,6 +1,6 @@
 # Atelier Air Hockey
 
-A premium, fully self-contained web air-hockey game. Six hand-designed tables, a 240 Hz physics core, three AI rivals, local two-player, online multiplayer, and a proper menu / settings / match flow — in a single HTML file with zero dependencies and zero network requests until you tap Online.
+A premium, fully self-contained web air-hockey game. Six hand-designed tables, a 240 Hz physics core, three AI rivals, local two-player, online multiplayer, a proper menu / settings / match flow, and a tuned game-feel layer — in a single HTML file with zero dependencies and zero network requests until you tap Online.
 
 **Play it now:** https://builtbysai.com/atelier-air-hockey/
 
@@ -66,6 +66,17 @@ Countdown serve, goal slow-motion with letterbox ceremony and chord, match-point
 - **Rooms** — every table sits in a place-based, pre-rendered room (Skyline Bar, Cabana, Bunker Gallery, Century Club, Loft Party, Machiya). Painted once per resize/theme; one blit per frame, zero per-frame cost.
 - **Responsive** — desktop, portrait phones (the rink rotates, your goal goes to the bottom), landscape phones, small screens. No page scroll, no card scroll, at any size.
 - **Source** — `src/` holds the real sources (`engine2.js`, `themes.js`, `themes2.js`, `scoreboards.js`, `net.js`, `template2.html`) and `build3.js` inlines them into the single-file release. All netcode is isolated in `net.js` behind a documented protocol (`st` snapshots / `in` input / `ev` events); engine hooks are minimal and marked `// ONLINE:`.
+
+## Online multiplayer
+
+## Game feel (v7)
+
+![Rally in play](docs/screenshots/d10-v7-gameplay.png)
+
+- **Stuck-puck fix** — a mallet pressing the puck into a rail pocket used to pin it forever; a 2.5-second possession clock now ejects it cleanly down the rail.
+- **Balanced rivals** — Rookie is livelier but sloppier, Club Pro is the "decent human" level, Champion trades superhuman reflexes for positioning and aim, and every rival occasionally whiffs a strike like a person would.
+- **Juice** — tiered hit feedback (tap / drive / SMASH), save celebrations, a rally counter with rising pitch, puck spin for curve shots, near-miss drama, speed lines, mallet trails, goal-post pings, theme-colored confetti that goes harder when *you* score, and rooms that react to huge hits.
+- **Effects setting** (Full / Subtle / Minimal) scales all of it without touching the physics; `prefers-reduced-motion` is respected automatically.
 
 ## Online multiplayer
 

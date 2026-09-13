@@ -23,16 +23,28 @@ const Settings = {
   haptics: true,
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
+  effects: 'full',     // 'full' | 'subtle' | 'minimal' — spectacle scaler, never touches physics
 };
+// prefers-reduced-motion: detected at boot; userShake remembers whether the
+// player explicitly chose a shake level (their choice always wins).
+const PRM = { reduce: false, userShake: false };
 function loadSettings() {
   try {
     const s = JSON.parse(localStorage.getItem('atelier-ah-settings') || '{}');
+    PRM.userShake = Object.prototype.hasOwnProperty.call(s, 'shake');
     for (const k of Object.keys(Settings)) if (s[k] !== undefined) Settings[k] = s[k];
   } catch (e) {}
   if (![5, 7, 11].includes(Settings.firstTo)) Settings.firstTo = 7;
   if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
+  if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
 }
+// Effects scalers — one place to look up how much spectacle is allowed.
+// Physics, pacing, and AI never consult these.
+const fxParticles = () => Settings.effects === 'minimal' ? 0.35 : Settings.effects === 'subtle' ? 0.65 : 1;
+const fxTrail = () => Settings.effects === 'minimal' ? 0.5 : Settings.effects === 'subtle' ? 0.75 : 1;
+const fxRoom = () => Settings.effects === 'full' && !PRM.reduce;   // room reactivity
+const fxFlash = () => Settings.effects !== 'minimal' && !PRM.reduce; // flashes & glows
 function saveSettings() {
   try { localStorage.setItem('atelier-ah-settings', JSON.stringify(Settings)); } catch (e) {}
 }
@@ -62,6 +74,13 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const rnd = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
 const rand = (a, b) => a + Math.random() * (b - a); // themes.js uses rand(a,b)
 const hyp = Math.hypot;
+// '#rrggbb' + alpha -> 'rgba(...)' — theme hexes need alpha for glow overlays
+function hexA(hex, a) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return 'rgba(216,169,63,' + a + ')';
+  const n = parseInt(m[1], 16);
+  return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+}
 let interacted = false; // set on first real pointer input (gates vibrate)
 
 // ---------- procedural audio ----------
@@ -79,10 +98,11 @@ const AudioSys = {
   },
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
   toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; return this.muted; },
-  // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance
-  hit(power) {
+  // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
+  // pitchMul climbs ~3% per rally hit so long rallies audibly tighten.
+  hit(power, pitchMul = 1) {
     if (!this.ctx || this.muted) return;
-    const t = this.ctx.currentTime, vr = 1 + rnd(-0.05, 0.05);
+    const t = this.ctx.currentTime, vr = (1 + rnd(-0.05, 0.05)) * pitchMul;
     const p = clamp(power, 0, 1);
     // transient
     const len = Math.floor(this.ctx.sampleRate * 0.03);
@@ -102,6 +122,48 @@ const AudioSys = {
     g2.gain.exponentialRampToValueAtTime(0.001, t + 0.10);
     o.connect(g2); g2.connect(this.master);
     o.start(t); o.stop(t + 0.12);
+  },
+  // mallet whoosh: fast flicks get an airy sweep before the clack lands
+  whoosh(power) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, p = clamp(power, 0, 1);
+    const len = Math.floor(this.ctx.sampleRate * 0.16);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.4;
+    bp.frequency.setValueAtTime(2600, t);
+    bp.frequency.exponentialRampToValueAtTime(700, t + 0.14);
+    const g = this.ctx.createGain(); g.gain.value = 0.10 + p * 0.14;
+    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.start(t);
+  },
+  // save thud: a soft low knock for goal-line blocks — felt, not announced
+  thud() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(120, t);
+    o.frequency.exponentialRampToValueAtTime(55, t + 0.14);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.4, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.2);
+  },
+  // post ping: the goal frame rings when the puck kisses it
+  ping() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    [622, 933].forEach((f, i) => {
+      const o = this.ctx.createOscillator(); o.type = 'square'; o.frequency.value = f * (1 + rnd(-0.01, 0.01));
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(i ? 0.10 : 0.16, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + 0.24);
+    });
   },
   rail(power) {
     if (!this.ctx || this.muted) return;
@@ -155,10 +217,12 @@ const AudioSys = {
 function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
 
 // ---------- game state ----------
+// whiff: per-strike chance the AI swings clean through (a human error, never a
+// superhuman stat — it only ever makes rivals weaker). windup: telegraph time.
 const DIFFS = [
-  { name: 'Rookie',   maxSpeed: 780,  react: 0.30, aimErr: 120, strike: 0.62, aggro: 0.35, tick: 0.14 },
-  { name: 'Club Pro', maxSpeed: 1180, react: 0.15, aimErr: 55,  strike: 1.00, aggro: 0.70, tick: 0.09 },
-  { name: 'Champion', maxSpeed: 1520, react: 0.06, aimErr: 22,  strike: 1.32, aggro: 0.95, tick: 0.06 },
+  { name: 'Rookie',   maxSpeed: 780,  react: 0.30, aimErr: 100, strike: 0.62, aggro: 0.50, tick: 0.14, whiff: 0.12, windup: 0.11 },
+  { name: 'Club Pro', maxSpeed: 1180, react: 0.13, aimErr: 45,  strike: 1.00, aggro: 0.70, tick: 0.09, whiff: 0.03, windup: 0.11 },
+  { name: 'Champion', maxSpeed: 1520, react: 0.10, aimErr: 34,  strike: 1.25, aggro: 0.95, tick: 0.06, whiff: 0.01, windup: 0.14 },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap — 1:1 feel, no teleporting
 
@@ -174,9 +238,15 @@ const G = {
   idleT: 0, demo: false,
   serveDir: 1,
   pausedFrom: 'play',
-  scuffs: [], parts: [], trail: [], texts: [],
+  scuffs: [], parts: [], trail: [], texts: [], pulses: [],
   puckSq: 1, puckSqA: 0,    // squash amount / angle
   letterT: 0, flashA: 0,
+  hitFlash: 0, hitFlashX: 0, hitFlashY: 0, // SMASH-tier impact flash
+  roomPulse: 0,             // room reactivity: decays, feeds the lamp-glow overlay
+  saveT: 0,                 // save-moment puck glow timer
+  nearCd: 0, dipT: 0,       // near-miss cooldown + time-dip timer
+  missGlow: null,           // { side, t } post glow after a near miss
+  goalFrameT: 0,            // goal-frame flash timer
   board: freshBoard(),      // scoreboard animation state
   ai: null,                 // per-ai brain state
   stats: null,              // per-match stats (top speed, rally, time)
@@ -191,6 +261,11 @@ function mkMallet(side) {
     side, x: 0, y: 0, tx: 0, ty: 0,
     vx: 0, vy: 0,             // smoothed velocity (for strike transfer)
     r: MALLET_R,
+    glueT: 0,                 // possession clock: sustained gentle contact time
+    ghostT: 0,                // post-release grace: this mallet can't touch the puck
+    touching: false,          // set per substep by collideMallet
+    whooshT: 0, saveCd: 0,    // juice cooldowns
+    trail: [],                // recent positions on fast flicks
   };
 }
 function resetPositions() {
@@ -198,7 +273,8 @@ function resetPositions() {
   m1.x = m1.tx = PX + 170; m1.y = m1.ty = CY;
   m2.x = m2.tx = PX + PW - 170; m2.y = m2.ty = CY;
   m1.vx = m1.vy = m2.vx = m2.vy = 0;
-  G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R };
+  for (const m of [m1, m2]) { m.glueT = 0; m.ghostT = 0; m.touching = false; m.trail.length = 0; }
+  G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R, w: 0, ang: 0 };
   G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
   G.stallX = CX; G.stallY = CY; G.anchorT = 0;
   G.puckSq = 1;
@@ -292,6 +368,15 @@ function driveMallet(m, dt, cap) {
     const k = 1 - Math.exp(-22 * dt);
     m.vx += (ivx - m.vx) * k; m.vy += (ivy - m.vy) * k;
     m.x = nx; m.y = ny;
+    // motion trail on fast flicks: distance-based so 240 Hz substeps don't
+    // flood it — ~8 points of ~26u reads as a streak, not a smear
+    const tr = m.trail, last = tr[tr.length - 1];
+    if (hyp(m.vx, m.vy) > 1200) {
+      if (!last || hyp(m.x - last.x, m.y - last.y) > 26) {
+        tr.push({ x: m.x, y: m.y });
+        if (tr.length > 8) tr.shift();
+      }
+    } else if (tr.length) tr.shift();
   } else {
     const k = 1 - Math.exp(-14 * dt);
     m.vx += (0 - m.vx) * k; m.vy += (0 - m.vy) * k;
@@ -356,23 +441,71 @@ function collideWalls(p) {
   }
   // end walls with goal mouths
   const inMouth = Math.abs(p.y - CY) < GOAL_W / 2 - 6;
+  // the goal frame rings: contact just outside the mouth is a post hit
+  const nearPost = !inMouth && Math.abs(p.y - CY) < GOAL_W / 2 + 42;
   if (p.x < PX + r && !inMouth) {
     p.x = PX + r;
-    if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp); }
+    if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp, nearPost); }
   } else if (p.x > PX + PW - r && !inMouth) {
     p.x = PX + PW - r;
-    if (p.vx > 0) { const imp = p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX + PW, p.y, imp); }
+    if (p.vx > 0) { const imp = p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX + PW, p.y, imp, nearPost); }
   }
 }
 
 // mallet is kinematic (infinite mass): positional separation + impulse
 // with full mallet-velocity transfer, so flicks become rockets.
-function collideMallet(p, m) {
+//
+// Possession clock (stuck-puck fix): a mallet pressing the puck into a rail
+// pocket defeats both anti-stall systems — constant contact keeps resetting
+// G.stallT, and the displacement nudge gets smothered. So each mallet tracks
+// glueT: sustained gentle contact time. Hard hits reset it; 2.5s of pressing
+// (legit contact is ~0.18s) forcibly releases the puck. Rail pins squirt
+// along the rail; open-ice presses pop off the mallet face. The pressing
+// mallet goes ghost for 0.30s so it can't instantly re-trap.
+function collideMallet(p, m, dt) {
   const dx = p.x - m.x, dy = p.y - m.y;
   const minD = p.r + m.r;
   const d2 = dx * dx + dy * dy;
+  if (m.ghostT > 0) { m.glueT = 0; return; } // ghostT ticks in stepPhysics
   if (d2 >= minD * minD || d2 === 0) return;
   const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+  m.touching = true;
+  // --- possession clock ---
+  const vn0 = (p.vx - m.vx) * nx + (p.vy - m.vy) * ny;
+  const mvn0 = m.vx * nx + m.vy * ny;
+  if (-vn0 + Math.max(0, mvn0) > 650) m.glueT = 0;
+  else m.glueT += dt;
+  if (m.glueT > 2.5) {
+    const nearT = p.y < PY + 70, nearB = p.y > PY + PH - 70;
+    const nearL = p.x < PX + 70, nearR = p.x > PX + PW - 70;
+    const inMouthY = Math.abs(p.y - CY) < GOAL_W / 2;
+    let rx = nx, ry = ny, railed = false;
+    if (nearT && ry < 0) { ry = 0; railed = true; }
+    if (nearB && ry > 0) { ry = 0; railed = true; }
+    if (nearL && rx < 0 && !inMouthY) { rx = 0; railed = true; }
+    if (nearR && rx > 0 && !inMouthY) { rx = 0; railed = true; }
+    if (!railed) {
+      p.x = m.x + nx * minD; p.y = m.y + ny * minD;
+      p.vx = nx * 560; p.vy = ny * 560;
+      onMalletHit(p.x, p.y, 500, nx, ny);
+    } else {
+      if (nearT || nearB) {
+        p.y = nearT ? PY + p.r : PY + PH - p.r;
+        p.x = clamp(p.x, PX + p.r, PX + PW - p.r);
+        rx = (p.x - PX) < (PX + PW - p.x) ? 1 : -1; ry = 0;
+      } else {
+        p.x = nearL ? PX + p.r : PX + PW - p.r;
+        p.y = clamp(p.y, PY + p.r, PY + PH - p.r);
+        rx = 0; ry = (p.y - PY) < (PY + PH - p.y) ? 1 : -1;
+      }
+      p.vx = rx * 950; p.vy = ry * 950;
+      m.ghostT = 0.30;
+      onMalletHit(p.x, p.y, 750, rx, ry);
+    }
+    m.glueT = 0; G.lastTouch = m.side;
+    return;
+  }
+  // --- normal contact ---
   p.x = m.x + nx * minD; p.y = m.y + ny * minD;
   const rvx = p.vx - m.vx, rvy = p.vy - m.vy;
   const vn = rvx * nx + rvy * ny;
@@ -386,6 +519,7 @@ function collideMallet(p, m) {
   let j = -(1 + e) * vn;
   // smack bonus: mallet driving into the puck adds extra punch
   const mvn = m.vx * nx + m.vy * ny; // >0 means mallet moving toward puck
+  const pvx0 = p.vx; // pre-impulse: save detection reads the puck's intent, not its rebound
   if (mvn > 0) j += mvn * SMACK_BONUS;
   p.vx += nx * j; p.vy += ny * j;
   // safety: a genuinely driven hit never dies
@@ -396,9 +530,28 @@ function collideMallet(p, m) {
   }
   const nsp = hyp(p.vx, p.vy);
   if (nsp > PUCK_MAX) { p.vx *= PUCK_MAX / nsp; p.vy *= PUCK_MAX / nsp; }
+  // english: tangential mallet velocity at contact becomes puck spin —
+  // the Magnus curve is applied in stepPhysics
+  const tx = -ny, ty = nx;
+  const tang = (m.vx - p.vx) * tx + (m.vy - p.vy) * ty;
+  p.w = clamp((p.w || 0) + tang / 260, -12, 12);
   G.lastTouch = m.side;
   G.stallT = 0;
-  onMalletHit(p.x, p.y, -vn + Math.max(0, mvn), nx, ny);
+  const impact = -vn + Math.max(0, mvn);
+  // SAVE: a fast lateral block of a puck bound for your own goal gets the
+  // soft treatment — thud, ring pulse, brief puck glow. High drama, low noise.
+  if (m.saveCd <= 0 && impact > 220 && (m.side === 0 ? pvx0 < -450 : pvx0 > 450) && msp0 > 650) {
+    m.saveCd = 0.9;
+    G.saveT = 0.55;
+    G.pulses.push({ x: p.x, y: p.y, t: 0 });
+    AudioSys.thud();
+  }
+  // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
+  if (msp0 > 1300 && m.whooshT <= 0) {
+    m.whooshT = 0.3;
+    AudioSys.whoosh(msp0 / 3000);
+  }
+  onMalletHit(p.x, p.y, impact, nx, ny);
 }
 
 function stepPhysics(dt) {
@@ -406,24 +559,64 @@ function stepPhysics(dt) {
   // glide: near-zero friction, like air jets (pace setting tunes the table)
   const damp = Math.exp(-paceDamp() * dt);
   p.vx *= damp; p.vy *= damp;
+  // Magnus: puck spin (english from tangential mallet contact) curves flight.
+  // |a| = K·|w|·|v| — at w=10, v=2000 that's ~600 u/s², a visible bend
+  // across the table; negligible at low speed. Spin decays in ~1s.
+  if (p.w) {
+    const spm = hyp(p.vx, p.vy);
+    if (spm > 60) {
+      const mx = -p.vy * 0.03 * p.w * dt, my = p.vx * 0.03 * p.w * dt;
+      p.vx += mx; p.vy += my;
+    }
+    p.w *= Math.exp(-1.1 * dt);
+    if (Math.abs(p.w) < 0.05) p.w = 0;
+    p.ang = (p.ang || 0) + p.w * dt;
+  }
   // match stats: fastest the puck ever flies (table-scale km/h later)
   if (G.state === 'play' && !G.demo) {
     const sp = Math.hypot(p.vx, p.vy);
     if (sp > G.stats.topSpeed) G.stats.topSpeed = sp;
   }
   p.x += p.vx * dt; p.y += p.vy * dt;
-  collideMallet(p, G.m1);
-  collideMallet(p, G.m2);
+  // per-mallet per-substep bookkeeping: ghost/whoosh/save cooldowns tick
+  // here (not in collideMallet) so they decay even without contact; glueT
+  // decays when the mallet isn't touching so the possession ring never
+  // lingers after a clean separation.
+  for (let mi = 0; mi < 2; mi++) {
+    const m = mi === 0 ? G.m1 : G.m2; // indexed, not [G.m1, G.m2] — no alloc at 240 Hz
+    if (m.ghostT > 0) m.ghostT -= dt;
+    if (m.whooshT > 0) m.whooshT -= dt;
+    if (m.saveCd > 0) m.saveCd -= dt;
+    if (!m.touching) m.glueT = Math.max(0, m.glueT - dt * 2);
+    m.touching = false;
+  }
+  collideMallet(p, G.m1, dt);
+  collideMallet(p, G.m2, dt);
   collideWalls(p);
   // goals: full crossing of the line inside the mouth
   if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(0);
   else if (p.x < PX - p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(1);
+  // near-miss drama: a fast puck kissing the goal frame without scoring —
+  // a tiny time dip, a glowing post, a soft tick. Once per 1.5s max.
+  if (G.state === 'play' && !G.demo && G.nearCd <= 0) {
+    const dy = Math.abs(p.y - CY);
+    const nearL = p.x > PX - 30 && p.x < PX + 80;
+    const nearR = p.x > PX + PW - 80 && p.x < PX + PW + 30;
+    if ((nearL || nearR) && dy > GOAL_W / 2 - 30 && dy < GOAL_W / 2 + PUCK_R + 26 && hyp(p.vx, p.vy) > 500) {
+      G.nearCd = 1.5;
+      if (fxFlash()) {
+        G.dipT = 0.22;
+        G.missGlow = { side: nearL ? 0 : 1, t: 0.7 };
+      }
+      AudioSys.blip(1500, 0.05, 0.10);
+    }
+  }
   // anti-stall: a real table never lets the puck die mid-rink — a whisper
   // of air from the jets keeps the game alive
   if (G.state === 'play') stallWatch(dt);
   // trail
   G.trail.push({ x: p.x, y: p.y });
-  if (G.trail.length > 16) G.trail.shift();
+  if (G.trail.length > Math.round(16 * fxTrail())) G.trail.shift();
   // squash recovery
   G.puckSq += (1 - G.puckSq) * Math.min(1, dt * 9);
 }
@@ -471,6 +664,7 @@ function mkBrain(side, diffIdx) {
     state: 'guard', tState: 0, tickT: 0,
     aimX: 0, aimY: 0, windT: 0,
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
+    whiff: false, // this strike will swing clean through (a human miss)
     seen: { x: CX, y: CY, vx: 0, vy: 0 }, // delayed perception
     hist: [], // puck history for reaction delay
   };
@@ -585,7 +779,12 @@ function aiThink(b, dt, m) {
       const dx = ax - s.x, dy = ay - s.y, dl = hyp(dx, dy) || 1;
       const back = 95;
       setTx(s.x - dx / dl * back, s.y - dy / dl * back);
-      if (b.windT > 0.11) { b.state = 'strike'; b.tState = 0; }
+      if (b.windT > D.windup) {
+        b.state = 'strike'; b.tState = 0;
+        // the whiff: a human misread, rolled per difficulty — the lunge
+        // below will be offset clean past the puck
+        b.whiff = Math.random() < (D.whiff || 0);
+      }
       break;
     }
     case 'strike': {
@@ -597,13 +796,22 @@ function aiThink(b, dt, m) {
       if (b.bankY !== null) { ax = s.x; ay = b.bankY; }
       const dx = ax - px, dy = ay - py, dl = hyp(dx, dy) || 1;
       const through = 150;
-      setTx(px + dx / dl * through, py + dy / dl * through);
+      let tx = px + dx / dl * through, ty = py + dy / dl * through;
+      if (b.whiff) {
+        // swing clean through: offset perpendicular past the puck's edge
+        // (130u > mallet + puck radius, so it genuinely misses)
+        const side = Math.random() < 0.5 ? 1 : -1;
+        tx += (-dy / dl) * 130 * side;
+        ty += (dx / dl) * 130 * side;
+      }
+      setTx(tx, ty);
       if (b.tState > 0.34) { b.state = 'recover'; b.tState = 0; }
       break;
     }
     case 'recover': {
       goHome();
-      if (b.tState > 0.4) { b.state = 'guard'; b.tState = 0; }
+      // a whiffed swing takes longer to gather — the embarrassment tax
+      if (b.tState > (b.whiff ? 0.75 : 0.4)) { b.state = 'guard'; b.tState = 0; b.whiff = false; }
       break;
     }
     case 'escape': {
@@ -624,12 +832,15 @@ function aiThink(b, dt, m) {
 function aiDrive(b, dt, m) {
   aiPerceive(b, dt);
   aiThink(b, dt, m);
-  driveMallet(m, dt, b.diff.maxSpeed * (b.state === 'strike' ? 1.5 : 1));
+  // the strike param finally does something: lunges scale with the
+  // difficulty's strike rating, so Rookie pokes and Champion detonates
+  driveMallet(m, dt, b.diff.maxSpeed * (b.state === 'strike' ? 1.5 * b.diff.strike : 1));
 }
 
 // ---------- juice ----------
 function addTrauma(x) {
-  const k = Settings.shake === 'off' ? 0 : Settings.shake === 'subtle' ? 0.45 : 1;
+  let k = Settings.shake === 'off' ? 0 : Settings.shake === 'subtle' ? 0.45 : 1;
+  if (Settings.effects === 'minimal') k = Math.min(k, 0.45); // Minimal caps Shake at Subtle
   G.trauma = clamp(G.trauma + x * k, 0, 1);
 }
 function shakeOffset() {
@@ -686,39 +897,65 @@ function updateParts(dt) {
     t.t += dt; t.y -= dt * 46;
     if (t.t > 1.1) G.texts.splice(i, 1);
   }
+  // save-moment ring pulses: expand and fade over 0.6s
+  for (let i = G.pulses.length - 1; i >= 0; i--) {
+    G.pulses[i].t += dt;
+    if (G.pulses[i].t > 0.6) G.pulses.splice(i, 1);
+  }
 }
 function addText(x, y, str, color, size = 44) {
   G.texts.push({ x, y, str, color, size, t: 0 });
   if (G.texts.length > 8) G.texts.shift();
 }
 
-// impact events — the layered hit stack
+// impact events — the layered hit stack.
+// Tiers around the 650 hit-stop threshold: tap (<650), drive (650–1400),
+// SMASH (>1400). Each tier buys more shake, a bigger flash, and a deeper
+// pitch; SMASH also startles the room itself (see G.roomPulse).
+function hitTier(impact) { return impact > 1400 ? 2 : impact > 650 ? 1 : 0; }
 function onMalletHit(x, y, impact, nx, ny) {
+  // rally bookkeeping first — the clack pitches up ~3% per hit so long
+  // rallies audibly tighten (capped at +36%)
+  let rallyN = 0;
+  if (G.state === 'play' && !G.demo && G.stats) {
+    G.stats.rally++;
+    if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
+    rallyN = G.stats.rally;
+  }
   const v = clamp(impact / 2200, 0, 1);
+  const tier = hitTier(impact);
+  const fxp = fxParticles();
   // hit-stop: 1–2 frames, scaled — the brain reads it as weight
-  if (impact > 650) G.freezeT = Math.max(G.freezeT, Math.min(0.032, 0.010 + v * 0.022));
-  addTrauma(0.18 + v * 0.5);
+  if (tier >= 1) G.freezeT = Math.max(G.freezeT, Math.min(tier === 2 ? 0.045 : 0.032, 0.010 + v * 0.022));
+  addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
+  if (tier === 2) {
+    if (fxFlash()) { G.hitFlash = 0.8; G.hitFlashX = x; G.hitFlashY = y; }
+    if (fxRoom()) G.roomPulse = 1;
+    buzz([15, 30, 25]);
+  }
   // puck squash along the impact normal, 10–20%
   G.puckSq = 1 - (0.10 + v * 0.10);
   G.puckSqA = Math.atan2(ny, nx);
-  burst(x, y, 5 + Math.round(v * 12), THEME.particle, 200 + v * 480);
+  burst(x, y, Math.max(1, Math.round((5 + v * 12) * fxp)), THEME.particle, 200 + v * 480);
+  if (tier === 2) burst(x, y, Math.max(1, Math.round(10 * fxp)), '#ffffff', 500 + v * 500, 3);
   // permanence: hard hits leave a fading scuff on the cloth
   if (impact > 900 && G.scuffs.length < 48) {
     G.scuffs.push({ x, y, a: 0.20, ang: Math.atan2(ny, nx) + Math.PI / 2, len: 26 + v * 40 });
   }
-  AudioSys.hit(v);
+  AudioSys.hit(v, 1 + Math.min(rallyN, 12) * 0.03);
   if (v > 0.55) buzz(12);
-  // rally stat: count mallet strikes while a real match is live
-  if (G.state === 'play' && !G.demo && G.stats) {
-    G.stats.rally++;
-    if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
-  }
 }
-function onRailHit(x, y, impact) {
+function onRailHit(x, y, impact, isPost) {
   const v = clamp(impact / 2200, 0, 1);
   if (impact > 1100) { G.freezeT = Math.max(G.freezeT, 0.012); addTrauma(0.12 + v * 0.2); }
-  if (impact > 300) burst(x, y, 3 + Math.round(v * 6), THEME.particle, 140 + v * 260, 2.5);
-  AudioSys.rail(v);
+  if (impact > 300) burst(x, y, Math.max(1, Math.round((3 + v * 6) * fxParticles())), THEME.particle, 140 + v * 260, 2.5);
+  if (isPost && impact > 200) {
+    // the goal frame rings — a distinct metallic ping plus a bright kiss
+    AudioSys.ping();
+    burst(x, y, Math.max(1, Math.round(8 * fxParticles())), '#ffffff', 320, 2.5);
+  } else {
+    AudioSys.rail(v);
+  }
 }
 
 // ---------- state management ----------
@@ -787,6 +1024,16 @@ function onGoal(scorer) {
 // ONLINE: start the goal ceremony visuals only — no scoring, no sending.
 // The host scores first in onGoal; the guest's scores arrive final in the
 // goal event. Splitting it this way makes double-counting impossible.
+// Goal hierarchy: YOUR goals get the full treatment (confetti storm, frame
+// flash, deeper chord); conceded goals are a smaller, dimmer affair.
+function goalIsYours(scorer) {
+  if (G.mode === '2p') return true; // both ends are players — both celebrate
+  if (G.mode === 'online') return (Net.role === 'host') === (scorer === 0);
+  return scorer === 0;
+}
+function confettiColors() {
+  return [THEME.gold || '#d8a93f', THEME.particle, '#ffffff', THEME.ink].filter(Boolean);
+}
 function beginGoalCeremony(scorer) {
   boardKick(scorer);
   G.goalSide = scorer;
@@ -794,11 +1041,20 @@ function beginGoalCeremony(scorer) {
   G.state = 'goal';
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
   G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
-  G.flashA = 1;
+  const yours = goalIsYours(scorer);
+  G.flashA = yours ? 1 : 0.65;
+  G.goalFrameT = yours ? 1 : 0.5;
   $('topbar').classList.add('hidden'); // ceremony is cinematic — no mis-taps
   const gx = scorer === 0 ? PX + PW : PX;
-  burst(gx, CY, 46, THEME.particle, 620, 4.5);
-  burst(gx, CY, 20, '#ffffff', 380, 3);
+  const fxp = fxParticles();
+  burst(gx, CY, Math.max(4, Math.round(46 * fxp)), THEME.particle, 620, 4.5);
+  burst(gx, CY, Math.max(2, Math.round(20 * fxp)), '#ffffff', 380, 3);
+  if (!PRM.reduce) {
+    // theme-colored confetti storm — bigger when YOU score
+    const cols = confettiColors();
+    const n = Math.round((yours ? 90 : 36) * fxp);
+    for (let c = 0; c < 3; c++) burst(gx, CY, Math.max(1, Math.round(n / 3)), cols[c % cols.length], 380 + c * 160, 4 + c);
+  }
   addTrauma(0.85);
   addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
@@ -808,6 +1064,7 @@ function updateGoal(rdt) {
   G.goalT += rdt; G.goalSlowT += rdt;
   G.letterT = clamp(G.letterT + rdt * 3.2, 0, 1);
   G.flashA = Math.max(0, G.flashA - rdt * 2.4);
+  G.goalFrameT = Math.max(0, G.goalFrameT - rdt * 1.8);
   if (G.goalSlowT > 1.0) G.timeScale = lerp(G.timeScale, 1, clamp(rdt * 5, 0, 1));
   // ease the puck into the net
   const p = G.puck;
@@ -815,7 +1072,9 @@ function updateGoal(rdt) {
   p.x = lerp(p.x, gx, clamp(rdt * 5, 0, 1));
   p.y = lerp(p.y, CY, clamp(rdt * 5, 0, 1));
   p.vx *= 0.9; p.vy *= 0.9;
-  if (G.goalT > 2.2) {
+  // the winning goal gets ~30% more ceremony
+  const matchPoint = G.score[G.goalSide] >= Settings.firstTo;
+  if (G.goalT > (matchPoint ? 2.86 : 2.2)) {
     clearCeremony();
     if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
       G.winSide = G.score[0] > G.score[1] ? 0 : 1;
@@ -852,6 +1111,24 @@ function showWin() {
   } catch (e) {}
   hideAll(); $('winov').classList.remove('hidden');
   AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
+  // slow theme-colored confetti rain over the win card (DOM — the card
+  // is a positioned container; pieces clean themselves up)
+  if (!PRM.reduce && Settings.effects !== 'minimal') {
+    const card = $('winov').querySelector('.card');
+    const cols = confettiColors();
+    const n = Settings.effects === 'subtle' ? 22 : 46;
+    for (let i = 0; i < n; i++) {
+      const s = document.createElement('i');
+      s.className = 'confetti';
+      s.style.left = rnd(2, 96) + '%';
+      s.style.background = cols[i % cols.length];
+      s.style.animationDuration = rnd(1.8, 3.4) + 's';
+      s.style.animationDelay = rnd(0, 0.9) + 's';
+      s.style.width = rnd(6, 10) + 'px';
+      card.appendChild(s);
+      setTimeout(() => s.remove(), 4600);
+    }
+  }
 }
 function togglePause(force, silent) {
   // ONLINE: silent=true applies a pause that arrived over the wire — it must
@@ -926,6 +1203,13 @@ function frame(t) {
   lastT = t;
   if (G.freezeT > 0) { G.freezeT -= rdt; render(); return; } // hit-stop
   G.trauma = Math.max(0, G.trauma - rdt * 1.7);
+  // juice timers decay every frame, whatever the state
+  G.hitFlash = Math.max(0, G.hitFlash - rdt * 3);
+  G.roomPulse = Math.max(0, G.roomPulse - rdt * 1.4);
+  G.saveT = Math.max(0, G.saveT - rdt);
+  G.nearCd = Math.max(0, G.nearCd - rdt);
+  G.dipT = Math.max(0, G.dipT - rdt);
+  if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
   switch (G.state) {
     case 'menu':
@@ -954,8 +1238,11 @@ function frame(t) {
       // ONLINE: the guest does not simulate — the host owns the physics.
       // The guest only drives their own mallet; puck and rival mallet arrive
       // over the wire (dead-reckoned in Net.pump).
+      // Near-miss dip: the reserved channel is goals' slow-mo, but a 0.22s
+      // 0.55x dip on a post kiss is a different, smaller beat — never overlaps
+      // the ceremony (state leaves 'play' first).
       if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
-      else playStep(rdt * G.timeScale);
+      else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
       updateParts(rdt);
       break;
     case 'goal':
@@ -989,6 +1276,15 @@ function render() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (G.roomCanvas) ctx.drawImage(G.roomCanvas, 0, 0, w, h);
   else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); }
+  // room reactivity: a SMASH startles the room — a warm lamp-glow swells and
+  // sways gently overhead, always in the theme's own gold
+  if (G.roomPulse > 0.01 && fxRoom()) {
+    const lx = w / 2 + Math.sin(perfNow() * 2.1) * w * 0.06 * G.roomPulse;
+    const rg = ctx.createRadialGradient(lx, h * 0.04, 10, lx, h * 0.04, h * 0.55);
+    rg.addColorStop(0, hexA(THEME.gold || '#d8a93f', 0.20 * G.roomPulse));
+    rg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save(); ctx.fillStyle = rg; ctx.fillRect(0, 0, w, h); ctx.restore();
+  }
   // trauma shake: slight rotation + translation (rotation reads as force)
   const sh = shakeOffset();
   ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
@@ -1041,12 +1337,76 @@ function render() {
     ctx.restore();
   }
 
+  // speed lines: above 1500 the trail alone undersells it — theme-colored
+  // streaks stretch back along the velocity vector
+  const psp = puckSpeed();
+  if (psp > 1500 && Settings.effects !== 'minimal') {
+    const nsl = Settings.effects === 'subtle' ? 3 : Math.min(5, 1 + Math.floor((psp - 1500) / 400));
+    const va = Math.atan2(G.puck.vy, G.puck.vx);
+    const cvx = Math.cos(va), svx = Math.sin(va);
+    ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = THEME.trail;
+    for (let i = 0; i < nsl; i++) {
+      const off = (i - (nsl - 1) / 2) * 14;
+      const ox = -svx * off, oy = cvx * off;
+      const len = psp * (0.05 + i * 0.012);
+      ctx.globalAlpha = Math.max(0.06, 0.28 - i * 0.04);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(G.puck.x - cvx * (PUCK_R + 6) + ox, G.puck.y - svx * (PUCK_R + 6) + oy);
+      ctx.lineTo(G.puck.x - cvx * (PUCK_R + 6 + len) + ox, G.puck.y - svx * (PUCK_R + 6 + len) + oy);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   THEME.drawGoalTrim(ctx, 0, PX, CY, GOAL_W);
   THEME.drawGoalTrim(ctx, 1, PX + PW, CY, GOAL_W);
+
+  // goal-frame flash: the scored-on frame lights up in theme gold
+  if (G.goalFrameT > 0 && fxFlash()) {
+    const fgx = G.goalSide === 0 ? PX + PW : PX;
+    ctx.save();
+    ctx.globalAlpha = G.goalFrameT * 0.9;
+    ctx.strokeStyle = THEME.gold || '#d8a93f'; ctx.lineWidth = 5;
+    rr(ctx, fgx - 16, CY - GOAL_W / 2 - 16, 32, GOAL_W + 32, 16); ctx.stroke();
+    ctx.restore();
+  }
+  // near-miss post glow: the kissed posts smolder briefly
+  if (G.missGlow && fxFlash()) {
+    const mgx = G.missGlow.side === 0 ? PX : PX + PW;
+    ctx.save();
+    ctx.globalAlpha = clamp(G.missGlow.t / 0.7, 0, 1) * 0.8;
+    ctx.fillStyle = THEME.gold || '#d8a93f';
+    for (const sgn of [-1, 1]) {
+      ctx.beginPath(); ctx.arc(mgx, CY + sgn * GOAL_W / 2, 10, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
 
   drawPuck(ctx);
   drawMallet(ctx, G.m1);
   drawMallet(ctx, G.m2);
+
+  // mallet motion trails on fast flicks (recorded in driveMallet)
+  for (const m of [G.m1, G.m2]) {
+    const tr = m.trail;
+    for (let i = 0; i < tr.length; i++) {
+      const a = (i / tr.length) * 0.30 * fxTrail();
+      if (a <= 0.01) continue;
+      ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = THEME.trail;
+      ctx.beginPath(); ctx.arc(tr[i].x, tr[i].y, m.r * (0.35 + 0.55 * i / tr.length), 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    // possession readability: sustained gentle contact (>0.4s) draws a soft
+    // ring under the puck — it reads as control, never as a stuck puck
+    if (m.glueT > 0.4) {
+      const pr = PUCK_R + 12 + Math.sin(perfNow() * 6) * 3;
+      ctx.save(); ctx.globalAlpha = 0.55; ctx.strokeStyle = THEME.gold || '#d8a93f';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(G.puck.x, G.puck.y, pr, 0, TAU); ctx.stroke();
+      ctx.restore();
+    }
+  }
 
   // particles as motion streaks
   ctx.save(); ctx.lineCap = 'round';
@@ -1063,6 +1423,17 @@ function render() {
   }
   ctx.restore();
 
+  // save-moment ring pulses: a soft expanding ring where the block happened
+  for (const q of G.pulses) {
+    const k = q.t / 0.6;
+    ctx.save();
+    ctx.globalAlpha = (1 - k) * 0.7;
+    ctx.strokeStyle = THEME.gold || '#d8a93f';
+    ctx.lineWidth = 4 * (1 - k) + 1;
+    ctx.beginPath(); ctx.arc(q.x, q.y, 30 + k * 90, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+
   // goal flash
   if (G.flashA > 0) {
     const gx = G.goalSide === 0 ? PX + PW : PX;
@@ -1071,6 +1442,16 @@ function render() {
     g.addColorStop(0, fc); g.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.save(); ctx.globalAlpha = G.flashA * 0.55; ctx.fillStyle = g;
     ctx.fillRect(gx - 430, CY - 430, 860, 860);
+    ctx.restore();
+  }
+
+  // SMASH-tier impact flash: a hard white-gold pop exactly where it landed
+  if (G.hitFlash > 0 && fxFlash()) {
+    const hg = ctx.createRadialGradient(G.hitFlashX, G.hitFlashY, 8, G.hitFlashX, G.hitFlashY, 260);
+    hg.addColorStop(0, 'rgba(255,255,255,' + (0.55 * G.hitFlash).toFixed(3) + ')');
+    hg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save(); ctx.fillStyle = hg;
+    ctx.fillRect(G.hitFlashX - 270, G.hitFlashY - 270, 540, 540);
     ctx.restore();
   }
 
@@ -1122,6 +1503,18 @@ function render() {
 
   drawScoreboard(ctx);
 
+  // rally counter: consecutive hits without a goal — shown once it matters,
+  // tucked under the match-point ribbon's slot so the two never collide
+  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4) {
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '600 13px ' + THEME.font.body;
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = THEME.gold || '#e9d9a6';
+    ctx.fillText('RALLY ×' + G.stats.rally, CX, 108);
+    ctx.restore();
+  }
+
   // match-point ribbon — theme-agnostic, sits under the scoreboard
   if ((G.state === 'play' || G.state === 'count') && !G.demo) {
     const t = Settings.firstTo;
@@ -1165,7 +1558,23 @@ function drawPuck(c) {
   c.save();
   c.fillStyle = 'rgba(0,0,0,0.35)';
   c.beginPath(); c.ellipse(p.x + 5, p.y + 8, PUCK_R, PUCK_R * 0.92, 0, 0, TAU); c.fill();
-  c.translate(p.x, p.y); c.rotate(G.puckSqA);
+  c.translate(p.x, p.y);
+  // save-moment glow: the puck holds a brief halo after a goal-line block
+  if (G.saveT > 0 && fxFlash()) {
+    const sg = c.createRadialGradient(0, 0, PUCK_R * 0.5, 0, 0, PUCK_R * 2.2);
+    sg.addColorStop(0, hexA(THEME.gold || '#d8a93f', 0.5 * (G.saveT / 0.55)));
+    sg.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = sg;
+    c.beginPath(); c.arc(0, 0, PUCK_R * 2.2, 0, TAU); c.fill();
+  }
+  // velocity stretch above 1500: elongate along travel — but only once the
+  // impact squash has recovered, so the two deformations never fight
+  const psp = hyp(p.vx, p.vy);
+  if (psp > 1500 && G.puckSq > 0.96) {
+    const va = Math.atan2(p.vy, p.vx), st = clamp((psp - 1500) / 2800, 0, 1) * 0.30;
+    c.rotate(va); c.scale(1 + st, 1 - 0.45 * st); c.rotate(-va);
+  }
+  c.rotate(G.puckSqA);
   const sq = G.puckSq;
   c.scale(sq, 1 + (1 - sq) * 0.7); // squash along the impact normal
   const g = c.createRadialGradient(-5, -6, 2, 0, 0, PUCK_R);
@@ -1176,6 +1585,15 @@ function drawPuck(c) {
   c.fillStyle = 'rgba(255,255,255,0.5)';
   c.beginPath(); c.ellipse(-5, -7, 4.5, 3, -0.5, 0, TAU); c.fill();
   c.restore();
+  // spin cue: a small theme-gold dot rides the puck's rotation when it
+  // carries english — the Magnus curve becomes readable before it bends
+  if (Math.abs(p.w || 0) > 2.5) {
+    const da = p.ang || 0;
+    c.save();
+    c.fillStyle = THEME.gold || '#d8a93f'; c.globalAlpha = 0.85;
+    c.beginPath(); c.arc(p.x + Math.cos(da) * PUCK_R * 0.55, p.y + Math.sin(da) * PUCK_R * 0.55, 4.5, 0, TAU); c.fill();
+    c.restore();
+  }
 }
 
 function drawMallet(c, m) {
@@ -1432,6 +1850,15 @@ function wireUI() {
 // ---------- boot ----------
 function boot() {
   loadSettings();
+  // accessibility: prefers-reduced-motion drops Shake to Subtle for the
+  // session — unless the player explicitly chose a shake level — and
+  // fxFlash() kills flashes, confetti, and room reactivity from then on.
+  try {
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      PRM.reduce = true;
+      if (!PRM.userShake) Settings.shake = 'subtle';
+    }
+  } catch (e) {}
   resize(); wireUI(); applySettingsToUI();
   setTheme('deco', true);
   try { paintThumbnails(); } catch (e) { /* thumbnails must never break the game */ }
