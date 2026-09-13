@@ -1,0 +1,22 @@
+name: CI
+on:
+  push:
+    branches: [main, stabilization-v24]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and verify source of truth
+        run: npm test
+      - name: Check JavaScript syntax
+        run: |
+          node --check src/themes.js
+          node --check src/scoreboards.js
+          node --check src/app.js
