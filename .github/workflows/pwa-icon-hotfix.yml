@@ -1,0 +1,37 @@
+name: PWA icon hotfix
+on:
+  push:
+    branches: [pwa-icon-hotfix]
+    paths:
+      - scripts/apply_pwa_icon_hotfix.py
+      - .github/workflows/pwa-icon-hotfix.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pwa-icon-hotfix
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply hotfix
+        run: python3 scripts/apply_pwa_icon_hotfix.py
+      - name: Regenerate deploy artifact
+        run: npm run build
+      - name: Verify
+        run: npm test
+      - name: Commit hotfix output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.webmanifest sw.js src/template.html scripts/check.mjs index.html
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git commit -m "fix: complete cross-browser PWA icon support"
+          git push origin HEAD:pwa-icon-hotfix
