@@ -121,6 +121,9 @@
     font-family:var(--body); font-size:16px; cursor:pointer;
   }
   .btn small{ display:block; font-size:10px; color:var(--sub); margin-top:3px; letter-spacing:2px; }
+  .btn .rec{ display:block; font-size:10px; color:var(--sub); opacity:0.75; margin-top:3px; letter-spacing:2px; font-family:var(--display); }
+  .btn.primary .rec{ color:var(--btnink); }
+  .btn .rec:empty{ display:none; }
   .btn:active{ transform:scale(0.97); background:var(--ghost); }
   .btn.primary{ background:var(--btnbg); color:var(--btnink); border-color:transparent; font-weight:700; }
   .btn.primary small{ color:var(--btnink); opacity:0.75; }
@@ -182,6 +185,10 @@
     .tslide .tname{ font-size:14px; }
     .tslide .tmeta{ padding:8px 12px 10px; justify-content:center; }
     .seg4{ gap:8px; }
+    /* records stay visible on compact screens when present — 9px to fit the
+       narrow buttons; verified: menu still fits 390x844 without scrolling */
+    .btn .rec{ display:none; }
+    .btn .rec:not(:empty){ display:block; font-size:9px; letter-spacing:1px; }
     .seg4 .btn{ padding:10px 4px; font-size:13px; }
     .carrow{ width:34px; height:34px; font-size:20px; }
     .ctrack{ padding:4px 26px; }
@@ -229,17 +236,17 @@
       <div class="mg-rivals">
         <div class="seclabel">THE RIVAL</div>
         <div class="seg4">
-          <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small></button>
-          <button class="btn primary" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small></button>
-          <button class="btn" data-diff="2">Champion<small>NO MERCY</small></button>
-          <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small></button>
+          <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small><span class="rec" data-rec="ai0"></span></button>
+          <button class="btn primary" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small><span class="rec" data-rec="ai1"></span></button>
+          <button class="btn" data-diff="2">Champion<small>NO MERCY</small><span class="rec" data-rec="ai2"></span></button>
+          <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small><span class="rec" data-rec="p2p"></span></button>
         </div>
         <button class="btn lablight" id="btnOnline">Online<small>PLAY A RIVAL ANYWHERE</small></button>
       </div>
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v8</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v9</span></div>
   </div>
 </div>
 
@@ -2745,6 +2752,47 @@ const fxFlash = () => Settings.effects !== 'minimal' && !PRM.reduce; // flashes 
 function saveSettings() {
   try { localStorage.setItem('atelier-ah-settings', JSON.stringify(Settings)); } catch (e) {}
 }
+
+// ---------- local rival record ----------
+// W/L per AI rival plus P1/P2 for same-screen 2P, stored in localStorage so it
+// survives reloads. Deliberately local-only: online matches are live sessions,
+// not a stored record, and netcode never touches this module.
+const Record = {
+  key: 'atelier-ah-record',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  // key: 'ai0' | 'ai1' | 'ai2' | 'p1' | 'p2'. won: did this key's side win?
+  bump(key, won) {
+    let r = this.data[key];
+    if (!r || typeof r.w !== 'number' || typeof r.l !== 'number') r = this.data[key] = { w: 0, l: 0 };
+    if (won) r.w++; else r.l++;
+    this.save();
+  },
+  // one rival's line, e.g. '3W–1L', or '' when no games are recorded yet
+  line(key) {
+    const r = this.data[key];
+    return (r && (r.w || r.l)) ? r.w + 'W–' + r.l + 'L' : '';
+  },
+};
+// combined line for the Two Players menu button: 'P1 3W–1L · P2 1W–3L'
+function recordLine2p() {
+  const a = Record.line('p1'), b = Record.line('p2');
+  if (!a && !b) return '';
+  return 'P1 ' + (a || '0W–0L') + ' · P2 ' + (b || '0W–0L');
+}
+// repaint every menu record line — call after results are stored and whenever
+// the menu is shown (Record.line returns '' so unplayed rivals stay clean)
+function refreshRecordLines() {
+  document.querySelectorAll('[data-rec]').forEach(el => {
+    el.textContent = el.dataset.rec === 'p2p' ? recordLine2p() : Record.line(el.dataset.rec);
+  });
+}
 // puck pace: how lively the table plays
 const PACES = {
   casual:    { damp: 0.22,  wall: 0.88, serve: 560, label: 'Casual' },
@@ -3811,6 +3859,10 @@ function showWin() {
   clearCeremony(); // defensive: no ceremony visuals leak under the overlay
   $('topbar').classList.add('hidden');
   const you = G.winSide === 0;
+  // local rival record — AI rivals per difficulty, P1/P2 for same-screen 2P
+  // (online matches are session-only: no stored record)
+  if (G.mode === 'ai') Record.bump('ai' + G.difficulty, G.winSide === 0);
+  else if (G.mode === '2p') { Record.bump('p1', G.winSide === 0); Record.bump('p2', G.winSide === 1); }
   $('winTitle').textContent = G.mode === '2p'
     ? (you ? 'Player One wins' : 'Player Two wins')
     : G.mode === 'online' // ONLINE: labels by role, not by side
@@ -3872,6 +3924,7 @@ function quitToMenu() {
   resetPositions();
   hideAll(); $('menu').classList.remove('hidden');
   $('topbar').classList.add('hidden');
+  refreshRecordLines(); // menu record lines reflect the just-finished match
   AudioSys.ui();
 }
 function hideAll() {
@@ -4567,6 +4620,8 @@ function wireUI() {
 // ---------- boot ----------
 function boot() {
   loadSettings();
+  Record.load();
+  refreshRecordLines(); // paint any stored records under the menu buttons
   // accessibility: prefers-reduced-motion drops Shake to Subtle for the
   // session — unless the player explicitly chose a shake level — and
   // fxFlash() kills flashes, confetti, and room reactivity from then on.
