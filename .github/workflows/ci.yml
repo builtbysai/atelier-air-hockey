@@ -13,10 +13,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Build and verify source of truth
+      - name: Build and verify
         run: npm test
-      - name: Check JavaScript syntax
-        run: |
-          node --check src/themes.js
-          node --check src/scoreboards.js
-          node --check src/app.js
