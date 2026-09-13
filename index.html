@@ -281,7 +281,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v19</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v20</span></div>
   </div>
 </div>
 
@@ -346,6 +346,14 @@
         <button data-set="pace" data-val="casual">Casual</button>
         <button data-set="pace" data-val="classic">Classic</button>
         <button data-set="pace" data-val="lightning">Lightning</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Goal mouth</div>
+      <div class="seg">
+        <button data-set="goalW" data-val="narrow">Narrow</button>
+        <button data-set="goalW" data-val="standard">Standard</button>
+        <button data-set="goalW" data-val="wide">Wide</button>
       </div>
     </div>
     <button class="btn primary" id="settingsClose" style="margin-top:16px">Back to the table</button>
@@ -1861,7 +1869,7 @@ function drawScoreboard(ctx) {
  *   ev  either direction, event objects {t, ...}:
  *       {t:'knock'}                      guest->host: "I'm here, start if waiting"
  *       {t:'hello', firstTo, pace, theme} host->guest: match settings (host wins)
- *       {t:'countdown', serveDir, svx, svy} host->guest: begin the countdown + the rolled serve
+ *       {t:'countdown', serveDir, svx, svy, gw} host->guest: begin the countdown + the rolled serve + host's goal-mouth width
  *       {t:'goal', scorer, s0, s1, matchEnd} host->guest: ceremony sync
  *       {t:'pause'} / {t:'resume'}        either: pause state follows the sender
  *       {t:'rematch', phase}             either: 'offer' | 'accept' | 'decline'
@@ -2340,6 +2348,9 @@ Net.onHello = function (ev) {
 Net.onCountdown = function (ev) {
   if (Net.role !== 'guest' || !Net.active) return;
   Net.beginMatch('guest');
+  // the host's goal-mouth width for this match (v20); 0/missing = old host,
+  // fall back to the guest's own setting
+  G.gwNet = (ev && ev.gw > 0) ? ev.gw : 0;
   if (ev && (ev.serveDir === 1 || ev.serveDir === -1)) G.serveDir = ev.serveDir;
   if (ev && typeof ev.svx === 'number' && typeof ev.svy === 'number') {
     G.serveVX = ev.svx; G.serveVY = ev.svy; // host's rolled serve
@@ -2427,9 +2438,12 @@ Net.sendHello = function () {
 };
 // The serve vector rides along so both machines play the identical point —
 // the host's roll is the source of truth, the guest just applies it.
+// gw carries the host's goal-mouth width (v20) so the guest renders and
+// (via the host's snapshots) plays the same table.
 Net.sendCountdown = function () {
   Net.wire.sendEv({ t: 'countdown', serveDir: G.serveDir,
-    svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10 });
+    svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10,
+    gw: Math.round(goalW()) });
 };
 Net.sendGoal = function (scorer) {
   Net.wire.sendEv({
@@ -2826,7 +2840,17 @@ Net.testFullMatch = async function () {
 const VW = 1440, VH = 1040;          // view space
 const PX = 200, PY = 200, PW = 1040, PH = 640;  // playfield
 const CX = PX + PW / 2, CY = PY + PH / 2;
-const PUCK_R = 26, MALLET_R = 46, GOAL_W = 230, RAIL = 26;
+const PUCK_R = 26, MALLET_R = 46, RAIL = 26;
+// Goal-mouth presets (v20): adjustable in Settings → Goal mouth. Standard is
+// the new default — narrower than the old fixed 230 (36% of the wall was
+// swallowing deflections). The host's choice rides the countdown event
+// online; guests apply it as a match-scoped override (G.gwNet).
+const GOAL_W = 230; // the Wide preset; legacy fixed width — use goalW() below
+const GOAL_PRESETS = { narrow: 170, standard: 200, wide: 230 };
+function goalW() {
+  if (G.gwNet > 0) return G.gwNet; // online guest: the host's width for this match
+  return GOAL_PRESETS[Settings.goalW] || GOAL_PRESETS.standard;
+}
 const TX0 = PX - RAIL, TY0 = PY - RAIL;
 const TAU = Math.PI * 2;
 
@@ -2838,6 +2862,7 @@ const Settings = {
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
   effects: 'full',     // 'full' | 'subtle' | 'minimal' — spectacle scaler, never touches physics
+  goalW: 'standard',   // 'narrow' | 'standard' | 'wide' — goal-mouth width (v20)
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
@@ -2852,6 +2877,7 @@ function loadSettings() {
   if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
+  if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
 }
 // Effects scalers — one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -3271,7 +3297,7 @@ const G = {
   trauma: 0,
   countT: 0, countN: 3, goalT: 0, goalSlowT: 0, goalSide: 0,
   stallT: 0, stallX: CX, stallY: CY, anchorT: 0, lastTouch: -1,
-  idleT: 0, demo: false,
+  idleT: 0, demo: false, gwNet: 0, // gwNet: online guest's match-scoped goal-width override (v20)
   serveDir: 1,
   pausedFrom: 'play',
   scuffs: [], parts: [], trail: [], texts: [], pulses: [],
@@ -3499,9 +3525,9 @@ function collideWalls(p) {
     }
   }
   // end walls with goal mouths
-  const inMouth = Math.abs(p.y - CY) < GOAL_W / 2 - 6;
+  const inMouth = Math.abs(p.y - CY) < goalW() / 2 - 6;
   // the goal frame rings: contact just outside the mouth is a post hit
-  const nearPost = !inMouth && Math.abs(p.y - CY) < GOAL_W / 2 + 42;
+  const nearPost = !inMouth && Math.abs(p.y - CY) < goalW() / 2 + 42;
   if (p.x < PX + r && !inMouth) {
     p.x = PX + r;
     if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp, nearPost); }
@@ -3537,7 +3563,7 @@ function collideMallet(p, m, dt) {
   if (m.glueT > 2.5) {
     const nearT = p.y < PY + 70, nearB = p.y > PY + PH - 70;
     const nearL = p.x < PX + 70, nearR = p.x > PX + PW - 70;
-    const inMouthY = Math.abs(p.y - CY) < GOAL_W / 2;
+    const inMouthY = Math.abs(p.y - CY) < goalW() / 2;
     let rx = nx, ry = ny, railed = false;
     if (nearT && ry < 0) { ry = 0; railed = true; }
     if (nearB && ry > 0) { ry = 0; railed = true; }
@@ -3655,15 +3681,15 @@ function stepPhysics(dt) {
   collideMallet(p, G.m2, dt);
   collideWalls(p);
   // goals: full crossing of the line inside the mouth
-  if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(0);
-  else if (p.x < PX - p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(1);
+  if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < goalW() / 2) onGoal(0);
+  else if (p.x < PX - p.r * 0.35 && Math.abs(p.y - CY) < goalW() / 2) onGoal(1);
   // near-miss drama: a fast puck kissing the goal frame without scoring —
   // a tiny time dip, a glowing post, a soft tick. Once per 1.5s max.
   if (G.state === 'play' && !G.demo && G.nearCd <= 0) {
     const dy = Math.abs(p.y - CY);
     const nearL = p.x > PX - 30 && p.x < PX + 80;
     const nearR = p.x > PX + PW - 80 && p.x < PX + PW + 30;
-    if ((nearL || nearR) && dy > GOAL_W / 2 - 30 && dy < GOAL_W / 2 + PUCK_R + 26 && hyp(p.vx, p.vy) > 500) {
+    if ((nearL || nearR) && dy > goalW() / 2 - 30 && dy < goalW() / 2 + PUCK_R + 26 && hyp(p.vx, p.vy) > 500) {
       G.nearCd = 1.5;
       if (fxFlash()) {
         G.dipT = 0.22;
@@ -3844,7 +3870,7 @@ function aiThink(b, dt, m) {
       // CENTER from its lane, so the contact normal kicks deflections toward
       // the walls instead of into your own mouth. Only near the mouth — far
       // from it the lane coverage matters more than the deflection angle.
-      const nearMouth = Math.abs(pr.y - CY) < GOAL_W / 2 + 60;
+      const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
       const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
       setTx(gx + (pr.x - gx) * 0.35, pr.y + steerY);
       if (!threat) { b.state = 'guard'; b.tState = 0; }
@@ -3883,7 +3909,7 @@ function aiThink(b, dt, m) {
         b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
         const farSide = s.y < CY ? 1 : -1;
         b.aimX = foeGoalX;
-        b.aimY = CY + farSide * (GOAL_W / 2 - 12) + rnd(-1, 1) * D.aimErr;
+        b.aimY = CY + farSide * (goalW() / 2 - 12) + rnd(-1, 1) * D.aimErr;
       }
       if (!puckOnMySide || puckSpeed > 1700) { b.state = 'guard'; b.tState = 0; b.possessT = 0; }
       break;
@@ -4130,7 +4156,7 @@ function startGame(mode, diff) {
   AudioSys.init(); AudioSys.resume();
   G.mode = mode; G.difficulty = diff == null ? G.difficulty : diff;
   G.score = [0, 0]; G.winSide = 0;
-  G.demo = false; G.idleT = 0;
+  G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
@@ -4392,7 +4418,7 @@ function restartMatch() {
 }
 function quitToMenu() {
   if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first — leave() resets mode
-  G.state = 'menu'; G.idleT = 0; G.demo = false;
+  G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
@@ -4620,7 +4646,7 @@ function render() {
       ox = rnd(-1, 1) * j; oy = rnd(-1, 1) * j;
     }
     ctx.save(); ctx.translate(ox, oy);
-    THEME.drawGoalTrim(ctx, side, gx, CY, GOAL_W);
+    THEME.drawGoalTrim(ctx, side, gx, CY, goalW());
     ctx.restore();
   }
 
@@ -4630,7 +4656,7 @@ function render() {
     ctx.save();
     ctx.globalAlpha = G.goalFrameT * 0.9;
     ctx.strokeStyle = THEME.gold || '#d8a93f'; ctx.lineWidth = 5;
-    rr(ctx, fgx - 16, CY - GOAL_W / 2 - 16, 32, GOAL_W + 32, 16); ctx.stroke();
+    rr(ctx, fgx - 16, CY - goalW() / 2 - 16, 32, goalW() + 32, 16); ctx.stroke();
     ctx.restore();
   }
   // near-miss post glow: the kissed posts smolder briefly
@@ -4640,7 +4666,7 @@ function render() {
     ctx.globalAlpha = clamp(G.missGlow.t / 0.7, 0, 1) * 0.8;
     ctx.fillStyle = THEME.gold || '#d8a93f';
     for (const sgn of [-1, 1]) {
-      ctx.beginPath(); ctx.arc(mgx, CY + sgn * GOAL_W / 2, 10, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(mgx, CY + sgn * goalW() / 2, 10, 0, TAU); ctx.fill();
     }
     ctx.restore();
   }
@@ -4925,7 +4951,7 @@ function paintThumbnails() {
     c.fillStyle = '#000'; rr(c, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 34); c.fill();
     c.restore();
     T.drawRails(c); T.drawSurface(c); T.drawMarkings(c);
-    T.drawGoalTrim(c, 0, PX, CY, GOAL_W); T.drawGoalTrim(c, 1, PX + PW, CY, GOAL_W);
+    T.drawGoalTrim(c, 0, PX, CY, goalW()); T.drawGoalTrim(c, 1, PX + PW, CY, goalW());
     // a mid-rally vignette: puck streaking, mallets poised
     c.save();
     c.strokeStyle = T.trail; c.globalAlpha = 0.5; c.lineWidth = 7; c.lineCap = 'round';
@@ -4954,6 +4980,9 @@ function setSetting(key, val) {
   if (key === 'sound' || key === 'haptics') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
   Settings[key] = val; saveSettings(); applySettingsToUI();
+  // the menu's table thumbnails draw the goal mouth — repaint so the
+  // preview always matches the chosen width
+  if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
 }
 function applySettingsToUI() {
   document.querySelectorAll('[data-set]').forEach(btn => {
