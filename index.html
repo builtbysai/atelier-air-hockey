@@ -191,6 +191,11 @@
   .btn:disabled{ opacity:0.45; cursor:default; }
   .btn:disabled:active{ transform:none; background:transparent; }
   .winstats{ color:var(--sub); font-size:13px; letter-spacing:1px; margin:-6px 0 18px; }
+  .winfeats{ color:#d8a93f; font-size:12px; letter-spacing:2px; font-weight:700; margin:-8px 0 18px; }
+  /* table tour: gold star on carousel slides the player has conquered */
+  .tslide.won .tname::after{ content:' ★'; color:#d8a93f; }
+  /* table tour counter: a small gold pill, clearly separate from the carousel position */
+  .tourpill{ float:right; color:#d8a93f; border:1px solid #d8a93f; border-radius:20px; padding:1px 10px; letter-spacing:2px; }
   /* online lobby — compact by design, nothing may scroll */
   .online-code{
     font-family:var(--display); font-size:clamp(34px,8vw,52px); font-weight:800;
@@ -272,7 +277,7 @@
     <h1 class="lobby-title">The tables are waiting.</h1>
     <p class="tagline">Nine rooms. One puck. No neon in sight.</p>
 
-    <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 6</span></div>
+    <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 6</span><span id="tourCount" class="tourpill">TOUR 0/9</span></div>
     <div class="menugrid">
       <div class="mg-tables">
         <div class="carousel">
@@ -296,7 +301,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v22</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v23</span></div>
   </div>
 </div>
 
@@ -392,6 +397,7 @@
     <h1 id="winTitle">You win</h1>
     <p id="winSub">7 — 4</p>
     <p id="winStats" class="winstats"></p>
+    <p id="winFeats" class="winfeats"></p>
     <button class="btn primary" id="btnRematch">Rematch</button>
     <button class="btn" id="btnWinMenu">Change table</button>
   </div>
@@ -3450,6 +3456,101 @@ function refreshRecordLines() {
     el.textContent = el.dataset.rec === 'p2p' ? recordLine2p() : Record.line(el.dataset.rec);
   });
 }
+
+// ---------- personal bests ----------
+// Per matchup ('ai0' | 'ai1' | 'ai2' | 'p2p'): fastest win, top puck speed,
+// longest rally, biggest margin. Checked in showWin(); beaten records earn a
+// ★ line on the win card. Same local-only rule as Record — online matches
+// are session-only, netcode never touches this module.
+const Best = {
+  key: 'atelier-ah-best',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+};
+function fmtTime(secs) {
+  return Math.floor(secs / 60) + ':' + String(Math.floor(secs % 60)).padStart(2, '0');
+}
+// returns the display labels of any records just beaten (possibly empty)
+function checkBest(key, secs, kmh, rally, margin) {
+  let b = Best.data[key];
+  if (!b || typeof b !== 'object') b = Best.data[key] = {};
+  const out = [];
+  const consider = (field, v, lower, label) => {
+    if (typeof b[field] !== 'number') { b[field] = v; out.push(label); }
+    else if (lower ? v < b[field] : v > b[field]) { b[field] = v; out.push(label); }
+  };
+  consider('win', secs, true, 'fastest win ' + fmtTime(secs));
+  consider('speed', kmh, false, 'top speed ' + kmh + ' km/h');
+  consider('rally', rally, false, 'longest rally ' + rally);
+  consider('margin', margin, false, 'biggest margin ' + margin);
+  if (out.length) Best.save();
+  return out;
+}
+
+// ---------- achievements ----------
+// One-time named feats, unlocked for the human winner of a local match and
+// announced on the win card. Persisted per device; local-only like Record.
+const FEATS = [
+  { id: 'shutout',   name: 'SHUTOUT',   desc: 'a clean sheet' },
+  { id: 'comeback',  name: 'COMEBACK',  desc: 'won from three down' },
+  { id: 'hattrick',  name: 'HAT-TRICK', desc: 'three goals on the spin' },
+  { id: 'speedster', name: 'SPEEDSTER', desc: 'puck past 60 km/h' },
+  { id: 'grandtour', name: 'GRAND TOUR', desc: 'all nine tables conquered' },
+];
+const Feats = {
+  key: 'atelier-ah-feats',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  // returns true only on a fresh unlock
+  unlock(id) {
+    if (this.data[id]) return false;
+    this.data[id] = 1; this.save();
+    return true;
+  },
+};
+
+// ---------- table tour ----------
+// Wins per table (theme id) for the human side, local matches only. Feeds the
+// menu's tour counter, the gold pip on conquered carousel slides, and the
+// GRAND TOUR feat.
+const Tour = {
+  key: 'atelier-ah-tour',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  bump(id) {
+    if (THEME_ORDER.indexOf(id) < 0) return;
+    this.data[id] = (this.data[id] || 0) + 1;
+    this.save();
+  },
+  won(id) { return (this.data[id] || 0) > 0; },
+  count() { return THEME_ORDER.filter(id => this.won(id)).length; },
+};
+// repaint the tour counter + conquered pips — call on boot and whenever the
+// menu is shown (Tour data only changes at match end)
+function refreshTour() {
+  document.querySelectorAll('.tslide').forEach(el =>
+    el.classList.toggle('won', Tour.won(el.dataset.theme)));
+  const tc = $('tourCount');
+  if (tc) tc.textContent = 'TOUR ' + Tour.count() + '/' + THEME_ORDER.length;
+}
 // puck pace: how lively the table plays
 const PACES = {
   casual:    { damp: 0.22,  wall: 0.88, serve: 560, label: 'Casual' },
@@ -3843,8 +3944,9 @@ const G = {
   stats: null,              // per-match stats (top speed, rally, time)
   onlineFlip: false,        // ONLINE: guest view is mirrored — they play from their own side
   hintLive: false,          // first-time hint currently showing on the table
+  themeId: 'deco',          // current table id (setTheme) — feeds the tour tracker
 };
-function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0 }; }
+function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: 0, worstDef: [0, 0] }; }
 G.stats = freshStats();
 const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
 
@@ -4784,6 +4886,15 @@ function onGoal(scorer) {
   // ONLINE: the host owns the simulation; a guest never scores locally.
   if (G.mode === 'online' && Net.role !== 'host') return;
   G.score[scorer]++; // the single place a goal changes the score
+  if (G.mode !== 'online' && G.stats) {
+    // streaks + worst-deficit tracking for the v23 fun pass (host-owned in
+    // online play would desync the guest's view, so guests never track)
+    const st = G.stats;
+    st.streak[scorer]++; st.streak[1 - scorer] = 0;
+    if (st.streak[scorer] > st.bestStreak) st.bestStreak = st.streak[scorer];
+    st.worstDef[0] = Math.min(st.worstDef[0], G.score[0] - G.score[1]);
+    st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
+  }
   if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
   beginGoalCeremony(scorer); // visuals only — never scores, never sends
   if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
@@ -4800,6 +4911,21 @@ function goalIsYours(scorer) {
 }
 function confettiColors() {
   return [THEME.gold || '#d8a93f', THEME.particle, '#ffffff', THEME.ink].filter(Boolean);
+}
+// goal-streak announcements — the little combo rush that makes scoring feel
+// addictive. Local matches only (online guests never own the sim, and the
+// streak state isn't in the snapshot), gated on fxFlash() like the rest of
+// the ceremony juice.
+function announceStreak(scorer) {
+  if (G.mode === 'online' || G.demo) return;
+  const st = G.stats;
+  if (!st || !goalIsYours(scorer) || !fxFlash()) return;
+  const n = st.streak[scorer];
+  if (n < 2) return;
+  const label = n === 2 ? 'TWO IN A ROW'
+    : n === 3 ? 'HAT-TRICK!'
+    : n + ' IN A ROW — UNSTOPPABLE!';
+  addText(CX, CY - 200, label, THEME.gold || '#d8a93f', 56);
 }
 function beginGoalCeremony(scorer) {
   boardKick(scorer);
@@ -4824,6 +4950,7 @@ function beginGoalCeremony(scorer) {
   }
   addTrauma(0.85);
   addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
+  announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW — UNSTOPPABLE!
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   buzz([25, 40, 40]);
 }
@@ -4875,14 +5002,38 @@ function showWin() {
   // per side (same side order as the score), and match duration. Two lines
   // so the line never overflows a phone card; innerHTML is safe here —
   // every value is numeric.
+  const st = G.stats || freshStats();
+  const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
+  const secs = Math.max(1, Math.round((performance.now() - st.t0) / 1000));
   try {
-    const st = G.stats || freshStats();
-    const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
-    const secs = Math.max(1, Math.round((performance.now() - st.t0) / 1000));
     const mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, '0');
     const sv = st.saves || [0, 0];
     $('winStats').innerHTML = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' + st.bestRally +
       '<br>Saves ' + sv[0] + '–' + sv[1] + ' · ' + mm + ':' + ss;
+    // v23 fun pass — personal bests, achievements, table tour. Local matches
+    // only: online stays session-only (no stored records, no feats, and the
+    // guest's snapshot is display-only).
+    if (G.mode === 'ai' || G.mode === '2p') {
+      const feats = $('winFeats');
+      if (G.mode === '2p' || G.winSide === 0) { // records + feats belong to a human winner
+        const margin = Math.abs(G.score[0] - G.score[1]);
+        const recs = checkBest(G.mode === 'ai' ? 'ai' + G.difficulty : 'p2p',
+          secs, Math.round(kmh), st.bestRally || 0, margin);
+        if (recs.length) $('winStats').innerHTML += '<br>★ New record — ' + recs.join(' · ');
+        const fresh = [];
+        if (G.score[1 - G.winSide] === 0 && Feats.unlock('shutout')) fresh.push('SHUTOUT');
+        if ((st.worstDef || [0, 0])[G.winSide] <= -3 && Feats.unlock('comeback')) fresh.push('COMEBACK');
+        if ((st.bestStreak || 0) >= 3 && Feats.unlock('hattrick')) fresh.push('HAT-TRICK');
+        if (Math.round(kmh) >= 60 && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
+        Tour.bump(G.themeId);
+        if (Tour.count() >= THEME_ORDER.length && Feats.unlock('grandtour')) fresh.push('GRAND TOUR');
+        feats.textContent = fresh.length ? '🏆 UNLOCKED — ' + fresh.join(' · ') : '';
+      } else {
+        feats.textContent = '';
+      }
+    } else {
+      $('winFeats').textContent = '';
+    }
   } catch (e) {}
   hideAll(); $('winov').classList.remove('hidden');
   G.hintLive = false; // match over — the hint never survives a match end
@@ -4955,6 +5106,7 @@ function quitToMenu() {
   $('topbar').classList.add('hidden');
   G.hintLive = false; // match over — the hint never survives a match end
   refreshRecordLines(); // menu record lines reflect the just-finished match
+  refreshTour(); // tour counter + conquered pips reflect the just-finished match
   AudioSys.ui();
 }
 function hideAll() {
@@ -5441,6 +5593,7 @@ const THEME_ORDER = ['deco', 'mid', 'brut', 'bil', 'mem', 'sashi', 'bau', 'zel',
 function setTheme(id, silent) {
   if (!THEMES[id]) id = 'deco';
   THEME = THEMES[id];
+  G.themeId = id; // the tour tracker needs to know which table just hosted a win
   document.querySelectorAll('.tslide').forEach(el => {
     el.classList.toggle('sel', el.dataset.theme === id);
     el.setAttribute('aria-selected', el.dataset.theme === id ? 'true' : 'false');
@@ -5696,8 +5849,9 @@ function wireUI() {
 // ---------- boot ----------
 function boot() {
   loadSettings();
-  Record.load();
+  Record.load(); Best.load(); Feats.load(); Tour.load();
   refreshRecordLines(); // paint any stored records under the menu buttons
+  refreshTour(); // tour counter + conquered-table pips
   // accessibility: prefers-reduced-motion drops Shake to Subtle for the
   // session — unless the player explicitly chose a shake level — and
   // fxFlash() kills flashes, confetti, and room reactivity from then on.
