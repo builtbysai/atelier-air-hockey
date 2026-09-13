@@ -263,7 +263,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v15</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v16</span></div>
   </div>
 </div>
 
@@ -3239,7 +3239,8 @@ const G = {
   hitFlash: 0, hitFlashX: 0, hitFlashY: 0, // SMASH-tier impact flash
   roomPulse: 0,             // room reactivity: decays, feeds the lamp-glow overlay
   saveT: 0,                 // save-moment puck glow timer
-  nearCd: 0, dipT: 0,       // near-miss cooldown + time-dip timer
+  nearCd: 0, dipT: 0,       // near-miss cooldown + shared time-dip timer
+                              // (near-miss dip and SMASH slow-mo beat)
   missGlow: null,           // { side, t } post glow after a near miss
   goalFrameT: 0,            // goal-frame flash timer
   board: freshBoard(),      // scoreboard animation state
@@ -3946,7 +3947,15 @@ function onMalletHit(x, y, impact, nx, ny) {
   if (tier >= 1) G.freezeT = Math.max(G.freezeT, Math.min(tier === 2 ? 0.045 : 0.032, 0.010 + v * 0.022));
   addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
   if (tier === 2) {
-    if (fxFlash()) { G.hitFlash = 0.8; G.hitFlashX = x; G.hitFlashY = y; }
+    if (fxFlash()) {
+      G.hitFlash = 0.8; G.hitFlashX = x; G.hitFlashY = y;
+      // SMASH slow-mo beat: ~90ms at the dip scale right after the 45ms
+      // hit-stop — the Holedown blend (freeze, then a near-halt beat, then
+      // full speed). Rides the shared dipT channel with the near-miss dip
+      // (Math.max: the two never stack or extend each other); play-state
+      // only, so it can never touch the goal ceremony's reserved slow-mo.
+      G.dipT = Math.max(G.dipT, 0.09);
+    }
     if (fxRoom()) G.roomPulse = 1;
     buzz([15, 30, 25]);
   }
@@ -4321,8 +4330,10 @@ function frame(t) {
       // The guest only drives their own mallet; puck and rival mallet arrive
       // over the wire (dead-reckoned in Net.pump).
       // Near-miss dip: the reserved channel is goals' slow-mo, but a 0.22s
-      // 0.55x dip on a post kiss is a different, smaller beat — never overlaps
-      // the ceremony (state leaves 'play' first).
+      // 0.55x dip on a post kiss — and the ~90ms SMASH slow-mo beat on
+      // SMASH-tier mallet hits — are smaller beats that share this channel
+      // (Math.max, never stacking). Never overlaps the ceremony (state
+      // leaves 'play' first).
       if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
       else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
       updateParts(rdt);
