@@ -1,7 +1,7 @@
 /* ============================================================================
  * net.js — online multiplayer for Atelier Air Hockey.
  *
- * All netcode lives here behind the `Net` interface. The engine (engine2.js)
+ * All netcode lives here behind the `Net` interface. The game runtime (game.js)
  * touches it only through minimal hooks marked `// ONLINE:`. Nothing in this
  * file runs at load time except constant/function definitions, so the
  * offline game never pays for it — and no network request happens until the
@@ -14,7 +14,7 @@
  * reliable ordered channel. Three actions:
  *
  *   st  host -> guest, ~25 Hz. Compact array (all numbers, 1-decimal):
- *       [px,py,pvx,pvy, m1x,m1y, m2x,m2y, s0,s1, flags, top, br]
+ *       [px,py,pvx,pvy, m1x,m1y, m2x,m2y, s0,s1, flags, top, br, sv0, sv1]
  *        0-3  puck position / velocity (rink units, units/s)
  *        4-5  host mallet (m1) position
  *        6-7  guest mallet (m2) position (echo)
@@ -22,13 +22,14 @@
  *        10   flags bitfield: 1=count 2=play 4=goal 8=pause 16=win 32=matchpoint
  *        11   host topSpeed (rounded, for the guest's win card)
  *        12   host bestRally (int, for the guest's win card)
+ *        13-14 host saves [side0, side1]
  *
  *   in  guest -> host, ~30 Hz. Array [tx, ty]: guest mallet target, rink units.
  *
  *   ev  either direction, event objects {t, ...}:
  *       {t:'knock'}                      guest->host: "I'm here, start if waiting"
  *       {t:'hello', firstTo, pace, theme} host->guest: match settings (host wins)
- *       {t:'countdown', serveDir}        host->guest: begin the countdown
+ *       {t:'countdown', serveDir, svx, svy, gw} host->guest: begin the countdown + the rolled serve + host's goal-mouth width
  *       {t:'goal', scorer, s0, s1, matchEnd} host->guest: ceremony sync
  *       {t:'pause'} / {t:'resume'}        either: pause state follows the sender
  *       {t:'rematch', phase}             either: 'offer' | 'accept' | 'decline'
@@ -43,14 +44,11 @@
  * smooth, never teleports). Ceremony + boardKick run from `ev {t:'goal'}` so
  * the Solari / reels / cribbage / bulbs animate in sync on both sides.
  *
- * Room interface (what joinRoom returns; the stub implements the same shape):
- *   { selfId, getPeers(), onPeerJoin(cb), onPeerLeave(cb),
- *     makeAction(name) -> [send(data), receive(cb), progress(cb)], leave() }
- * Trystero's receive callback gets (data, peerId).
+ * Trystero 0.25 room shape: peer listeners are callback properties and
+ * makeAction() returns an action object. Messages expose sender metadata via
+ * action.onMessage(data, {peerId}); outbound traffic is targeted to the one
+ * accepted rival instead of broadcast to every peer in the signaling room.
  *
- * Test hook: `?netstub` makes create()/join() use an in-page loopback room
- * (zero network). Net.testFullMatch() drives the entire online flow headlessly
- * (see DEV TEST HOOKS below). The stub never ships network behavior.
  * ==========================================================================*/
 
 const Net = {
@@ -59,8 +57,14 @@ const Net = {
   wire: null,          // {sendSt, sendIn, sendEv} from wireRoom()
   role: null,          // 'host' | 'guest' once a match is live
   active: false,       // true while a match owns the room
-  code: null,          // 4-letter room code
+  code: null,          // 6-character room code
   waitingForRival: false,
+  peerId: null,        // the one accepted rival; all other peers are ignored
+  handshakePeerId: null, // reserves the first peer while its handshake is still pending
+  opToken: 0,          // invalidates async create/join work after Cancel
+  disconnectTimer: 0,
+  reconnecting: false,
+  reconnectState: null,
 
   // ---- UI state ----
   lobbyOpen: false,    // online overlay visible -> attract demo stays off
@@ -75,21 +79,20 @@ const Net = {
   inAcc: 0,
   savedSettings: null, // guest's own prefs, restored on leave
 
+  // ---- connection quality (display only — never affects net behavior) ----
+  conn: { rtt: -1, pingId: 0, pendingTs: 0, pingAcc: 0 }, // RTT ms of last pong
+
   // ---- plumbing ----
-  roomFactory: null,   // stub injection (dev only)
-  stubMode: false,     // forced loopback (dev only)
-  useLoopback: false,  // set by ?netstub at boot (dev only)
   _trystero: null,     // cached dynamic import
   joinTimer: 0,
-  offerSent: false,    // rematch offer already sent this win screen
-  botM1: null,         // dev only: AI brain driving the host mallet (stub tests)
+  offerSent: false     // rematch offer already sent this win screen
 };
 
 /* Unambiguous code alphabet: no 0/O, 1/I/L. */
 const NET_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function netGenCode() {
   let c = '';
-  for (let i = 0; i < 4; i++) c += NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0];
+  for (let i = 0; i < 6; i++) c += NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0];
   return c;
 }
 
@@ -109,10 +112,10 @@ const NET_TURN_URLS = [
   'turns:staticauth.openrelay.metered.ca:443?transport=tcp',
 ];
 
-/* Dynamic import — the ONLY network touch, and only after the user taps
- * Online. Cached after first use. Skipped entirely in stub/loopback mode. */
+/* Dynamic import — the only network touch, and only after Online is used. */
 Net.trystero = async function () {
-  if (Net.roomFactory || Net.stubMode || Net.useLoopback) return {};
+  if (!('RTCPeerConnection' in window) || !window.crypto || !crypto.subtle)
+    throw new Error('This browser does not support the WebRTC features required for online play.');
   if (!Net._trystero) Net._trystero = await import('https://esm.run/trystero@0.25.4');
   return Net._trystero;
 };
@@ -133,10 +136,6 @@ Net.turnCredential = async function () {
 };
 
 Net.makeRoom = async function (joinRoom, code) {
-  // Dev/test injection wins — the factory's room is used as-is (the old code
-  // ignored the factory's return value and built an unrelated pair).
-  if (Net.roomFactory) return Net.roomFactory();
-  if (Net.stubMode || Net.useLoopback) return Net.createStubPair(15).a;
   const turn = await Net.turnCredential();
   return joinRoom(
     {
@@ -144,24 +143,47 @@ Net.makeRoom = async function (joinRoom, code) {
       relayConfig: { urls: NET_RELAYS, redundancy: 5 },
       turnConfig: [{ urls: NET_TURN_URLS, username: turn.username, credential: turn.password }],
     },
-    'atelier-ah-' + code
+    'atelier-ah-' + code,
+    {
+      onPeerHandshake: async (peerId) => {
+        const locked = Net.peerId || Net.handshakePeerId;
+        if (locked && locked !== peerId) throw new Error('Table is full');
+        if (!Net.handshakePeerId) Net.handshakePeerId = peerId;
+      },
+      onJoinError: (details) => {
+        if (details && details.peerId === Net.handshakePeerId && !Net.peerId) Net.handshakePeerId = null;
+        Net.logErr(details && (details.error || details));
+      },
+    }
   );
 };
 
-/* Wire a Room's three actions to handler callbacks. Shared by the real game
- * and the headless test guest — one place, one shape. */
+/* Wire Trystero 0.25 action objects to the game-facing Net interface. */
 Net.wireRoom = function (room, h) {
-  const [sendSt, recvSt] = room.makeAction('st');
-  const [sendIn, recvIn] = room.makeAction('in');
-  const [sendEv, recvEv] = room.makeAction('ev');
-  recvSt((data) => { try { h.onSt(data); } catch (e) { Net.logErr(e); } });
-  recvIn((data) => { try { h.onIn(data); } catch (e) { Net.logErr(e); } });
-  recvEv((data) => { try { h.onEv(data); } catch (e) { Net.logErr(e); } });
-  room.onPeerJoin((id) => { try { h.onPeerJoin(id); } catch (e) { Net.logErr(e); } });
-  room.onPeerLeave((id) => { try { h.onPeerLeave(id); } catch (e) { Net.logErr(e); } });
-  return { sendSt, sendIn, sendEv };
+  const st = room.makeAction('st');
+  const input = room.makeAction('in');
+  const ev = room.makeAction('ev');
+  st.onMessage = (data, meta = {}) => { try { h.onSt(data, meta.peerId); } catch (e) { Net.logErr(e); } };
+  input.onMessage = (data, meta = {}) => { try { h.onIn(data, meta.peerId); } catch (e) { Net.logErr(e); } };
+  ev.onMessage = (data, meta = {}) => { try { h.onEv(data, meta.peerId); } catch (e) { Net.logErr(e); } };
+  room.onPeerJoin = (id) => { try { h.onPeerJoin(id); } catch (e) { Net.logErr(e); } };
+  room.onPeerLeave = (id) => { try { h.onPeerLeave(id); } catch (e) { Net.logErr(e); } };
+  const send = (action, data) => {
+    if (!Net.peerId) return Promise.resolve();
+    return action.send(data, { target: Net.peerId }).catch(Net.logErr);
+  };
+  return {
+    sendSt: (data) => send(st, data),
+    sendIn: (data) => send(input, data),
+    sendEv: (data) => send(ev, data),
+  };
 };
-Net.logErr = function (e) { if (window.__errs) window.__errs.push({ msg: 'net: ' + (e && e.message) }); };
+Net.logErr = function (e) { console.warn('[Atelier net]', e); };
+Net.connectionError = function (e, fallback) {
+  Net.logErr(e);
+  const msg = e && typeof e.message === 'string' ? e.message : '';
+  return /does not support|secure context/i.test(msg) ? msg : fallback;
+};
 
 /* ---------------- snapshot codec ---------------- */
 const _r1 = (v) => Math.round(v * 10) / 10;
@@ -177,14 +199,15 @@ Net.encodeSnapshot = function () {
   return [_r1(p.x), _r1(p.y), _r1(p.vx), _r1(p.vy),
     _r1(G.m1.x), _r1(G.m1.y), _r1(G.m2.x), _r1(G.m2.y),
     G.score[0], G.score[1], flags,
-    Math.round(G.stats ? G.stats.topSpeed : 0), G.stats ? G.stats.bestRally : 0];
+    Math.round(G.stats ? G.stats.topSpeed : 0), G.stats ? G.stats.bestRally : 0,
+    G.stats ? G.stats.saves[0] : 0, G.stats ? G.stats.saves[1] : 0];
 };
 Net.decodeSnapshot = function (a) {
   return {
     px: a[0], py: a[1], pvx: a[2], pvy: a[3],
     m1x: a[4], m1y: a[5], m2x: a[6], m2y: a[7],
     s0: a[8], s1: a[9], flags: a[10],
-    top: a[11] || 0, br: a[12] || 0,
+    top: a[11] || 0, br: a[12] || 0, sv0: a[13] || 0, sv1: a[14] || 0,
   };
 };
 
@@ -207,27 +230,46 @@ Net.uiShow = function (mode, data) {
   if (mode === 'choose') {
     T.textContent = 'Play a rival';
     S.textContent = 'Host a table, or join one with a code.';
-    B.innerHTML = '<p class="online-note">Hosting is instant — share the 4-letter code ' +
+    B.innerHTML = '<p class="online-note">Hosting is instant — share the 6-character code ' +
       'and your rival joins straight in. Your table, your rules: ' +
       'the host\u2019s table and settings win.</p>';
     setBtn(P, 'Host a table', () => Net.create());
     setBtn(Q, 'Join with a code', () => Net.uiShow('join'));
   } else if (mode === 'join') {
     T.textContent = 'Join a table';
-    S.textContent = 'Enter the 4-letter code from your rival.';
-    B.innerHTML = '<input id="onlineCodeInput" class="online-input" maxlength="4" ' +
+    S.textContent = 'Enter the 6-character code from your rival.';
+    B.innerHTML = '<input id="onlineCodeInput" class="online-input" maxlength="6" ' +
       'autocomplete="off" autocapitalize="characters" spellcheck="false" ' +
-      'placeholder="····" aria-label="Table code">';
+      'placeholder="······" aria-label="Table code">';
     setBtn(P, 'Knock', () => Net.join(($('onlineCodeInput') || {}).value || ''));
     setBtn(Q, 'Back', () => Net.uiShow('choose'));
-    setTimeout(() => { try { $('onlineCodeInput').focus({ preventScroll: true }); } catch (e) {} }, 60);
+    setTimeout(() => {
+      try {
+        const input = $('onlineCodeInput');
+        input.focus({ preventScroll: true });
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); P.click(); } });
+      } catch (e) { console.warn('Could not focus code field', e); }
+    }, 60);
+  } else if (mode === 'opening') {
+    T.textContent = 'Opening table';
+    S.textContent = 'Preparing a secure peer-to-peer room.';
+    B.innerHTML = '<p class="online-note pulse">Connecting&hellip;</p>';
+    setBtn(P, 'Cancel', () => Net.cancelLobby());
+    setBtn(Q, null);
   } else if (mode === 'waiting') {
     T.textContent = 'Table hosted';
     S.textContent = 'Share this code with your rival.';
-    B.innerHTML = '<div class="online-code">' + (data.code || '····') + '</div>' +
+    B.innerHTML = '<div class="online-code">' + (data.code || '······') + '</div>' +
+      '<div class="invite-actions"><button class="btn" id="copyInvite">Copy invite</button><button class="btn" id="shareInvite">Share invite</button></div>' +
       '<p class="online-note pulse">Waiting for a rival&hellip;</p>';
     setBtn(P, 'Cancel', () => Net.cancelLobby());
     setBtn(Q, null);
+    const copy = $('copyInvite'), share = $('shareInvite');
+    if (copy) copy.onclick = () => Net.copyInvite(data.code || '');
+    if (share) {
+      share.classList.toggle('hidden', !navigator.share);
+      share.onclick = () => Net.shareInvite(data.code || '');
+    }
   } else if (mode === 'knocking') {
     T.textContent = 'Knocking';
     S.innerHTML = 'Asking to join table <b>' + (data.code || '') + '</b>.';
@@ -249,6 +291,26 @@ Net.uiShow = function (mode, data) {
     setBtn(Q, 'Decline', () => Net.declineRematch());
   }
 };
+
+Net.inviteUrl = function (code) {
+  const u = new URL(location.href);
+  u.search = ''; u.hash = '';
+  u.searchParams.set('join', code);
+  return u.toString();
+};
+Net.copyInvite = async function (code) {
+  const text = 'Join my Atelier Air Hockey table: ' + Net.inviteUrl(code);
+  try {
+    await navigator.clipboard.writeText(text);
+    const b = $('copyInvite'); if (b) { b.textContent = 'Copied'; setTimeout(() => { if (b) b.textContent = 'Copy invite'; }, 1400); }
+  } catch (e) { Net.uiError('Could not copy automatically — copy the table code instead.'); }
+};
+Net.shareInvite = async function (code) {
+  if (!navigator.share) return Net.copyInvite(code);
+  try { await navigator.share({ title: 'Atelier Air Hockey', text: 'Join my table', url: Net.inviteUrl(code) }); }
+  catch (e) { if (e && e.name !== 'AbortError') Net.uiError('Could not open the share sheet.'); }
+};
+
 Net.uiError = function (msg) {
   const e = $('onlineErr');
   e.textContent = msg; e.classList.remove('hidden');
@@ -269,28 +331,34 @@ Net.closeLobby = function () {
 };
 
 Net.create = async function () {
-  Net.uiShow('waiting', { code: '' });
+  const token = ++Net.opToken;
+  Net.uiShow('opening');
   try {
     const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return;
     const code = netGenCode();
     const room = await Net.makeRoom(joinRoom, code);
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
     Net.initRoom(room, 'host');
     Net.code = code;
     Net.waitingForRival = true;
     Net.uiShow('waiting', { code });
   } catch (e) {
     Net.uiShow('choose');
-    Net.uiError("Couldn't reach the lobby — check your connection and try again.");
+    Net.uiError(Net.connectionError(e, "Couldn't reach the lobby — check your connection and try again."));
   }
 };
 
 Net.join = async function (rawCode) {
-  const code = (rawCode || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 4);
-  if (code.length !== 4) { Net.uiError('That code needs 4 letters — check it and try again.'); return; }
+  const token = ++Net.opToken;
+  const code = (rawCode || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6);
+  if (code.length !== 6) { Net.uiError('That code needs 6 characters — check it and try again.'); return; }
   Net.uiShow('knocking', { code });
   try {
     const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return;
     const room = await Net.makeRoom(joinRoom, code);
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
     Net.initRoom(room, 'guest');
     Net.code = code;
     clearTimeout(Net.joinTimer);
@@ -301,15 +369,17 @@ Net.join = async function (rawCode) {
         Net.dropRoom();
       }
     }, 20000);
-    // fast path: host already waiting
-    if (Object.keys(room.getPeers()).length > 0 && Net.wire) Net.wire.sendEv({ t: 'knock' });
+    // Fast path: bind the first existing peer before targeted knock.
+    const peers = Object.keys(room.getPeers());
+    if (peers.length > 0 && Net.wire && Net.acceptPeer(peers[0])) Net.wire.sendEv({ t: 'knock' });
   } catch (e) {
     Net.uiShow('choose');
-    Net.uiError("Couldn't reach the lobby — check your connection and try again.");
+    Net.uiError(Net.connectionError(e, "Couldn't reach the lobby — check your connection and try again."));
   }
 };
 
 Net.cancelLobby = function () {
+  Net.opToken++;
   clearTimeout(Net.joinTimer);
   Net.dropRoom();
   Net.code = null;
@@ -325,27 +395,66 @@ Net.initRoom = function (room, role) {
   Net.wire = Net.wireRoom(room, {
     onPeerJoin: (id) => Net.onPeerJoin(id),
     onPeerLeave: (id) => Net.onPeerLeave(id),
-    onSt: (a) => Net.onSnapshot(a),
-    onIn: (a) => Net.onInput(a),
-    onEv: (ev) => Net.onEvent(ev),
+    onSt: (a, id) => Net.onSnapshot(a, id),
+    onIn: (a, id) => Net.onInput(a, id),
+    onEv: (ev, id) => Net.onEvent(ev, id),
   });
 };
 /* Drop the room object without ceremony (cancel paths). */
 Net.dropRoom = function () {
+  clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
+  Net.reconnecting = false; Net.reconnectState = null;
   try { if (Net.room) Net.room.leave(); } catch (e) {}
-  Net.room = null; Net.wire = null; Net.role = null;
+  Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.active = false; Net.waitingForRival = false;
+  Net.resetConn(); // chip hides with the match
 };
 
-Net.onPeerJoin = function () {
+Net.acceptPeer = function (id) {
+  if (!id) return false;
+  if (Net.handshakePeerId && id !== Net.handshakePeerId) return false;
+  if (!Net.peerId) Net.peerId = id;
+  if (id === Net.peerId) Net.handshakePeerId = null;
+  return id === Net.peerId;
+};
+Net.onPeerJoin = function (id) {
+  if (!Net.acceptPeer(id)) return;
+  const wasReconnecting = Net.reconnecting;
+  clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
+  Net.reconnecting = false;
+  Net.paintConn();
+  if (wasReconnecting && Net.active) {
+    // Both roles resume their own retained state. Previously only the host
+    // resumed here, leaving a reconnecting guest stuck on the pause overlay.
+    if (G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause') togglePause(false, true);
+    Net.reconnectState = null;
+    if (Net.wire) Net.wire.sendEv({ t: 'resume' });
+    return;
+  }
   if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
+  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.wire.sendEv({ t: 'knock' });
 };
-Net.onPeerLeave = function () {
-  if (Net.active || Net.waitingForRival) Net.onRivalLeft();
+Net.onPeerLeave = function (id) {
+  if (id !== Net.peerId) return;
+  Net.peerId = null; Net.handshakePeerId = null;
+  if (!Net.active && !Net.waitingForRival) return;
+  if (Net.waitingForRival) { Net.onRivalLeft(); return; }
+  Net.reconnecting = true;
+  Net.reconnectState = G.state === 'pause' ? G.pausedFrom : G.state;
+  if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true, true);
+  Net.paintConn();
+  clearTimeout(Net.disconnectTimer);
+  Net.disconnectTimer = setTimeout(() => {
+    if (!Net.peerId && Net.reconnecting) {
+      Net.reconnecting = false;
+      Net.onRivalLeft();
+    }
+  }, 5000);
 };
 
-Net.onSnapshot = function (a) {
-  if (Net.role !== 'guest' || !Net.active) return;
+Net.onSnapshot = function (a, peerId) {
+  if (Net.role !== 'guest' || !Net.active || !Net.acceptPeer(peerId)) return;
+  if (!Array.isArray(a) || a.length < 15 || !a.slice(0, 15).every(Number.isFinite)) return;
   const s = Net.decodeSnapshot(a);
   if (!Net.gview) {
     Net.gview = { px: s.px, py: s.py, pvx: s.pvx, pvy: s.pvy };
@@ -358,13 +467,19 @@ Net.onSnapshot = function (a) {
   Net.rsnap = s;
 };
 
-Net.onInput = function (a) {
-  if (Net.role !== 'host' || !Net.active) return;
-  Net.remote.tx = a[0]; Net.remote.ty = a[1];
+Net.onInput = function (a, peerId) {
+  if (Net.role !== 'host' || !Net.active || !Net.acceptPeer(peerId)) return;
+  if (!Array.isArray(a) || a.length < 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1])) return;
+  Net.remote.tx = clamp(a[0], CX + MALLET_R, PX + PW - MALLET_R);
+  Net.remote.ty = clamp(a[1], PY + MALLET_R, PY + PH - MALLET_R);
 };
 
-Net.onEvent = function (ev) {
-  if (!ev || !ev.t) return;
+Net.validGoalEvent = function (ev) {
+  return (ev.scorer === 0 || ev.scorer === 1) && Number.isInteger(ev.s0) && Number.isInteger(ev.s1) &&
+    ev.s0 >= 0 && ev.s1 >= 0 && ev.s0 <= Settings.firstTo && ev.s1 <= Settings.firstTo;
+};
+Net.onEvent = function (ev, peerId) {
+  if (!Net.acceptPeer(peerId) || !ev || typeof ev !== 'object' || typeof ev.t !== 'string') return;
   switch (ev.t) {
     case 'knock':
       if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
@@ -376,7 +491,7 @@ Net.onEvent = function (ev) {
       if (Net.role === 'guest') Net.onCountdown(ev);
       break;
     case 'goal':
-      if (Net.role === 'guest' && Net.active) Net.guestGoal(ev);
+      if (Net.role === 'guest' && Net.active && Net.validGoalEvent(ev)) Net.guestGoal(ev);
       break;
     case 'pause':
       if (Net.active) Net.applyRemotePause(true);
@@ -385,12 +500,63 @@ Net.onEvent = function (ev) {
       if (Net.active) Net.applyRemotePause(false);
       break;
     case 'rematch':
-      Net.onRematch(ev.phase || '');
+      if (['offer', 'accept', 'decline'].includes(ev.phase)) Net.onRematch(ev.phase);
+      break;
+    case 'restart-req':
+      // ONLINE: guest asks mid-match for a restart — host authority performs
+      // it; the countdown event pulls the guest along via Net.onCountdown.
+      if (Net.role === 'host' && Net.active) Net.restartMatchAsHost();
       break;
     case 'leave':
       if (Net.active || Net.waitingForRival) Net.onRivalLeft();
       break;
+    // connection-quality probe: the echo rides the event channel but is
+    // display-only — it never touches snapshots, inputs, or game state.
+    case 'ping':
+      if (Net.wire && Net.active && Number.isInteger(ev.id) && Number.isFinite(ev.ts))
+        Net.wire.sendEv({ t: 'pong', id: ev.id, ts: ev.ts });
+      break;
+    case 'pong':
+      Net.onPong(ev);
+      break;
   }
+};
+
+/* RTT probe: both sides ping every 2.5s while a match is live; each side
+ * measures its OWN round trip and paints its OWN chip. */
+Net.sendPing = function () {
+  if (!Net.wire || !Net.active) return;
+  Net.conn.pingId++;
+  Net.conn.pendingTs = performance.now();
+  try { Net.wire.sendEv({ t: 'ping', id: Net.conn.pingId, ts: Net.conn.pendingTs }); } catch (e) {}
+};
+
+Net.onPong = function (ev) {
+  if (!ev || ev.id !== Net.conn.pingId || !Number.isFinite(ev.ts)) return;
+  Net.conn.rtt = Math.max(0, Math.round(performance.now() - ev.ts));
+  Net.paintConn();
+};
+
+/* Quality chip in the topbar: dot + RTT ms. Pure display; the chip hides
+ * itself the moment we're not in a live online match. */
+Net.paintConn = function () {
+  const chip = $('connChip');
+  if (!chip) return;
+  const live = Net.active && G.mode === 'online';
+  chip.classList.toggle('hidden', !live);
+  if (!live) return;
+  const dot = chip.querySelector('i');
+  const label = chip.querySelector('em');
+  if (Net.reconnecting) { dot.className = 'fair'; label.textContent = 'reconnecting'; return; }
+  const rtt = Net.conn.rtt;
+  const cls = rtt < 0 ? 'unknown' : rtt < 120 ? 'good' : rtt < 300 ? 'fair' : 'poor';
+  dot.className = cls;
+  label.textContent = rtt < 0 ? '–ms' : rtt + 'ms';
+};
+
+Net.resetConn = function () {
+  Net.conn.rtt = -1; Net.conn.pingId = 0; Net.conn.pendingTs = 0; Net.conn.pingAcc = 0;
+  Net.paintConn();
 };
 
 /* ---------------- match flow ---------------- */
@@ -419,6 +585,7 @@ Net.beginMatch = function (role) {
   // net state
   Net.rsnap = null; Net.gview = null;
   Net.snapAcc = 0; Net.inAcc = 0;
+  Net.resetConn(); // fresh RTT chip for this match
   Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
 };
 
@@ -428,15 +595,15 @@ Net.startHostMatch = function () {
   Net.beginMatch('host');
   Net.sendHello();
   startCount();
-  G.serveDir = Math.random() < 0.5 ? 1 : -1;
+  rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
   Net.sendCountdown();
 };
 
 /* Guest: the host's settings win. Stash our own, apply theirs, wait. */
 Net.onHello = function (ev) {
   clearTimeout(Net.joinTimer);
-  Net.savedSettings = { firstTo: Settings.firstTo, pace: Settings.pace };
-  if (ev.firstTo) Settings.firstTo = ev.firstTo;
+  Net.savedSettings = { firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id };
+  if ([5, 7, 11].includes(+ev.firstTo)) Settings.firstTo = +ev.firstTo;
   if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
   try { applySettingsToUI(); } catch (e) {}
   if (ev.theme && THEMES[ev.theme]) setTheme(ev.theme, true);
@@ -452,7 +619,15 @@ Net.onHello = function (ev) {
 Net.onCountdown = function (ev) {
   if (Net.role !== 'guest' || !Net.active) return;
   Net.beginMatch('guest');
+  // the host's goal-mouth width for this match (v20); 0/missing = old host,
+  // fall back to the guest's own setting
+  G.gwNet = (ev && Number.isFinite(ev.gw)) ? clamp(ev.gw, 150, 260) : 0;
   if (ev && (ev.serveDir === 1 || ev.serveDir === -1)) G.serveDir = ev.serveDir;
+  if (ev && Number.isFinite(ev.svx) && Number.isFinite(ev.svy)) {
+    G.serveVX = clamp(ev.svx, -PUCK_MAX, PUCK_MAX); G.serveVY = clamp(ev.svy, -PUCK_MAX, PUCK_MAX); // host's rolled serve
+  } else if (G.serveDir) {
+    rollServe(G.serveDir); // old-host fallback: roll locally
+  }
   startCount();
 };
 
@@ -468,8 +643,8 @@ Net.guestGoal = function (ev) {
 
 /* Remote pause without echoing an event back (the sender already sent it). */
 Net.applyRemotePause = function (paused) {
-  if (paused) togglePause(true, true);
-  else togglePause(false, true);
+  if (paused && G.state !== 'pause') togglePause(true, true);
+  else if (!paused && G.state === 'pause') togglePause(false, true);
 };
 
 /* ---------------- per-frame ---------------- */
@@ -477,6 +652,9 @@ Net.applyRemotePause = function (paused) {
  * No-op unless a match is live. */
 Net.pump = function (rdt) {
   if (!Net.active || !Net.wire) return;
+  // RTT probe: cheap, on the event channel, display-only
+  Net.conn.pingAcc += rdt;
+  if (Net.conn.pingAcc >= 2.5) { Net.conn.pingAcc = 0; Net.sendPing(); }
   if (Net.role === 'host') {
     Net.snapAcc += rdt;
     if (Net.snapAcc >= 1 / 25 && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
@@ -519,6 +697,9 @@ Net.guestApply = function (rdt) {
   if (G.stats) {
     if (s.top > G.stats.topSpeed) G.stats.topSpeed = s.top;
     if (s.br > G.stats.bestRally) G.stats.bestRally = s.br;
+    // saves are monotonic counters — take the host's max, same as top speed
+    if (s.sv0 > G.stats.saves[0]) G.stats.saves[0] = s.sv0;
+    if (s.sv1 > G.stats.saves[1]) G.stats.saves[1] = s.sv1;
   }
 };
 
@@ -526,7 +707,15 @@ Net.guestApply = function (rdt) {
 Net.sendHello = function () {
   Net.wire.sendEv({ t: 'hello', firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id });
 };
-Net.sendCountdown = function () { Net.wire.sendEv({ t: 'countdown', serveDir: G.serveDir }); };
+// The serve vector rides along so both machines play the identical point —
+// the host's roll is the source of truth, the guest just applies it.
+// gw carries the host's goal-mouth width (v20) so the guest renders and
+// (via the host's snapshots) plays the same table.
+Net.sendCountdown = function () {
+  Net.wire.sendEv({ t: 'countdown', serveDir: G.serveDir,
+    svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10,
+    gw: Math.round(goalW()) });
+};
 Net.sendGoal = function (scorer) {
   Net.wire.sendEv({
     t: 'goal', scorer,
@@ -587,7 +776,7 @@ Net.declineRematch = function () {
 Net.restartMatchAsHost = function () {
   Net.beginMatch('host');
   startCount();
-  G.serveDir = Math.random() < 0.5 ? 1 : -1;
+  rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
   Net.sendCountdown();
 };
 
@@ -596,13 +785,13 @@ Net.leave = function () {
   if (Net.wire && Net.active) { try { Net.wire.sendEv({ t: 'leave' }); } catch (e) {} }
   Net.dropRoom();
   Net.code = null;
-  Net.botM1 = null;
   Net.offerSent = false;
   G.onlineFlip = false;
   if (G.mode === 'online') G.mode = 'ai';
   if (Net.savedSettings) {
     Settings.firstTo = Net.savedSettings.firstTo;
     Settings.pace = Net.savedSettings.pace;
+    if (Net.savedSettings.theme && THEMES[Net.savedSettings.theme]) setTheme(Net.savedSettings.theme, true);
     Net.savedSettings = null;
     try { applySettingsToUI(); } catch (e) {}
   }
@@ -626,281 +815,6 @@ Net.onRivalLeft = function () {
   Net.rsnap = null; Net.gview = null;
   hideAll();
   $('onlinedropov').classList.remove('hidden');
+  Net.paintConn(); // active is false now — the chip hides itself
   AudioSys.ui();
-};
-
-/* ============================================================================
- * STUB ROOM — in-page loopback implementing the Room interface. Zero network.
- * Activated by ?netstub or Net.roomFactory. Two rooms linked by link(); a
- * send on one is delivered to the other's receive handlers after ~latencyMs.
- * ========================================================================== */
-Net.createStubPair = function (latencyMs) {
-  latencyMs = latencyMs == null ? 15 : latencyMs;
-  function makeRoom(tag) {
-    const handlers = { st: [], in: [], ev: [], join: [], leave: [] };
-    const room = {
-      tag,
-      selfId: 'stub-' + tag + '-' + Math.random().toString(36).slice(2, 8),
-      _peer: null,
-      getPeers() { return room._peer ? { [room._peer.selfId]: 1 } : {}; },
-      onPeerJoin(cb) { handlers.join.push(cb); },
-      onPeerLeave(cb) { handlers.leave.push(cb); },
-      makeAction(name) {
-        const send = (data) => {
-          if (room._peer) {
-            const peer = room._peer, from = room.selfId;
-            // structuredClone keeps the loopback honest (no shared refs)
-            const copy = (typeof structuredClone === 'function') ? structuredClone(data) : JSON.parse(JSON.stringify(data));
-            setTimeout(() => peer._recv(name, copy, from), latencyMs);
-          }
-        };
-        const recv = (cb) => { handlers[name].push(cb); };
-        return [send, recv, () => {}];
-      },
-      _recv(name, data, fromId) {
-        handlers[name].forEach((cb) => { try { cb(data, fromId); } catch (e) { Net.logErr(e); } });
-      },
-      _fireJoin(peer) { handlers.join.forEach((cb) => { try { cb(peer.selfId); } catch (e) { Net.logErr(e); } }); },
-      _fireLeave(peer) { handlers.leave.forEach((cb) => { try { cb(peer.selfId); } catch (e) { Net.logErr(e); } }); },
-      leave() {
-        const p = room._peer;
-        room._peer = null;
-        if (p) { p._peer = null; setTimeout(() => p._fireLeave(room), 10); }
-      },
-    };
-    return room;
-  }
-  const a = makeRoom('a'), b = makeRoom('b');
-  return {
-    a, b,
-    link() {
-      a._peer = b; b._peer = a;
-      setTimeout(() => { a._fireJoin(b); b._fireJoin(a); }, 10);
-    },
-  };
-};
-
-/* ============================================================================
- * DEV TEST HOOKS — headless full-flow verification. Called from the console
- * (or CDP); never invoked by the game itself. Exercises the REAL Net paths:
- * lobby UI -> create/join -> hello -> countdown -> 25Hz snapshots ->
- * dead reckoning -> ev goal -> boardKick sync -> win -> rematch -> leave.
- * Scoring is forced deterministically through the real onGoal path (no AI
- * needed) so a full first-to-N match runs in seconds, not minutes.
- * ========================================================================== */
-Net.sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/* A virtual guest: speaks the protocol against a stub room with plain
- * objects — no G, no DOM. Used to drive the REAL host side headlessly. */
-Net.makeVirtualGuest = function (room, opts) {
-  opts = opts || {};
-  const gv = {
-    hello: null, countdowns: 0, serveDirs: [], goals: [], snaps: 0,
-    pauses: [], rematchPhases: [], puck: null, m1x: 0, m1y: 0,
-    score: [0, 0], maxLerpCorr: 0, teleports: 0, sawLeave: false,
-  };
-  gv.wire = Net.wireRoom(room, {
-    onPeerJoin: () => {},
-    onPeerLeave: () => { gv.sawLeave = true; },
-    onSt: (arr) => {
-      const s = Net.decodeSnapshot(arr);
-      gv.snaps++;
-      if (!gv.puck) gv.puck = { x: s.px, y: s.py, vx: s.pvx, vy: s.pvy };
-      else {
-        const corr = Math.hypot(s.px - gv.puck.x, s.py - gv.puck.y);
-        if (corr > 420) { gv.teleports++; gv.puck.x = s.px; gv.puck.y = s.py; } // guard: hard seed
-        else {
-          if (corr > gv.maxLerpCorr) gv.maxLerpCorr = corr;
-          gv.puck.x += (s.px - gv.puck.x) * 0.5; gv.puck.y += (s.py - gv.puck.y) * 0.5;
-        }
-        gv.puck.vx = s.pvx; gv.puck.vy = s.pvy;
-      }
-      gv.m1x = s.m1x; gv.m1y = s.m1y; gv.score = [s.s0, s.s1];
-      gv.wire.sendIn([PX + PW - 170, CY]); // parked mallet
-    },
-    onIn: () => {},
-    onEv: (ev) => {
-      if (ev.t === 'hello') gv.hello = ev;
-      else if (ev.t === 'countdown') { gv.countdowns++; gv.serveDirs.push(ev.serveDir); }
-      else if (ev.t === 'goal') gv.goals.push(ev);
-      else if (ev.t === 'pause') gv.pauses.push(true);
-      else if (ev.t === 'resume') gv.pauses.push(false);
-      else if (ev.t === 'rematch') gv.rematchPhases.push(ev.phase);
-      else if (ev.t === 'leave') gv.sawLeave = true;
-    },
-  });
-  return gv;
-};
-
-/* A virtual host: speaks the protocol to drive the REAL guest side. */
-Net.makeVirtualHost = function (room) {
-  const hv = { knock: false, inputs: [], sawLeave: false, offer: false };
-  hv.wire = Net.wireRoom(room, {
-    onPeerJoin: () => {},
-    onPeerLeave: () => {},
-    onSt: () => {},
-    onIn: (a) => { hv.inputs.push(a); },
-    onEv: (ev) => {
-      if (ev.t === 'knock') hv.knock = true;
-      else if (ev.t === 'rematch' && ev.phase === 'offer') hv.offer = true;
-      else if (ev.t === 'leave') hv.sawLeave = true;
-    },
-  });
-  return hv;
-};
-
-/* Wait until cond() is true or ms elapse. */
-Net.until = async function (cond, ms, tick) {
-  const t0 = performance.now();
-  while (performance.now() - t0 < ms) {
-    if (cond()) return true;
-    await Net.sleep(tick || 50);
-  }
-  return cond();
-};
-
-/* Phase A: REAL host (this page's G) vs virtual guest. Goals are forced
- * through the real onGoal path — deterministic, no AI, seconds not minutes. */
-Net.testHostVsVirtualGuest = async function (report) {
-  const step = (n, c) => { report.steps.push(n + ': ' + (c ? 'ok' : 'FAIL')); if (!c) report.ok = false; };
-  const pair = Net.createStubPair(10);
-  Net.roomFactory = () => pair.a;
-  Net.openLobby();
-  step('lobby opens', !$('onlineov').classList.contains('hidden'));
-  await Net.create();
-  step('host waiting with code', Net.waitingForRival && /^[A-Z2-9]{4}$/.test(Net.code || ''));
-  const gv = Net.makeVirtualGuest(pair.b);
-  pair.link();
-  gv.wire.sendEv({ t: 'knock' });
-  step('host starts on knock', await Net.until(() => Net.active && G.mode === 'online' && Net.role === 'host', 3000));
-  step('guest got hello+countdown', await Net.until(() => gv.hello && gv.countdowns >= 1, 3000));
-  step('host settings win', gv.hello && gv.hello.firstTo === Settings.firstTo && gv.hello.theme === THEME.id);
-  step('snapshots flow', await Net.until(() => gv.snaps > 20, 4000));
-  step('no attract demo online', G.demo === false);
-  // pause sync: host pauses -> guest sees it, host resumes -> guest sees it
-  step('host reaches play', await Net.until(() => G.state === 'play', 8000));
-  togglePause();
-  step('pause event sent', await Net.until(() => gv.pauses[gv.pauses.length - 1] === true, 2000));
-  togglePause();
-  step('resume event sent', await Net.until(() => gv.pauses[gv.pauses.length - 1] === false, 2000));
-  // deterministic match: force real goals until first-to-2
-  const savedFirstTo = Settings.firstTo;
-  Settings.firstTo = 2;
-  let forced = 0;
-  const t0 = performance.now();
-  while (performance.now() - t0 < 60000) {
-    if (G.state === 'win') break;
-    if (G.state === 'play') { onGoal(0); forced++; }
-    await Net.sleep(120);
-  }
-  step('match completed (first to 2)', G.state === 'win' && G.score[0] === 2);
-  step('guest saw every goal event', gv.goals.length === forced && forced === 2);
-  step('goal scores match', gv.goals.every((g, i) => g.s0 === i + 1 && g.s1 === 0));
-  step('guest score in sync', gv.score[0] === 2 && gv.score[1] === G.score[1]);
-  step('matchEnd flagged on the winner', gv.goals[1].matchEnd === true && gv.goals[0].matchEnd === false);
-  step('dead reckoning sane (lerp corr<420, guard fired on resets)',
-    gv.maxLerpCorr < 420 && gv.teleports >= 1);
-  step('win card shown', !$('winov').classList.contains('hidden'));
-  step('win title is role-aware', $('winTitle').textContent === 'You win');
-  // rematch: virtual guest offers, host accepts through the real handler
-  gv.wire.sendEv({ t: 'rematch', phase: 'offer' });
-  step('host sees rematch prompt', await Net.until(() => !$('onlineov').classList.contains('hidden') && $('onlineTitle').textContent === 'Rematch?', 3000));
-  Net.acceptRematch();
-  step('rematch resets both', await Net.until(() => G.score[0] === 0 && G.score[1] === 0 && gv.countdowns >= 2, 4000));
-  // rival leaves mid-ceremony: force a goal, drop the peer during it
-  step('host reaches play again', await Net.until(() => G.state === 'play', 8000));
-  onGoal(1);
-  await Net.sleep(250);
-  step('ceremony running', G.state === 'goal' && G.letterT > 0);
-  pair.b.leave(); // rival disconnects mid-ceremony (raw drop, no event)
-  step('rival-left overlay, no leak', await Net.until(() =>
-    !$('onlinedropov').classList.contains('hidden') && G.letterT === 0 && G.flashA === 0, 3000));
-  step('host shut down cleanly', Net.active === false && Net.waitingForRival === false);
-  $('dropMenu').click();
-  await Net.sleep(250);
-  step('back to menu clean', G.state === 'menu' && Net.room === null && !Net.active &&
-    G.onlineFlip === false && G.mode !== 'online');
-  Settings.firstTo = savedFirstTo;
-  Net.roomFactory = null;
-  return gv;
-};
-
-/* Phase B: virtual host vs REAL guest (this page) — guest apply path. */
-Net.testVirtualHostVsGuest = async function (report) {
-  const step = (n, c) => { report.steps.push(n + ': ' + (c ? 'ok' : 'FAIL')); if (!c) report.ok = false; };
-  const pair = Net.createStubPair(10);
-  Net.roomFactory = () => pair.a;
-  const hv = Net.makeVirtualHost(pair.b);
-  Net.openLobby();
-  Net.uiShow('join');
-  await Net.join('TEST');
-  step('guest knocking', $('onlineTitle').textContent === 'Knocking');
-  pair.link();
-  await Net.sleep(200);
-  // the virtual host speaks first: settings, then the countdown
-  hv.wire.sendEv({ t: 'hello', firstTo: 3, pace: 'classic', theme: 'deco' });
-  step('guest joined (hello applied)', await Net.until(() => Net.active && Net.role === 'guest', 3000));
-  step('host settings win', Settings.firstTo === 3);
-  step('guest view flipped', G.onlineFlip === true);
-  hv.wire.sendEv({ t: 'countdown', serveDir: 1 });
-  step('guest countdown + serve sync', await Net.until(() => G.state === 'count', 3000) && G.serveDir === 1);
-  // stream snapshots: puck flying; guest dead-reckons between them
-  const realKick = boardKick;
-  let kicks = 0;
-  boardKick = (s) => { kicks++; realKick(s); };
-  const snap = [900, 520, -1400, 60, 300, 520, 1100, 520, 0, 0, 2, 0, 0];
-  for (let i = 0; i < 25; i++) { hv.wire.sendSt(snap); await Net.sleep(40); }
-  step('guest renders puck from wire', Math.abs(G.puck.x - 900) < 260);
-  step('guest input reaches host', hv.inputs.length > 3);
-  // goal event -> ceremony + boardKick in sync, score NOT double-counted
-  hv.wire.sendEv({ t: 'goal', scorer: 1, s0: 0, s1: 1, matchEnd: false });
-  step('guest ceremony runs', await Net.until(() => G.state === 'goal' && G.letterT > 0, 2000));
-  step('guest boardKick fired once', kicks === 1);
-  step('guest score exact (no double count)', G.score[0] === 0 && G.score[1] === 1);
-  // rival leaves mid-ceremony -> overlay, no leak
-  hv.wire.sendEv({ t: 'leave' });
-  step('rival-left overlay', await Net.until(() => !$('onlinedropov').classList.contains('hidden'), 3000));
-  step('no ceremony leak', G.letterT === 0 && G.flashA === 0);
-  step('guest sim frozen', G.state === 'pause');
-  boardKick = realKick;
-  $('dropMenu').click();
-  await Net.sleep(250);
-  step('guest back to menu, settings restored',
-    !$('menu').classList.contains('hidden') && Net.room === null &&
-    G.onlineFlip === false && Settings.firstTo === 7);
-  Net.roomFactory = null;
-};
-
-/* Full headless run: both phases, error capture, settings restore. */
-Net.testFullMatch = async function () {
-  const report = { steps: [], ok: true, errors: [] };
-  const errs = [];
-  const onErr = (e) => errs.push(e.message || String(e));
-  window.addEventListener('error', onErr);
-  const savedFirstTo = Settings.firstTo, savedPace = Settings.pace;
-  const savedMode = G.mode;
-  try {
-    report.steps.push('--- phase A: real host vs virtual guest ---');
-    await Net.testHostVsVirtualGuest(report);
-    report.steps.push('--- phase B: virtual host vs real guest ---');
-    await Net.testVirtualHostVsGuest(report);
-  } catch (e) {
-    report.ok = false;
-    report.steps.push('EXCEPTION: ' + (e && e.message));
-  }
-  window.removeEventListener('error', onErr);
-  report.errors = errs.concat((window.__errs || []).map((e) => e.msg));
-  report.ok = report.ok && report.errors.length === 0;
-  Settings.firstTo = savedFirstTo; Settings.pace = savedPace;
-  try { applySettingsToUI(); } catch (e) {}
-  // always leave the page in a clean menu state
-  try { Net.dropRoom(); } catch (e) {}
-  Net.roomFactory = null;
-  G.onlineFlip = false;
-  if (G.mode === 'online') G.mode = savedMode === 'online' ? 'ai' : savedMode;
-  clearCeremony();
-  hideAll(); $('menu').classList.remove('hidden'); $('topbar').classList.add('hidden');
-  G.state = 'menu'; G.idleT = 0; G.demo = false;
-  Net.lobbyOpen = false;
-  return report;
 };

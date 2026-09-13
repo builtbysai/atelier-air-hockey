@@ -4,7 +4,7 @@
    puck glide, velocity-transfer striking, human-like AI, and the
    full juice canon (hit-stop, trauma shake + rotation, particles,
    squash, trails, scuff permanence, slow-mo goal ceremony).
-   Single file. Mobile-first. No external assets but fonts.
+   Modular source. Mobile-first. No image/audio asset dependencies.
    ============================================================ */
 'use strict';
 
@@ -12,7 +12,17 @@
 const VW = 1440, VH = 1040;          // view space
 const PX = 200, PY = 200, PW = 1040, PH = 640;  // playfield
 const CX = PX + PW / 2, CY = PY + PH / 2;
-const PUCK_R = 26, MALLET_R = 46, GOAL_W = 230, RAIL = 26;
+const PUCK_R = 26, MALLET_R = 46, RAIL = 26;
+// Goal-mouth presets (v20): adjustable in Settings → Goal mouth. Standard is
+// the new default — narrower than the old fixed 230 (36% of the wall was
+// swallowing deflections). The host's choice rides the countdown event
+// online; guests apply it as a match-scoped override (G.gwNet).
+const GOAL_W = 230; // the Wide preset; legacy fixed width — use goalW() below
+const GOAL_PRESETS = { narrow: 170, standard: 200, wide: 230 };
+function goalW() {
+  if (G.gwNet > 0) return G.gwNet; // online guest: the host's width for this match
+  return GOAL_PRESETS[Settings.goalW] || GOAL_PRESETS.standard;
+}
 const TX0 = PX - RAIL, TY0 = PY - RAIL;
 const TAU = Math.PI * 2;
 
@@ -24,6 +34,7 @@ const Settings = {
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
   effects: 'full',     // 'full' | 'subtle' | 'minimal' — spectacle scaler, never touches physics
+  goalW: 'standard',   // 'narrow' | 'standard' | 'wide' — goal-mouth width (v20)
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
@@ -38,6 +49,7 @@ function loadSettings() {
   if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
+  if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
 }
 // Effects scalers — one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -47,6 +59,142 @@ const fxRoom = () => Settings.effects === 'full' && !PRM.reduce;   // room react
 const fxFlash = () => Settings.effects !== 'minimal' && !PRM.reduce; // flashes & glows
 function saveSettings() {
   try { localStorage.setItem('atelier-ah-settings', JSON.stringify(Settings)); } catch (e) {}
+}
+
+// ---------- local rival record ----------
+// W/L per AI rival plus P1/P2 for same-screen 2P, stored in localStorage so it
+// survives reloads. Deliberately local-only: online matches are live sessions,
+// not a stored record, and netcode never touches this module.
+const Record = {
+  key: 'atelier-ah-record',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  // key: 'ai0' | 'ai1' | 'ai2' | 'p1' | 'p2'. won: did this key's side win?
+  bump(key, won) {
+    let r = this.data[key];
+    if (!r || typeof r.w !== 'number' || typeof r.l !== 'number') r = this.data[key] = { w: 0, l: 0 };
+    if (won) r.w++; else r.l++;
+    this.save();
+  },
+  // one rival's line, e.g. '3W–1L', or '' when no games are recorded yet
+  line(key) {
+    const r = this.data[key];
+    return (r && (r.w || r.l)) ? r.w + 'W–' + r.l + 'L' : '';
+  },
+};
+// combined line for the Two Players menu button: 'P1 3W–1L · P2 1W–3L'
+function recordLine2p() {
+  const a = Record.line('p1'), b = Record.line('p2');
+  if (!a && !b) return '';
+  return 'P1 ' + (a || '0W–0L') + ' · P2 ' + (b || '0W–0L');
+}
+// repaint every menu record line — call after results are stored and whenever
+// the menu is shown (Record.line returns '' so unplayed rivals stay clean)
+function refreshRecordLines() {
+  document.querySelectorAll('[data-rec]').forEach(el => {
+    el.textContent = el.dataset.rec === 'p2p' ? recordLine2p() : Record.line(el.dataset.rec);
+  });
+}
+
+// ---------- personal bests ----------
+// Per matchup ('ai0' | 'ai1' | 'ai2' | 'p2p'): fastest win, top puck speed,
+// longest rally, biggest margin. Checked in showWin(); beaten records earn a
+// ★ line on the win card. Same local-only rule as Record — online matches
+// are session-only, netcode never touches this module.
+const Best = {
+  key: 'atelier-ah-best',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+};
+function fmtTime(secs) {
+  return Math.floor(secs / 60) + ':' + String(Math.floor(secs % 60)).padStart(2, '0');
+}
+// returns the display labels of any records just beaten (possibly empty)
+function checkBest(key, secs, kmh, rally, margin) {
+  let b = Best.data[key];
+  if (!b || typeof b !== 'object') b = Best.data[key] = {};
+  const out = [];
+  const consider = (field, v, lower, label) => {
+    if (typeof b[field] !== 'number') { b[field] = v; out.push(label); }
+    else if (lower ? v < b[field] : v > b[field]) { b[field] = v; out.push(label); }
+  };
+  consider('win', secs, true, 'fastest win ' + fmtTime(secs));
+  consider('speed', kmh, false, 'top speed ' + kmh + ' km/h');
+  consider('rally', rally, false, 'longest rally ' + rally);
+  consider('margin', margin, false, 'biggest margin ' + margin);
+  if (out.length) Best.save();
+  return out;
+}
+
+// ---------- achievements ----------
+// One-time named feats, unlocked for the human winner of a local match and
+// announced on the win card. Persisted per device; local-only like Record.
+const FEATS = [
+  { id: 'shutout',   name: 'SHUTOUT',   desc: 'a clean sheet' },
+  { id: 'comeback',  name: 'COMEBACK',  desc: 'won from three down' },
+  { id: 'hattrick',  name: 'HAT-TRICK', desc: 'three goals on the spin' },
+  { id: 'speedster', name: 'SPEEDSTER', desc: 'puck past 60 km/h' },
+  { id: 'grandtour', name: 'GRAND TOUR', desc: 'all nine tables conquered' },
+];
+const Feats = {
+  key: 'atelier-ah-feats',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  // returns true only on a fresh unlock
+  unlock(id) {
+    if (this.data[id]) return false;
+    this.data[id] = 1; this.save();
+    return true;
+  },
+};
+
+// ---------- table tour ----------
+// Wins per table (theme id) for the human side, local matches only. Feeds the
+// menu's tour counter, the gold pip on conquered carousel slides, and the
+// GRAND TOUR feat.
+const Tour = {
+  key: 'atelier-ah-tour',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  bump(id) {
+    if (THEME_ORDER.indexOf(id) < 0) return;
+    this.data[id] = (this.data[id] || 0) + 1;
+    this.save();
+  },
+  won(id) { return (this.data[id] || 0) > 0; },
+  count() { return THEME_ORDER.filter(id => this.won(id)).length; },
+};
+// repaint the tour counter + conquered pips — call on boot and whenever the
+// menu is shown (Tour data only changes at match end)
+function refreshTour() {
+  document.querySelectorAll('.tslide').forEach(el =>
+    el.classList.toggle('won', Tour.won(el.dataset.theme)));
+  const tc = $('tourCount');
+  if (tc) tc.textContent = 'TOUR ' + Tour.count() + '/' + THEME_ORDER.length;
 }
 // puck pace: how lively the table plays
 const PACES = {
@@ -87,15 +235,19 @@ let interacted = false; // set on first real pointer input (gates vibrate)
 const AudioSys = {
   ctx: null, master: null, muted: false,
   init() {
-    if (this.ctx) return;
+    if (this.ctx) { this._ensureAmbience(); return; }
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
       this.master.connect(this.ctx.destination);
+      this.syncMute(); // honor the persisted sound setting (boot w/ sound off)
     } catch (e) { /* silent */ }
+    this._ensureAmbience();
   },
+  // starts the pending room's bed once a ctx exists (autoplay-safe: only
+  // called from init(), which only runs on real user input)
+  _ensureAmbience() { if (this.ctx && this.ambKey) this.ambience(this.ambKey); },
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
   toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; return this.muted; },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
@@ -165,6 +317,29 @@ const AudioSys = {
       o.start(t); o.stop(t + 0.24);
     });
   },
+  // goal-frame clank: a heavier metallic knock than the post ping — the
+  // whole frame takes the hit, so it answers low and long instead of bright
+  clank(power) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, p = clamp(power, 0.15, 1);
+    // hollow low partials: inharmonic so it reads as bent metal, not a bell
+    [208, 311, 517].forEach((f, i) => {
+      const o = this.ctx.createOscillator(); o.type = 'square'; o.frequency.value = f * (1 + rnd(-0.015, 0.015));
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime((i ? 0.08 : 0.20) * p, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.30 + i * 0.05);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + 0.5);
+    });
+    // the metal-on-metal knock: a short burst of filtered noise up front
+    const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf();
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1900; bp.Q.value = 1.1;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.22 * p, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    src.connect(bp); bp.connect(ng); ng.connect(this.master);
+    src.start(t, rnd(1.2)); src.stop(t + 0.1);
+  },
   rail(power) {
     if (!this.ctx || this.muted) return;
     const t = this.ctx.currentTime, p = clamp(power, 0, 1);
@@ -213,6 +388,166 @@ const AudioSys = {
   },
   ui() { this.blip(1150, 0.05, 0.18); },
   count(final) { this.blip(final ? 990 : 620, final ? 0.28 : 0.12, 0.32); },
+  // ---------- room ambience (generated, no assets) ----------
+  // Subtle per-room bed (looped shaped noise) plus sparse random events:
+  // jazz-room bass plucks, poolside laps, a concrete-hall wash, felt hush,
+  // loft murmur swells with the odd glass clink, machiya rain and wood
+  // creaks. Levels sit well under SFX. Everything routes through master, so
+  // Mute silences it. The bed only ever exists after init(), which runs
+  // solely on real user input (autoplay-safe). Switching rooms crossfades
+  // the bed instead of clicking.
+  ambKey: null, amb: null, ambTimer: null,
+  ambience(id) { // public: called from setTheme()
+    if (!ROOM_AMB[id]) id = 'deco';
+    this.ambKey = id;
+    if (this.ctx && (!this.amb || this.amb.key !== id)) this._startAmbience();
+  },
+  syncMute() { if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; },
+  _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
+    if (this._nb) return this._nb;
+    const len = Math.floor(this.ctx.sampleRate * 2);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < len; i++) {
+      const w = Math.random() * 2 - 1;
+      b0 = 0.99765 * b0 + w * 0.0990460;
+      b1 = 0.96300 * b1 + w * 0.2965164;
+      b2 = 0.57000 * b2 + w * 1.0526913;
+      d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.08;
+    }
+    this._nb = buf; return buf;
+  },
+  _startAmbience() {
+    const cfg = ROOM_AMB[this.ambKey || 'deco'];
+    const t = this.ctx.currentTime;
+    this._killAmbience(); // fade out whatever was playing
+    // bed: looped noise -> per-room filter -> gain -> master
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noiseBuf(); src.loop = true;
+    src.playbackRate.value = 0.9 + Math.random() * 0.2; // no two rooms identical
+    const flt = this.ctx.createBiquadFilter();
+    flt.type = cfg.bed.type; flt.frequency.value = cfg.bed.f; flt.Q.value = cfg.bed.q;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.setTargetAtTime(cfg.bed.g, t + 0.1, 0.9); // gentle 2s swell-in
+    src.connect(flt); flt.connect(g); g.connect(this.master);
+    const nodes = { key: this.ambKey, src, flt, g, cfg, wet: [] };
+    // brut hall: a short feedback delay as a cheap room wash on the bed
+    if (cfg.bed.hall) {
+      const dly = this.ctx.createDelay(1); dly.delayTime.value = 0.31;
+      const fb = this.ctx.createGain(); fb.gain.value = 0.35;
+      const wet = this.ctx.createGain(); wet.gain.value = 0.5;
+      g.connect(dly); dly.connect(fb); fb.connect(dly);
+      dly.connect(wet); wet.connect(this.master);
+      nodes.wet = [dly, fb, wet];
+    }
+    // poolside air breathes: slow LFO on the bed gain
+    if (cfg.bed.lfo) {
+      const lfo = this.ctx.createOscillator(); lfo.frequency.value = cfg.bed.lfo;
+      const lg = this.ctx.createGain(); lg.gain.value = cfg.bed.g * 0.35;
+      lfo.connect(lg); lg.connect(g.gain); lfo.start(t);
+      nodes.lfo = lfo;
+    }
+    src.start(t);
+    this.amb = nodes;
+    if (!this.ambTimer) this.ambTimer = setInterval(() => this._ambTick(), 1100);
+  },
+  _killAmbience() {
+    if (!this.amb) return;
+    const a = this.amb; this.amb = null;
+    const t = this.ctx.currentTime;
+    a.g.gain.cancelScheduledValues(t);
+    a.g.gain.setTargetAtTime(0.0001, t, 0.35); // fade fast, disconnect late
+    setTimeout(() => {
+      try { a.src.stop(); } catch (e) {}
+      [a.src, a.flt, a.g, a.lfo].concat(a.wet).forEach(n => { if (n) try { n.disconnect(); } catch (e) {} });
+    }, 1500);
+  },
+  _ambTick() { // every ~1.1s: roll the room's sparse events
+    if (!this.amb || !this.ctx || this.muted || this.ctx.state !== 'running') return;
+    const a = this.amb, cfg = a.cfg, t = this.ctx.currentTime;
+    // the loft murmurs: slow random swells on the bed
+    if (cfg.bed.swell) a.g.gain.setTargetAtTime(cfg.bed.g * rnd(0.7, 1.3), t, 1.2);
+    for (const ev of cfg.events) if (Math.random() < ev.p) this[ev.f]();
+  },
+  // --- sparse one-shot events (all check muted via _ambTick) ---
+  _bass() { // distant upright pluck in the jazz room
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.value = [55, 65.41, 73.42, 82.41, 98][Math.floor(rnd(5))];
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.055, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.6);
+  },
+  _mote() { // faint piano-ish mote, A-minor colour
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.value = [110, 130.81, 146.83, 164.81, 220][Math.floor(rnd(5))];
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.028, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 1.05);
+  },
+  _splash() { // soft poolside lap
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf();
+    src.playbackRate.value = 1.4;
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2800;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.03, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    src.connect(hp); hp.connect(g); g.connect(this.master);
+    src.start(t, rnd(1.5)); src.stop(t + 0.35);
+  },
+  _clink() { // distant glass in the loft
+    const t = this.ctx.currentTime;
+    [2490, 3160].forEach((f, i) => {
+      const o = this.ctx.createOscillator(); o.type = 'sine';
+      o.frequency.value = f * (1 + rnd(-0.01, 0.01));
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(i ? 0.014 : 0.02, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + 0.45);
+    });
+  },
+  _creak() { // old wood settling in the machiya
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(170, t);
+    o.frequency.exponentialRampToValueAtTime(105, t + 0.7);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.032, t + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.85);
+  },
+};
+// Per-room ambience character, keyed by theme id.
+const ROOM_AMB = {
+  deco:  { bed: { type: 'lowpass',  f: 400,  q: 0.6, g: 0.022 },
+           events: [ { p: 0.26, f: '_bass' }, { p: 0.16, f: '_mote' } ] },
+  mid:   { bed: { type: 'bandpass', f: 850,  q: 0.7, g: 0.026, lfo: 0.12 },
+           events: [ { p: 0.10, f: '_splash' } ] },
+  brut:  { bed: { type: 'lowpass',  f: 170,  q: 0.5, g: 0.020, hall: true },
+           events: [] },
+  bil:   { bed: { type: 'lowpass',  f: 240,  q: 0.5, g: 0.012 },
+           events: [] },
+  mem:   { bed: { type: 'bandpass', f: 520,  q: 1.0, g: 0.028, swell: true },
+           events: [ { p: 0.07, f: '_clink' } ] },
+  sashi: { bed: { type: 'highpass', f: 2600, q: 0.5, g: 0.024 },
+           events: [ { p: 0.05, f: '_creak' } ] },
+  bau:   { bed: { type: 'bandpass', f: 640,  q: 0.8, g: 0.024 },
+           events: [ { p: 0.06, f: '_clink' } ] },   // the workshop: airy room tone, distant tool clinks
+  zel:   { bed: { type: 'bandpass', f: 1200, q: 0.6, g: 0.020 },
+           events: [ { p: 0.09, f: '_splash' } ] }, // the courtyard fountain
+  swi:   { bed: { type: 'highpass', f: 3000, q: 0.5, g: 0.014 },
+           events: [ { p: 0.04, f: '_mote' } ] },    // the gallery hush
 };
 function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
 
@@ -235,7 +570,7 @@ const G = {
   trauma: 0,
   countT: 0, countN: 3, goalT: 0, goalSlowT: 0, goalSide: 0,
   stallT: 0, stallX: CX, stallY: CY, anchorT: 0, lastTouch: -1,
-  idleT: 0, demo: false,
+  idleT: 0, demo: false, gwNet: 0, // gwNet: online guest's match-scoped goal-width override (v20)
   serveDir: 1,
   pausedFrom: 'play',
   scuffs: [], parts: [], trail: [], texts: [], pulses: [],
@@ -244,15 +579,19 @@ const G = {
   hitFlash: 0, hitFlashX: 0, hitFlashY: 0, // SMASH-tier impact flash
   roomPulse: 0,             // room reactivity: decays, feeds the lamp-glow overlay
   saveT: 0,                 // save-moment puck glow timer
-  nearCd: 0, dipT: 0,       // near-miss cooldown + time-dip timer
+  nearCd: 0, dipT: 0,       // near-miss cooldown + shared time-dip timer
+                              // (near-miss dip and SMASH slow-mo beat)
   missGlow: null,           // { side, t } post glow after a near miss
+  rattle: null,             // { side, t } goal-frame rattle after a hard frame hit
   goalFrameT: 0,            // goal-frame flash timer
   board: freshBoard(),      // scoreboard animation state
   ai: null,                 // per-ai brain state
   stats: null,              // per-match stats (top speed, rally, time)
   onlineFlip: false,        // ONLINE: guest view is mirrored — they play from their own side
+  hintLive: false,          // first-time hint currently showing on the table
+  themeId: 'deco',          // current table id (setTheme) — feeds the tour tracker
 };
-function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, t0: 0 }; }
+function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
 G.stats = freshStats();
 const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
 
@@ -384,18 +723,35 @@ function driveMallet(m, dt, cap) {
   clampMallet(m);
 }
 
+// Touch finger-offset (v8): the mallet floats away from the fingertip so the
+// finger never covers it — the convention top mobile air hockey games use.
+// Size-aware: roughly one mallet diameter of screen-space offset, scaled by
+// the current view transform, so it feels right on phones and tablets.
+// Direction is away from the player's own body: in portrait 2P the top
+// player (side 1) gets the offset flipped so the mallet sits below the
+// fingertip. Online guests are mirror-flipped to play from their own side,
+// so they always keep the standard upward offset. Mouse/pen are untouched.
+function touchOffsetY(side) {
+  const malletScreenR = MALLET_R * (view.s || 1); // rink units -> CSS px
+  const off = clamp(malletScreenR * 2.0, 40, 96); // ~one mallet diameter
+  const topPlayer = view.portrait && side === 1 && G.mode === '2p';
+  return topPlayer ? off : -off;
+}
+
 function onPointerDown(e) {
   AudioSys.init(); AudioSys.resume();
   interacted = true;
   if (G.state === 'menu' || G.state === 'win') return; // buttons own the UI
   const touch = e.pointerType === 'touch';
-  const r = screenToRink(e.clientX, e.clientY - (touch ? 70 : 0));
+  // Side assignment uses the raw (unshifted) touch point so the vertical
+  // offset can never drag a touch across the center line in portrait 2P.
+  const raw = screenToRink(e.clientX, e.clientY);
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
     // ONLINE: exactly one local mallet — host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
     pointers.set(e.pointerId, Net.role === 'guest' ? 1 : 0);
   } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
-    const side = r.x > CX ? 1 : 0;
+    const side = raw.x > CX ? 1 : 0;
     const taken = [...pointers.values()];
     if (!taken.includes(side)) pointers.set(e.pointerId, side);
     else return;
@@ -403,16 +759,19 @@ function onPointerDown(e) {
     if (pointers.size > 0 && G.mode !== '2p') return;
     pointers.set(e.pointerId, 0);
   }
-  const m = pointers.get(e.pointerId) === 0 ? G.m1 : G.m2;
+  const side = pointers.get(e.pointerId);
+  const m = side === 0 ? G.m1 : G.m2;
+  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side) : 0));
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
 }
 function onPointerMove(e) {
   if (!pointers.has(e.pointerId)) return;
   if (G.state === 'menu' || G.state === 'win') return;
+  const side = pointers.get(e.pointerId);
   const touch = e.pointerType === 'touch';
-  const r = screenToRink(e.clientX, e.clientY - (touch ? 70 : 0));
-  const m = pointers.get(e.pointerId) === 0 ? G.m1 : G.m2;
+  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side) : 0));
+  const m = side === 0 ? G.m1 : G.m2;
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
 }
@@ -440,9 +799,9 @@ function collideWalls(p) {
     }
   }
   // end walls with goal mouths
-  const inMouth = Math.abs(p.y - CY) < GOAL_W / 2 - 6;
+  const inMouth = Math.abs(p.y - CY) < goalW() / 2 - 6;
   // the goal frame rings: contact just outside the mouth is a post hit
-  const nearPost = !inMouth && Math.abs(p.y - CY) < GOAL_W / 2 + 42;
+  const nearPost = !inMouth && Math.abs(p.y - CY) < goalW() / 2 + 42;
   if (p.x < PX + r && !inMouth) {
     p.x = PX + r;
     if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp, nearPost); }
@@ -478,7 +837,7 @@ function collideMallet(p, m, dt) {
   if (m.glueT > 2.5) {
     const nearT = p.y < PY + 70, nearB = p.y > PY + PH - 70;
     const nearL = p.x < PX + 70, nearR = p.x > PX + PW - 70;
-    const inMouthY = Math.abs(p.y - CY) < GOAL_W / 2;
+    const inMouthY = Math.abs(p.y - CY) < goalW() / 2;
     let rx = nx, ry = ny, railed = false;
     if (nearT && ry < 0) { ry = 0; railed = true; }
     if (nearB && ry > 0) { ry = 0; railed = true; }
@@ -545,6 +904,8 @@ function collideMallet(p, m, dt) {
     G.saveT = 0.55;
     G.pulses.push({ x: p.x, y: p.y, t: 0 });
     AudioSys.thud();
+    // match stat: bank a save for the defender's side (real play only — never demo)
+    if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
   }
   // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
   if (msp0 > 1300 && m.whooshT <= 0) {
@@ -594,15 +955,15 @@ function stepPhysics(dt) {
   collideMallet(p, G.m2, dt);
   collideWalls(p);
   // goals: full crossing of the line inside the mouth
-  if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(0);
-  else if (p.x < PX - p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(1);
+  if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < goalW() / 2) onGoal(0);
+  else if (p.x < PX - p.r * 0.35 && Math.abs(p.y - CY) < goalW() / 2) onGoal(1);
   // near-miss drama: a fast puck kissing the goal frame without scoring —
   // a tiny time dip, a glowing post, a soft tick. Once per 1.5s max.
   if (G.state === 'play' && !G.demo && G.nearCd <= 0) {
     const dy = Math.abs(p.y - CY);
     const nearL = p.x > PX - 30 && p.x < PX + 80;
     const nearR = p.x > PX + PW - 80 && p.x < PX + PW + 30;
-    if ((nearL || nearR) && dy > GOAL_W / 2 - 30 && dy < GOAL_W / 2 + PUCK_R + 26 && hyp(p.vx, p.vy) > 500) {
+    if ((nearL || nearR) && dy > goalW() / 2 - 30 && dy < goalW() / 2 + PUCK_R + 26 && hyp(p.vx, p.vy) > 500) {
       G.nearCd = 1.5;
       if (fxFlash()) {
         G.dipT = 0.22;
@@ -664,6 +1025,7 @@ function mkBrain(side, diffIdx) {
     state: 'guard', tState: 0, tickT: 0,
     aimX: 0, aimY: 0, windT: 0,
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
+    arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
     seen: { x: CX, y: CY, vx: 0, vy: 0 }, // delayed perception
     hist: [], // puck history for reaction delay
@@ -717,6 +1079,22 @@ function aiThink(b, dt, m) {
   };
   const goHome = () => { const h = aiHome(b); setTx(h.x, h.y); };
 
+  // Own-goal guard (v19): never plow through a slow puck that sits between
+  // the mallet and your own net — that shove is the #1 measured own-goal
+  // mechanism (AI own-goal rate was ~22% before this fix). Detour around it
+  // to the goal side first. Skipped for live threats (defend handles those)
+  // and for the strike sequence itself.
+  if (b.state === 'guard' || b.state === 'defend') {
+    const dirS = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
+    const pSpd = hyp(p.vx, p.vy);
+    const towardMe = dirS * p.vx > 150;      // live dribble — defend it, don't dodge
+    const between = dirS * (p.x - m.x) > 0;  // puck sits between me and my net
+    const close = hyp(p.x - m.x, p.y - m.y) < MALLET_R + PUCK_R + 80;
+    if (!towardMe && pSpd < 450 && between && close) {
+      b.state = 'around'; b.tState = 0; b.arPhase = 0;
+    }
+  }
+
   // pin rescue: if I'm smothering the puck into my corner and it hasn't gone
   // anywhere, I'm the trap — back off and dig it out. Speed-based checks
   // fail here because a pinned puck jitters fast between mallet and rail.
@@ -739,34 +1117,73 @@ function aiThink(b, dt, m) {
       else if (puckOnMySide && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
       break;
     }
+    case 'around': {
+      // OWN-GOAL DETOUR (v19): a slow puck sits between the mallet and my
+      // net — driving through it shoves it in. Two beats: sidestep clear
+      // (backing away can never touch it), then cross to its goal side so
+      // the next touch clears it AWAY from the net.
+      const dirS = b.side === 1 ? 1 : -1;
+      if (b.arPhase === 0) {
+        const wy = clamp(p.y + (m.y <= p.y ? -200 : 200), PY + MALLET_R, PY + PH - MALLET_R);
+        setTx(m.x - dirS * 30, wy);
+        if (Math.abs(m.y - wy) < 50 || b.tState > 0.55) { b.arPhase = 1; b.tState = 0; }
+      } else {
+        setTx(p.x + dirS * 120, p.y);
+        if (dirS * (m.x - p.x) > 60 || b.tState > 1.1) { b.state = 'engage'; b.tState = 0; }
+      }
+      // a live threat cancels the detour — go block it
+      if (threat) { b.state = 'defend'; b.tState = 0; }
+      b.tState += D.tick; break;
+    }
     case 'defend': {
       // intercept the predicted trajectory in front of goal
       const tHit = clamp(Math.abs((s.x - (b.side === 0 ? PX + 150 : PX + PW - 150)) / (s.vx || 1)), 0, 1.1);
       const pr = predictPuck(s.x, s.y, s.vx, s.vy, tHit * 0.85);
       const gx = b.side === 0 ? PX + 130 : PX + PW - 130;
-      setTx(gx + (pr.x - gx) * 0.35, pr.y);
+      // deflection steering (v19): meet the puck slightly toward the mouth
+      // CENTER from its lane, so the contact normal kicks deflections toward
+      // the walls instead of into your own mouth. Only near the mouth — far
+      // from it the lane coverage matters more than the deflection angle.
+      const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
+      const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
+      setTx(gx + (pr.x - gx) * 0.35, pr.y + steerY);
       if (!threat) { b.state = 'guard'; b.tState = 0; }
       // if the puck sits in reach (smothered block, loose puck), take it
       if (puckSpeed < 900 && hyp(s.x - m.x, s.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
       break;
     }
     case 'engage': {
-      // skate to the puck, then set up the strike
-      setTx(s.x, s.y);
+      // skate to the puck — always from the GOAL side. Driving straight at
+      // a puck from the far side shoves it toward your own net (the classic
+      // goalie own goal), so when the mallet isn't behind the puck yet it
+      // swings wide around it first, then commits.
+      const dirS = b.side === 1 ? 1 : -1; // +1 = toward my own goal (right)
+      // desperate block: it's coming at my net fast and I'm on the wrong
+      // side — forget the footwork, go meet it (defend steers the deflection)
+      if (threat && dirS * (m.x - s.x) < 40) { b.state = 'defend'; b.tState = 0; break; }
+      const behind = dirS * (m.x - s.x) > 50;
+      if (!behind) {
+        const wy = clamp(s.y + (m.y <= s.y ? -180 : 180), PY + MALLET_R, PY + PH - MALLET_R);
+        setTx(s.x + dirS * 70, wy);
+      } else {
+        setTx(s.x, s.y);
+      }
       const d = hyp(s.x - m.x, s.y - m.y);
       // possession clock: herding the puck at close range counts as control
       if (d < MALLET_R + PUCK_R + 44) b.possessT += D.tick; else b.possessT = Math.max(0, b.possessT - D.tick);
-      if (d < MALLET_R + PUCK_R + 26 && (puckSpeed < 700 || b.possessT > 0.35)) {
+      // windup ONLY from behind the puck — striking from the wrong side
+      // blasts it into your own net
+      if (behind && d < MALLET_R + PUCK_R + 26 && (puckSpeed < 700 || b.possessT > 0.35)) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
-        // pick aim: usually straight at the goal mouth, sometimes a bank
+        // pick aim: the FAR post, not the middle — the mouth corner farthest
+        // from the puck's lane forces the keeper to travel across. aimErr
+        // scatters the shot per difficulty, so Rookie sprays it (missing
+        // often) while Champion pins the post.
         const bank = Math.random() < (b.diff === DIFFS[2] ? 0.35 : 0.12);
-        if (bank) {
-          b.bankY = Math.random() < 0.5 ? PY + 40 : PY + PH - 40;
-          b.aimX = foeGoalX; b.aimY = CY + rnd(-1, 1) * D.aimErr;
-        } else {
-          b.bankY = null;
-          b.aimX = foeGoalX; b.aimY = CY + rnd(-1, 1) * D.aimErr;
-        }
+        b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
+        const farSide = s.y < CY ? 1 : -1;
+        b.aimX = foeGoalX;
+        b.aimY = CY + farSide * (goalW() / 2 - 12) + rnd(-1, 1) * D.aimErr;
       }
       if (!puckOnMySide || puckSpeed > 1700) { b.state = 'guard'; b.tState = 0; b.possessT = 0; }
       break;
@@ -780,6 +1197,11 @@ function aiThink(b, dt, m) {
       const back = 95;
       setTx(s.x - dx / dl * back, s.y - dy / dl * back);
       if (b.windT > D.windup) {
+        // commit to the strike only if the mallet is still behind the LIVE
+        // puck — it can drift during the windup, and lunging from the wrong
+        // side blasts it into your own net
+        const dirS = b.side === 1 ? 1 : -1;
+        if (dirS * (m.x - p.x) < 30) { b.state = 'recover'; b.tState = 0; break; }
         b.state = 'strike'; b.tState = 0;
         // the whiff: a human misread, rolled per difficulty — the lunge
         // below will be offset clean past the puck
@@ -791,6 +1213,13 @@ function aiThink(b, dt, m) {
       // drive THROUGH the puck toward the aim point — this is where
       // mallet velocity becomes puck velocity. Lead the puck slightly
       // so the lunge connects on a moving target.
+      const dirS = b.side === 1 ? 1 : -1;
+      // last-instant sanity: if the mallet somehow isn't behind the puck
+      // at strike time, abort — lunging from the wrong side blasts it
+      // into your own net
+      if (b.tState <= D.tick * 1.5 && dirS * (m.x - p.x) < 20) {
+        b.state = 'recover'; b.tState = 0; break;
+      }
       const px = s.x + s.vx * 0.1, py = s.y + s.vy * 0.1;
       let ax = b.aimX, ay = b.aimY;
       if (b.bankY !== null) { ax = s.x; ay = b.bankY; }
@@ -828,13 +1257,22 @@ function aiThink(b, dt, m) {
       break;
     }
   }
+  // Crease caution (v19): on the wrong side of the puck while positioning,
+  // the mallet is capped to a soft speed — a fast wrong-side touch is
+  // exactly how own goals happen; a soft touch never is. aiDrive applies it.
+  // Defend/strike stay uncapped: blocks and lunges need full speed.
+  const dirS = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
+  b.careful = dirS * (m.x - p.x) < 40 &&
+    (b.state === 'engage' || b.state === 'around' || b.state === 'guard');
 }
 function aiDrive(b, dt, m) {
   aiPerceive(b, dt);
   aiThink(b, dt, m);
   // the strike param finally does something: lunges scale with the
   // difficulty's strike rating, so Rookie pokes and Champion detonates
-  driveMallet(m, dt, b.diff.maxSpeed * (b.state === 'strike' ? 1.5 * b.diff.strike : 1));
+  let cap = b.diff.maxSpeed * (b.state === 'strike' ? 1.5 * b.diff.strike : 1);
+  if (b.careful) cap *= 0.45; // wrong side of the puck: soft touches only
+  driveMallet(m, dt, cap);
 }
 
 // ---------- juice ----------
@@ -842,6 +1280,13 @@ function addTrauma(x) {
   let k = Settings.shake === 'off' ? 0 : Settings.shake === 'subtle' ? 0.45 : 1;
   if (Settings.effects === 'minimal') k = Math.min(k, 0.45); // Minimal caps Shake at Subtle
   G.trauma = clamp(G.trauma + x * k, 0, 1);
+}
+// shared shake-intensity scale: mirrors addTrauma's gating so every new
+// shake flavor respects the Shake setting + Minimal cap identically
+function shakeK() {
+  let k = Settings.shake === 'off' ? 0 : Settings.shake === 'subtle' ? 0.45 : 1;
+  if (Settings.effects === 'minimal') k = Math.min(k, 0.45);
+  return k;
 }
 function shakeOffset() {
   // Nijman's rule: a touch of ROTATION reads as force; pure translation reads as a glitch
@@ -929,7 +1374,15 @@ function onMalletHit(x, y, impact, nx, ny) {
   if (tier >= 1) G.freezeT = Math.max(G.freezeT, Math.min(tier === 2 ? 0.045 : 0.032, 0.010 + v * 0.022));
   addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
   if (tier === 2) {
-    if (fxFlash()) { G.hitFlash = 0.8; G.hitFlashX = x; G.hitFlashY = y; }
+    if (fxFlash()) {
+      G.hitFlash = 0.8; G.hitFlashX = x; G.hitFlashY = y;
+      // SMASH slow-mo beat: ~90ms at the dip scale right after the 45ms
+      // hit-stop — the Holedown blend (freeze, then a near-halt beat, then
+      // full speed). Rides the shared dipT channel with the near-miss dip
+      // (Math.max: the two never stack or extend each other); play-state
+      // only, so it can never touch the goal ceremony's reserved slow-mo.
+      G.dipT = Math.max(G.dipT, 0.09);
+    }
     if (fxRoom()) G.roomPulse = 1;
     buzz([15, 30, 25]);
   }
@@ -949,7 +1402,13 @@ function onRailHit(x, y, impact, isPost) {
   const v = clamp(impact / 2200, 0, 1);
   if (impact > 1100) { G.freezeT = Math.max(G.freezeT, 0.012); addTrauma(0.12 + v * 0.2); }
   if (impact > 300) burst(x, y, Math.max(1, Math.round((3 + v * 6) * fxParticles())), THEME.particle, 140 + v * 260, 2.5);
-  if (isPost && impact > 200) {
+  if (isPost && impact > 900) {
+    // the goal frame rattles: a hard frame hit earns a low clank and a
+    // visible shake of the trim — deliberately heavier than the post ping
+    AudioSys.clank(v);
+    if (fxFlash()) G.rattle = { side: x < PX + PW / 2 ? 0 : 1, t: 0.42 };
+    burst(x, y, Math.max(1, Math.round(10 * fxParticles())), '#ffffff', 380, 2.5);
+  } else if (isPost && impact > 200) {
     // the goal frame rings — a distinct metallic ping plus a bright kiss
     AudioSys.ping();
     burst(x, y, Math.max(1, Math.round(8 * fxParticles())), '#ffffff', 320, 2.5);
@@ -971,7 +1430,7 @@ function startGame(mode, diff) {
   AudioSys.init(); AudioSys.resume();
   G.mode = mode; G.difficulty = diff == null ? G.difficulty : diff;
   G.score = [0, 0]; G.winSide = 0;
-  G.demo = false; G.idleT = 0;
+  G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
@@ -984,15 +1443,66 @@ function startGame(mode, diff) {
   hideAll();
   $('menu').classList.add('hidden');
   $('topbar').classList.remove('hidden');
+  maybeShowHint();
   startCount();
-  G.serveDir = Math.random() < 0.5 ? 1 : -1;
+  // first serve: face-off decides who gets the puck (random side), then roll
+  // the serve flavor once so local and online both use the same point
+  rollServe(Math.random() < 0.5 ? 1 : -1);
   // ONLINE: the host's countdown mirrors to the guest so both start even
   if (mode === 'online' && Net.role === 'host') Net.sendCountdown();
+}
+// First-time hint: one line on the first local match ("Drag to move your
+// mallet"), dismissed forever after the first goal. Persisted in
+// localStorage so it never returns. Online/demo never get the hint — it's a
+// local-match affordance only, and netcode stays untouched.
+const HINT_KEY = 'atelier-ah-hintseen';
+function hintSeen() {
+  try { return localStorage.getItem(HINT_KEY) === '1'; } catch (e) { return false; }
+}
+function maybeShowHint() {
+  if ((G.mode !== 'ai' && G.mode !== '2p') || hintSeen()) { G.hintLive = false; return; }
+  G.hintLive = true;
+  $('hint').classList.remove('hidden');
+}
+function dismissHint(markSeen) {
+  G.hintLive = false;
+  $('hint').classList.add('hidden');
+  if (markSeen) { try { localStorage.setItem(HINT_KEY, '1'); } catch (e) {} }
 }
 function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
   G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
   G.trail.length = 0;
+}
+// Serve variety: the player who was scored on (or a random side on the first
+// serve, per the face-off rule) strikes the puck from center. A real struck
+// serve isn't the same shot every time, so roll a flavor:
+//   banker  ~10%: shallow drive that kisses the side rail first
+//   dink    ~12%: a slow teasing feed
+//   wide    ~28%: driven through at a real angle, ±32°
+//   drive   ~50%: the classic straight serve with a touch of wobble
+// Rolled once per point and stored on G so host and guest play the identical
+// serve — the host rolls, the guest receives (see Net.sendCountdown).
+function rollServe(dir) {
+  const sp = paceServe(), roll = Math.random();
+  let ang, speed;
+  if (roll < 0.10) {          // banker — kiss the side rail first
+    ang = (60 + Math.random() * 16) * (Math.random() < 0.5 ? 1 : -1);
+    speed = sp * (0.92 + Math.random() * 0.16);
+  } else if (roll < 0.22) {   // dink — a slow teasing feed
+    ang = (Math.random() - 0.5) * 50;
+    speed = sp * (0.52 + Math.random() * 0.14);
+  } else if (roll < 0.50) {   // wide angle
+    ang = (Math.random() - 0.5) * 64;
+    speed = sp * (0.90 + Math.random() * 0.20);
+  } else {                    // straight drive with a little wobble
+    ang = (Math.random() - 0.5) * 16;
+    speed = sp * (0.95 + Math.random() * 0.22);
+  }
+  G.serveDir = dir;
+  const a = ang * Math.PI / 180;
+  G.serveVX = Math.cos(a) * speed * dir;
+  G.serveVY = Math.sin(a) * speed;
 }
 function updateCount(rdt) {
   G.countT += rdt;
@@ -1002,8 +1512,10 @@ function updateCount(rdt) {
   if (G.countT >= 2.0) {
     G.goPlayed = false;
     G.state = 'play';
-    // serve toward the player who was scored on — the classic face-off courtesy
-    G.puck.vx = paceServe() * G.serveDir; G.puck.vy = rnd(-160, 160);
+    // serve the rolled point — the player who was scored on gets the puck
+    // (USAA basic rules §4: "the player scored upon receives possession of
+    // the puck for the next serve")
+    G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
   }
 }
 function onGoal(scorer) {
@@ -1011,13 +1523,24 @@ function onGoal(scorer) {
     burst(G.puck.x, G.puck.y, 24, THEME.particle, 420);
     AudioSys.hit(0.8);
     resetPositions();
-    G.puck.vx = paceServe() * (Math.random() < 0.5 ? 1 : -1);
+    rollServe(Math.random() < 0.5 ? 1 : -1);
+    G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
     return;
   }
   if (G.state !== 'play') return;
   // ONLINE: the host owns the simulation; a guest never scores locally.
   if (G.mode === 'online' && Net.role !== 'host') return;
   G.score[scorer]++; // the single place a goal changes the score
+  if (G.mode !== 'online' && G.stats) {
+    // streaks + worst-deficit tracking for the v23 fun pass (host-owned in
+    // online play would desync the guest's view, so guests never track)
+    const st = G.stats;
+    st.streak[scorer]++; st.streak[1 - scorer] = 0;
+    if (st.streak[scorer] > st.bestStreak[scorer]) st.bestStreak[scorer] = st.streak[scorer];
+    st.worstDef[0] = Math.min(st.worstDef[0], G.score[0] - G.score[1]);
+    st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
+  }
+  if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
   beginGoalCeremony(scorer); // visuals only — never scores, never sends
   if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
 }
@@ -1033,6 +1556,21 @@ function goalIsYours(scorer) {
 }
 function confettiColors() {
   return [THEME.gold || '#d8a93f', THEME.particle, '#ffffff', THEME.ink].filter(Boolean);
+}
+// goal-streak announcements — the little combo rush that makes scoring feel
+// addictive. Local matches only (online guests never own the sim, and the
+// streak state isn't in the snapshot), gated on fxFlash() like the rest of
+// the ceremony juice.
+function announceStreak(scorer) {
+  if (G.mode === 'online' || G.demo) return;
+  const st = G.stats;
+  if (!st || !goalIsYours(scorer) || !fxFlash()) return;
+  const n = st.streak[scorer];
+  if (n < 2) return;
+  const label = n === 2 ? 'TWO IN A ROW'
+    : n === 3 ? 'HAT-TRICK!'
+    : n + ' IN A ROW — UNSTOPPABLE!';
+  addText(CX, CY - 200, label, THEME.gold || '#d8a93f', 56);
 }
 function beginGoalCeremony(scorer) {
   boardKick(scorer);
@@ -1057,6 +1595,7 @@ function beginGoalCeremony(scorer) {
   }
   addTrauma(0.85);
   addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
+  announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW — UNSTOPPABLE!
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   buzz([25, 40, 40]);
 }
@@ -1082,7 +1621,7 @@ function updateGoal(rdt) {
       showWin();
     } else {
       resetPositions();
-      G.serveDir = G.goalSide === 0 ? 1 : -1;
+      rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
       $('topbar').classList.remove('hidden');
       startCount();
       // ONLINE: the host's countdown mirrors to the guest so both start even
@@ -1094,22 +1633,55 @@ function showWin() {
   clearCeremony(); // defensive: no ceremony visuals leak under the overlay
   $('topbar').classList.add('hidden');
   const you = G.winSide === 0;
+  // local rival record — AI rivals per difficulty, P1/P2 for same-screen 2P
+  // (online matches are session-only: no stored record)
+  if (G.mode === 'ai') Record.bump('ai' + G.difficulty, G.winSide === 0);
+  else if (G.mode === '2p') { Record.bump('p1', G.winSide === 0); Record.bump('p2', G.winSide === 1); }
   $('winTitle').textContent = G.mode === '2p'
     ? (you ? 'Player One wins' : 'Player Two wins')
     : G.mode === 'online' // ONLINE: labels by role, not by side
     ? (onlineSideLabel(G.winSide) === 'YOU' ? 'You win' : 'Rival wins')
     : (you ? 'You win' : DIFFS[G.difficulty].name + ' wins');
   $('winSub').textContent = G.score[0] + ' — ' + G.score[1];
-  // match stats: top puck speed (table-scale km/h), longest rally, duration
+  // match stats: top puck speed (table-scale km/h), longest rally, saves
+  // per side (same side order as the score), and match duration. Two lines
+  // so the line never overflows a phone card; innerHTML is safe here —
+  // every value is numeric.
+  const st = G.stats || freshStats();
+  const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
+  const secs = Math.max(1, Math.round((performance.now() - st.t0) / 1000));
   try {
-    const st = G.stats || freshStats();
-    const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
-    const secs = Math.max(1, Math.round((performance.now() - st.t0) / 1000));
     const mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, '0');
-    $('winStats').textContent = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' +
-      st.bestRally + ' · ' + mm + ':' + ss;
+    const sv = st.saves || [0, 0];
+    $('winStats').innerHTML = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' + st.bestRally +
+      '<br>Saves ' + sv[0] + '–' + sv[1] + ' · ' + mm + ':' + ss;
+    // v23 fun pass — personal bests, achievements, table tour. Local matches
+    // only: online stays session-only (no stored records, no feats, and the
+    // guest's snapshot is display-only).
+    if (G.mode === 'ai' || G.mode === '2p') {
+      const feats = $('winFeats');
+      if (G.mode === '2p' || G.winSide === 0) { // records + feats belong to a human winner
+        const margin = Math.abs(G.score[0] - G.score[1]);
+        const recs = checkBest(G.mode === 'ai' ? 'ai' + G.difficulty : 'p2p',
+          secs, Math.round(kmh), st.bestRally || 0, margin);
+        if (recs.length) $('winStats').innerHTML += '<br>★ New record — ' + recs.join(' · ');
+        const fresh = [];
+        if (G.score[1 - G.winSide] === 0 && Feats.unlock('shutout')) fresh.push('SHUTOUT');
+        if ((st.worstDef || [0, 0])[G.winSide] <= -3 && Feats.unlock('comeback')) fresh.push('COMEBACK');
+        if (((st.bestStreak || [0, 0])[G.winSide] || 0) >= 3 && Feats.unlock('hattrick')) fresh.push('HAT-TRICK');
+        if (Math.round(kmh) >= 60 && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
+        Tour.bump(G.themeId);
+        if (Tour.count() >= THEME_ORDER.length && Feats.unlock('grandtour')) fresh.push('GRAND TOUR');
+        feats.textContent = fresh.length ? '🏆 UNLOCKED — ' + fresh.join(' · ') : '';
+      } else {
+        feats.textContent = '';
+      }
+    } else {
+      $('winFeats').textContent = '';
+    }
   } catch (e) {}
   hideAll(); $('winov').classList.remove('hidden');
+  G.hintLive = false; // match over — the hint never survives a match end
   AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
   // slow theme-colored confetti rain over the win card (DOM — the card
   // is a positioned container; pieces clean themselves up)
@@ -1133,21 +1705,43 @@ function showWin() {
 function togglePause(force, silent) {
   // ONLINE: silent=true applies a pause that arrived over the wire — it must
   // not echo back, or the two clients would ping-pong pause events forever.
-  if (G.state === 'play' || G.state === 'count') {
-    G.pausedFrom = G.state; G.state = 'pause';
+  // Pausing is allowed from 'goal' too: the ceremony is cleared so a frozen
+  // GOAL! banner / slow-mo can't sit under the pause card, and resume replays
+  // the ceremony from its start (goalT=0) rather than a stale timeScale.
+  if (G.state === 'play' || G.state === 'count' || G.state === 'goal') {
+    G.pausedFrom = G.state;
+    if (G.state === 'goal') clearCeremony();
+    G.state = 'pause';
     hideAll(); $('pauseov').classList.remove('hidden');
     AudioSys.ui();
     if (G.mode === 'online' && !silent) Net.sendPause(true);
   } else if (G.state === 'pause' && force !== true) {
     G.state = G.pausedFrom;
     hideAll();
-    if (G.state === 'play' || G.state === 'count') $('topbar').classList.remove('hidden');
+    if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
+    if (G.hintLive) $('hint').classList.remove('hidden'); // hint survives pause/resume
     if (G.mode === 'online' && !silent) Net.sendPause(false);
   }
 }
+// Restart the current match from the pause menu.
+// LOCAL (ai/2p): immediate — startGame resets score, board, stats, and counts
+// down. ONLINE: host authority — the host restarts directly (the countdown
+// event pulls the guest along via Net.onCountdown); the guest sends a
+// restart request and the host performs it, so both sides stay in sync.
+// Never changes net snapshot/input behavior — restart flows through the
+// existing countdown handshake.
+function restartMatch() {
+  AudioSys.ui();
+  if (G.mode === 'online') {
+    if (Net.role === 'host') Net.restartMatchAsHost();
+    else if (Net.wire) Net.wire.sendEv({ t: 'restart-req' });
+    return;
+  }
+  startGame(G.mode, G.difficulty);
+}
 function quitToMenu() {
   if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first — leave() resets mode
-  G.state = 'menu'; G.idleT = 0; G.demo = false;
+  G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
@@ -1155,11 +1749,14 @@ function quitToMenu() {
   resetPositions();
   hideAll(); $('menu').classList.remove('hidden');
   $('topbar').classList.add('hidden');
+  G.hintLive = false; // match over — the hint never survives a match end
+  refreshRecordLines(); // menu record lines reflect the just-finished match
+  refreshTour(); // tour counter + conquered pips reflect the just-finished match
   AudioSys.ui();
 }
 function hideAll() {
   // ONLINE: online overlays are part of the overlay stack too
-  for (const id of ['menu', 'help', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'progress', 'help', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'hint']) $(id).classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
@@ -1210,6 +1807,7 @@ function frame(t) {
   G.nearCd = Math.max(0, G.nearCd - rdt);
   G.dipT = Math.max(0, G.dipT - rdt);
   if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
+  if (G.rattle) { G.rattle.t -= rdt; if (G.rattle.t <= 0) G.rattle = null; }
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
   switch (G.state) {
     case 'menu':
@@ -1239,8 +1837,10 @@ function frame(t) {
       // The guest only drives their own mallet; puck and rival mallet arrive
       // over the wire (dead-reckoned in Net.pump).
       // Near-miss dip: the reserved channel is goals' slow-mo, but a 0.22s
-      // 0.55x dip on a post kiss is a different, smaller beat — never overlaps
-      // the ceremony (state leaves 'play' first).
+      // 0.55x dip on a post kiss — and the ~90ms SMASH slow-mo beat on
+      // SMASH-tier mallet hits — are smaller beats that share this channel
+      // (Math.max, never stacking). Never overlaps the ceremony (state
+      // leaves 'play' first).
       if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
       else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
       updateParts(rdt);
@@ -1359,8 +1959,20 @@ function render() {
     ctx.restore();
   }
 
-  THEME.drawGoalTrim(ctx, 0, PX, CY, GOAL_W);
-  THEME.drawGoalTrim(ctx, 1, PX + PW, CY, GOAL_W);
+  // goal-frame rattle: a hard frame hit visibly shakes the trim for ~0.4s
+  // (fxFlash() gates it for Minimal effects + prefers-reduced-motion; the
+  // jitter itself scales with the Shake setting, like trauma shake)
+  for (let side = 0; side < 2; side++) {
+    const gx = side === 0 ? PX : PX + PW;
+    let ox = 0, oy = 0;
+    if (G.rattle && G.rattle.side === side && fxFlash()) {
+      const j = 4.5 * (G.rattle.t / 0.42) * shakeK();
+      ox = rnd(-1, 1) * j; oy = rnd(-1, 1) * j;
+    }
+    ctx.save(); ctx.translate(ox, oy);
+    THEME.drawGoalTrim(ctx, side, gx, CY, goalW());
+    ctx.restore();
+  }
 
   // goal-frame flash: the scored-on frame lights up in theme gold
   if (G.goalFrameT > 0 && fxFlash()) {
@@ -1368,7 +1980,7 @@ function render() {
     ctx.save();
     ctx.globalAlpha = G.goalFrameT * 0.9;
     ctx.strokeStyle = THEME.gold || '#d8a93f'; ctx.lineWidth = 5;
-    rr(ctx, fgx - 16, CY - GOAL_W / 2 - 16, 32, GOAL_W + 32, 16); ctx.stroke();
+    rr(ctx, fgx - 16, CY - goalW() / 2 - 16, 32, goalW() + 32, 16); ctx.stroke();
     ctx.restore();
   }
   // near-miss post glow: the kissed posts smolder briefly
@@ -1378,7 +1990,7 @@ function render() {
     ctx.globalAlpha = clamp(G.missGlow.t / 0.7, 0, 1) * 0.8;
     ctx.fillStyle = THEME.gold || '#d8a93f';
     for (const sgn of [-1, 1]) {
-      ctx.beginPath(); ctx.arc(mgx, CY + sgn * GOAL_W / 2, 10, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(mgx, CY + sgn * goalW() / 2, 10, 0, TAU); ctx.fill();
     }
     ctx.restore();
   }
@@ -1620,261 +2232,3 @@ function drawMallet(c, m) {
   c.beginPath(); c.arc(m.x, m.y, r * 0.30, 0, TAU); c.fill();
   c.restore();
 }
-
-// ---------- themes ----------
-const THEME_ORDER = ['deco', 'mid', 'brut', 'bil', 'mem', 'sashi'];
-function setTheme(id, silent) {
-  if (!THEMES[id]) id = 'deco';
-  THEME = THEMES[id];
-  document.querySelectorAll('.tslide').forEach(el => {
-    el.classList.toggle('sel', el.dataset.theme === id);
-    el.setAttribute('aria-selected', el.dataset.theme === id ? 'true' : 'false');
-  });
-  carSync(id);
-  const css = THEME.css, root = document.documentElement.style;
-  root.setProperty('--pagebg', css.pageBg);
-  root.setProperty('--panel', css.panelBg);
-  root.setProperty('--pline', css.panelBorder);
-  root.setProperty('--btnbg', css.btnBg);
-  root.setProperty('--btnink', css.btnInk);
-  root.setProperty('--title', css.title);
-  root.setProperty('--sub', css.sub);
-  root.setProperty('--ghost', css.ghost);
-  root.setProperty('--display', THEME.font.display);
-  root.setProperty('--body', THEME.font.body);
-  document.title = THEME.name + ' — Atelier Air Hockey';
-  paintRoom();
-  if (!silent) AudioSys.ui();
-}
-function paintThumbnails() {
-  document.querySelectorAll('canvas[data-thumb]').forEach(cv => {
-    const id = cv.dataset.thumb, T = THEMES[id];
-    if (!T) return;
-    const c = cv.getContext('2d');
-    const W = cv.width, H = cv.height;
-    const k = Math.min(W / VW, H / VH);
-    c.save();
-    c.scale(k, k);
-    c.translate((W / k - VW) / 2, (H / k - VH) / 2);
-    T.drawRoom(c);
-    c.save();
-    c.shadowColor = 'rgba(0,0,0,0.5)'; c.shadowBlur = 18; c.shadowOffsetY = 8;
-    c.fillStyle = '#000'; rr(c, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 34); c.fill();
-    c.restore();
-    T.drawRails(c); T.drawSurface(c); T.drawMarkings(c);
-    T.drawGoalTrim(c, 0, PX, CY, GOAL_W); T.drawGoalTrim(c, 1, PX + PW, CY, GOAL_W);
-    // a mid-rally vignette: puck streaking, mallets poised
-    c.save();
-    c.strokeStyle = T.trail; c.globalAlpha = 0.5; c.lineWidth = 7; c.lineCap = 'round';
-    c.beginPath(); c.moveTo(CX - 190, CY + 60); c.quadraticCurveTo(CX, CY - 40, CX + 150, CY + 20); c.stroke();
-    c.restore();
-    const S = T.puck;
-    const g = c.createRadialGradient(CX + 145, CY + 14, 2, CX + 150, CY + 20, PUCK_R);
-    g.addColorStop(0, S.hi); g.addColorStop(0.55, S.body); g.addColorStop(1, S.edge);
-    c.fillStyle = g;
-    c.beginPath(); c.arc(CX + 150, CY + 20, PUCK_R, 0, TAU); c.fill();
-    c.lineWidth = 2.5; c.strokeStyle = S.ring; c.stroke();
-    const M = T.mallet;
-    const mg = c.createRadialGradient(CX - 285, CY + 108, 4, CX - 290, CY + 114, MALLET_R);
-    mg.addColorStop(0, M.hi); mg.addColorStop(0.6, M.base); mg.addColorStop(1, M.edge);
-    c.fillStyle = mg;
-    c.beginPath(); c.arc(CX - 290, CY + 114, MALLET_R, 0, TAU); c.fill();
-    c.lineWidth = 3; c.strokeStyle = M.ring; c.stroke();
-    c.fillStyle = M.knob;
-    c.beginPath(); c.arc(CX - 290, CY + 114, MALLET_R * 0.3, 0, TAU); c.fill();
-    c.restore();
-  });
-}
-
-// ---------- settings ----------
-function setSetting(key, val) {
-  if (key === 'sound' || key === 'haptics') val = (val === 'true');
-  if (key === 'firstTo') val = parseInt(val, 10);
-  Settings[key] = val; saveSettings(); applySettingsToUI();
-}
-function applySettingsToUI() {
-  document.querySelectorAll('[data-set]').forEach(btn => {
-    btn.classList.toggle('sel', String(Settings[btn.dataset.set]) === btn.dataset.val);
-  });
-  AudioSys.muted = !Settings.sound;
-  const sb = $('btnSound');
-  if (sb) {
-    sb.classList.toggle('off', !Settings.sound);
-    sb.innerHTML = Settings.sound ? '&#9834;' : '&#215;';
-  }
-  const ff = $('footFirst');
-  if (ff) ff.innerHTML = 'First to <b>' + Settings.firstTo + '</b> takes the table';
-  const hf = $('helpFirst');
-  if (hf) hf.textContent = Settings.firstTo;
-}
-
-// ---------- UI wiring ----------
-/* table carousel: slides are built from THEME_ORDER so markup stays
-   a single source of truth; scroll position <-> selected theme. */
-let carGuard = false; // true while we scroll programmatically
-function buildCarousel() {
-  const track = $('carTrack'), dots = $('carDots');
-  if (!track || track.children.length) return;
-  THEME_ORDER.forEach((id, i) => {
-    const T = THEMES[id];
-    const d = document.createElement('div');
-    d.className = 'tslide'; d.dataset.theme = id;
-    d.setAttribute('role', 'option'); d.tabIndex = 0;
-    d.setAttribute('aria-label', T.name + ' table');
-    d.innerHTML = '<canvas data-thumb="' + id + '" width="640" height="400"></canvas>' +
-      '<div class="tmeta"><div class="tname">' + T.name + '</div>' +
-      '<div class="tsub">' + T.tagline + '</div></div>';
-    const pick = () => { AudioSys.init(); setTheme(id); };
-    d.addEventListener('click', pick);
-    d.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
-      if (e.key === 'ArrowRight') carStep(1);
-      if (e.key === 'ArrowLeft') carStep(-1);
-    });
-    track.appendChild(d);
-    const dot = document.createElement('i');
-    dot.addEventListener('click', () => carGo(i));
-    dots.appendChild(dot);
-  });
-  let raf = 0;
-  track.addEventListener('scroll', () => {
-    if (carGuard) return;
-    cancelAnimationFrame(raf);
-    raf = requestAnimationFrame(carFromScroll);
-  }, { passive: true });
-}
-function carIndex() {
-  const track = $('carTrack');
-  if (!track || !track.children.length) return 0;
-  const w = track.children[0].offsetWidth + 12;
-  return Math.round(track.scrollLeft / w);
-}
-function carFromScroll() {
-  const i = Math.max(0, Math.min(THEME_ORDER.length - 1, carIndex()));
-  if (THEMES[THEME_ORDER[i]] !== THEME) setTheme(THEME_ORDER[i]);
-  else carPaint(i);
-}
-function carPaint(i) {
-  const dots = $('carDots');
-  if (dots) [...dots.children].forEach((d, j) => d.classList.toggle('sel', j === i));
-  const cc = $('carCount');
-  if (cc) cc.textContent = (i + 1) + ' / ' + THEME_ORDER.length;
-}
-function carGo(i) {
-  const track = $('carTrack');
-  if (!track || !track.children.length) return;
-  i = (i + THEME_ORDER.length) % THEME_ORDER.length;
-  const w = track.children[0].offsetWidth + 12;
-  carGuard = true;
-  track.scrollTo({ left: i * w, behavior: 'smooth' });
-  setTimeout(() => { carGuard = false; }, 450);
-  setTheme(THEME_ORDER[i]);
-}
-function carStep(d) { carGo(carIndex() + d); }
-/* called by setTheme — scrolls the track when the theme changed
-   from anywhere else (deep link, settings restore). */
-function carSync(id) {
-  const i = THEME_ORDER.indexOf(id);
-  carPaint(Math.max(0, i));
-  const track = $('carTrack');
-  if (!track || !track.children.length || i < 0) return;
-  const w = track.children[0].offsetWidth + 12;
-  if (Math.abs(track.scrollLeft - i * w) > 4) {
-    carGuard = true;
-    track.scrollTo({ left: i * w });
-    setTimeout(() => { carGuard = false; }, 120);
-  }
-}
-function wireUI() {
-  buildCarousel();
-  $('carPrev').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(-1); });
-  $('carNext').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(1); });
-  document.querySelectorAll('[data-diff]').forEach(btn => {
-    btn.addEventListener('click', () => startGame('ai', +btn.dataset.diff));
-  });
-  $('btn2p').addEventListener('click', () => startGame('2p'));
-  // ONLINE: the only entry point that touches the network — the Trystero
-  // import happens inside, on the tap, never before.
-  $('btnOnline').addEventListener('click', () => Net.openLobby());
-  document.querySelectorAll('[data-set]').forEach(btn => {
-    btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); setSetting(btn.dataset.set, btn.dataset.val); });
-  });
-  $('btnSettings').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('settings').classList.remove('hidden'); });
-  $('settingsClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
-  $('btnHelp').addEventListener('click', () => { AudioSys.ui(); applySettingsToUI(); hideAll(); $('help').classList.remove('hidden'); });
-  $('helpClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
-  $('btnPause').addEventListener('click', () => togglePause());
-  $('btnResume').addEventListener('click', () => togglePause());
-  $('btnQuit').addEventListener('click', quitToMenu);
-  // ONLINE: rival-left overlay — back to the menu (leave() runs inside quitToMenu)
-  $('dropMenu').addEventListener('click', quitToMenu);
-  $('btnRematch').addEventListener('click', () => {
-    AudioSys.ui();
-    // ONLINE: a rematch needs the rival's accept — the host restarts on accept
-    if (G.mode === 'online') Net.offerRematch();
-    else startGame(G.mode, G.difficulty);
-  });
-  $('btnWinMenu').addEventListener('click', quitToMenu);
-  $('btnMenu2').addEventListener('click', quitToMenu);
-  $('btnSound').addEventListener('click', () => {
-    AudioSys.init();
-    setSetting('sound', String(!Settings.sound)); // persists; button UI syncs via applySettingsToUI
-  });
-  window.addEventListener('keydown', e => {
-    if (e.key === 'p' || e.key === 'P') togglePause();
-    else if (e.key === 'm' || e.key === 'M') $('btnSound').click();
-    else if (e.key === 'Escape') {
-      if (G.state === 'pause') togglePause();
-      else if (G.state === 'play' || G.state === 'count') togglePause(true);
-      else if (!$('help').classList.contains('hidden')) $('helpClose').click();
-      else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
-    }
-  });
-  canvas.addEventListener('pointerdown', onPointerDown);
-  window.addEventListener('pointermove', onPointerMove, { passive: true });
-  window.addEventListener('pointerup', onPointerUp);
-  window.addEventListener('pointercancel', onPointerUp);
-  canvas.addEventListener('contextmenu', e => e.preventDefault());
-  let rzT = 0;
-  const onResize = () => {
-    clearTimeout(rzT);
-    rzT = setTimeout(resize, 60);
-    resize();
-  };
-  window.addEventListener('resize', onResize);
-  window.addEventListener('orientationchange', onResize);
-  if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
-  document.addEventListener('gesturestart', e => e.preventDefault());
-}
-
-// ---------- boot ----------
-function boot() {
-  loadSettings();
-  // accessibility: prefers-reduced-motion drops Shake to Subtle for the
-  // session — unless the player explicitly chose a shake level — and
-  // fxFlash() kills flashes, confetti, and room reactivity from then on.
-  try {
-    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      PRM.reduce = true;
-      if (!PRM.userShake) Settings.shake = 'subtle';
-    }
-  } catch (e) {}
-  resize(); wireUI(); applySettingsToUI();
-  setTheme('deco', true);
-  try { paintThumbnails(); } catch (e) { /* thumbnails must never break the game */ }
-  resetPositions();
-  G.ai1 = mkBrain(0, 1); G.ai2 = mkBrain(1, 1);
-  // deep links: ?table=mid&play , ?table=bil&2p , ?demo
-  try {
-    const q = new URLSearchParams(location.search);
-    if (q.get('table') && THEMES[q.get('table')]) setTheme(q.get('table'), true);
-    if (q.has('play')) startGame('ai', G.difficulty);
-    else if (q.has('2p')) startGame('2p');
-    else if (q.has('demo')) { G.idleT = 99; }
-    // ONLINE: ?netstub forces the loopback room for headless testing — no
-    // network is touched, Trystero is never imported.
-    if (q.has('netstub')) Net.useLoopback = true;
-  } catch (e) {}
-  requestAnimationFrame(frame);
-}
-document.addEventListener('DOMContentLoaded', boot);
