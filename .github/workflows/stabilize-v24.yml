@@ -3,8 +3,7 @@ on:
   push:
     branches: [stabilization-v24]
     paths:
-      - scripts/stabilize_v24.py
-      - scripts/run_stabilize_v24.py
+      - scripts/post_stabilize_v24.py
       - .github/workflows/stabilize-v24.yml
   workflow_dispatch:
 permissions:
@@ -16,16 +15,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: stabilization-v24
-      - name: Apply stabilization migration
-        run: python3 scripts/run_stabilize_v24.py
+      - name: Apply final hardening
+        run: python3 scripts/post_stabilize_v24.py
       - name: Verify generated sources
-        run: |
-          node scripts/build.mjs
-          node scripts/check.mjs
-          node --check src/themes.js
-          node --check src/scoreboards.js
-          node --check src/app.js
-      - name: Commit migration output
+        run: npm test
+      - name: Commit hardening output
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -34,5 +28,5 @@ jobs:
             echo "No generated changes"
             exit 0
           fi
-          git commit -m "v24: stabilize architecture, gameplay, networking and UX"
+          git commit -m "v24: harden online runtime and finish modular source split"
           git push origin HEAD:stabilization-v24
