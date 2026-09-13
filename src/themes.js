@@ -79,6 +79,9 @@ const THEME_DECO = {
   ink: '#e9d9a6', accent: '#d8a93f', gold: '#d8a93f', particle: '#e8c86a', trail: '#d8a93f',
   flash: 'rgba(216,169,63,1)', vignette: 'rgba(0,0,0,0.5)',
   goalChord: [523.25, 659.25, 783.99, 1046.5],
+  scoreboard: 'solari',
+  board: { housing: '#26262b', housingHi: '#3d3a30', flap: '#141311', ink: '#f0e6cc',
+           accent: '#c9a227', plate: '#8a6d2f', plateInk: '#241a10' },
   puck: { hi: '#4a4a52', body: '#232328', edge: '#0b0b0d', ring: '#c9a227' },
   mallet: { hi: '#5a5a62', base: '#26262c', edge: '#0c0c0e', ring: '#c9a227', dish: '#17171b', dishHi: '#33333b', knob: '#a8842f', knobHi: '#e8c86a' },
   css: { pageBg: '#070606', panelBg: 'rgba(18,14,10,0.94)', panelBorder: '#8a6d2f', btnBg: '#c9a227', btnInk: '#14100a', title: '#e9d9a6', sub: '#9a8a68', ghost: 'rgba(201,162,39,0.16)' },
@@ -156,41 +159,6 @@ const THEME_DECO = {
     ctx.beginPath(); ctx.arc(x, cy + w / 2, 5, 0, TAU); ctx.fill();
     ctx.restore();
   },
-  drawScore(ctx, s0, s1, target) {
-    // brass abacus — bead count follows the match target
-    const N = target || 7;
-    const w = 320, h = 46, x = CX - w / 2, y = 8;
-    ctx.save();
-    rr(ctx, x, y, w, h, 10);
-    const g = ctx.createLinearGradient(x, y, x, y + h);
-    g.addColorStop(0, '#3a2a1c'); g.addColorStop(1, '#241a10');
-    ctx.fillStyle = g; ctx.fill();
-    ctx.strokeStyle = '#8a6d2f'; ctx.lineWidth = 2; ctx.stroke();
-    const rodY = y + h / 2;
-    ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(x + 38, rodY); ctx.lineTo(x + w - 38, rodY); ctx.stroke();
-    const scores = [s0, s1];
-    for (let side = 0; side < 2; side++) {
-      const n = Math.min(N, scores[side]);
-      const dir = side === 0 ? -1 : 1;
-      const baseX = CX + dir * 16;
-      const step = N > 7 ? 96 / (N - 1) : 14;   // counted-bead spacing
-      const wait = N > 7 ? step * 0.8 : 12;      // waiting-bead spacing
-      for (let i = 0; i < N; i++) {
-        const counted = i < n;
-        const bx = counted ? CX + dir * (16 + i * step) : CX + dir * (112 - (N - 1 - i) * wait);
-        const bg = ctx.createRadialGradient(bx - 3, rodY - 4, 1, bx, rodY, 10);
-        bg.addColorStop(0, counted ? '#f0d488' : '#6a5a3a');
-        bg.addColorStop(1, counted ? '#a8842f' : '#2c2416');
-        ctx.fillStyle = bg;
-        ctx.beginPath(); ctx.arc(bx, rodY, 9.5, 0, TAU); ctx.fill();
-      }
-      ctx.fillStyle = '#e9d9a6'; ctx.font = '600 15px ' + THEME.font.display;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(side === 0 ? 'YOU' : 'CPU', x + (side === 0 ? 34 : w - 34), rodY);
-    }
-    ctx.restore();
-  }
 };
 
 /* ================= 2. MID-CENTURY ================= */
@@ -200,6 +168,9 @@ const THEME_MID = {
   ink: '#4a3826', accent: '#c96a2e', gold: '#b98a2f', particle: '#e0955a', trail: '#c96a2e',
   flash: 'rgba(201,106,46,1)', vignette: 'rgba(60,35,15,0.35)',
   goalChord: [392, 523.25, 659.25, 783.99],
+  scoreboard: 'reels',
+  board: { frame: '#f5f0e6', frameEdge: '#6b4a2e', drum: '#f7f2e7',
+           drumShade: '#d9d2bd', ink: '#2b2118', jewel: '#c0392b' },
   puck: { hi: '#e06a5a', body: '#b03a2e', edge: '#7c231b', ring: '#f0e6d2' },
   mallet: { hi: '#a9764a', base: '#7a4f2c', edge: '#4a2f18', ring: '#f0e6d2', dish: '#5e3c21', dishHi: '#8a5c34', knob: '#b98a2f', knobHi: '#e8c86a' },
   css: { pageBg: '#14100b', panelBg: 'rgba(32,24,16,0.94)', panelBorder: '#b98a2f', btnBg: '#c96a2e', btnInk: '#fff8ec', title: '#f0e6d2', sub: '#b09a78', ghost: 'rgba(201,106,46,0.16)' },
@@ -277,37 +248,6 @@ const THEME_MID = {
     ctx.beginPath(); ctx.arc(x, cy + w / 2 + 4, 6, 0, TAU); ctx.fill();
     ctx.restore();
   },
-  drawScore(ctx, s0, s1, target) {
-    // bead string scorer — bead count follows the match target
-    const N = target || 7;
-    const w = 320, h = 50, x = CX - w / 2, y = 6;
-    ctx.save();
-    rr(ctx, x, y, w, h, 12);
-    ctx.fillStyle = 'rgba(24,17,11,0.85)'; ctx.fill();
-    ctx.strokeStyle = '#b98a2f'; ctx.lineWidth = 2; ctx.stroke();
-    const rodY = y + h / 2 + 2;
-    const scores = [s0, s1];
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (let side = 0; side < 2; side++) {
-      const dir = side === 0 ? -1 : 1;
-      ctx.strokeStyle = '#8a6f4d'; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.moveTo(CX + dir * 24, rodY); ctx.lineTo(CX + dir * 118, rodY); ctx.stroke();
-      const step = N > 7 ? 78 / (N - 1) : 13;   // counted-bead spacing
-      const wait = N > 7 ? step * 0.8 : 10;     // waiting-bead spacing
-      for (let i = 0; i < N; i++) {
-        const counted = i < Math.min(N, scores[side]);
-        const bx = counted ? CX + dir * (24 + i * step) : CX + dir * (108 - (N - 1 - i) * wait);
-        const cols = counted ? ['#e0955a', '#a34e22'] : ['#6a5a44', '#3a3026'];
-        const bg = ctx.createRadialGradient(bx - 3, rodY - 4, 1, bx, rodY, 9);
-        bg.addColorStop(0, cols[0]); bg.addColorStop(1, cols[1]);
-        ctx.fillStyle = bg;
-        ctx.beginPath(); ctx.arc(bx, rodY, 8.5, 0, TAU); ctx.fill();
-      }
-      ctx.fillStyle = '#f0e6d2'; ctx.font = '600 14px ' + THEME.font.display;
-      ctx.fillText(side === 0 ? 'YOU' : 'CPU', x + (side === 0 ? 36 : w - 36), rodY);
-    }
-    ctx.restore();
-  }
 };
 
 /* ================= 3. BRUTALIST ================= */
@@ -317,6 +257,9 @@ const THEME_BRUT = {
   ink: '#f2f2f0', accent: '#ff4d00', gold: '#ff4d00', particle: '#ff7a33', trail: '#ff4d00',
   flash: 'rgba(255,77,0,1)', vignette: 'rgba(0,0,0,0.5)',
   goalChord: [220, 277.18, 329.63, 440],
+  scoreboard: 'bulbs',
+  board: { cab: '#232527', cabHi: '#3a3d40', bulb: '#ffcf7a',
+           bulbDim: '#333638', bolt: '#101112' },
   puck: { hi: '#5a5e63', body: '#2e3134', edge: '#101112', ring: '#ff4d00' },
   mallet: { hi: '#c9ccce', base: '#8f9397', edge: '#4c4f52', ring: '#ff4d00', dish: '#6e7276', dishHi: '#a8acaf', knob: '#1c1d1f', knobHi: '#4c4f52' },
   css: { pageBg: '#0c0d0e', panelBg: 'rgba(16,17,18,0.96)', panelBorder: '#ff4d00', btnBg: '#ff4d00', btnInk: '#101112', title: '#f2f2f0', sub: '#8f9397', ghost: 'rgba(255,77,0,0.14)' },
@@ -401,29 +344,6 @@ const THEME_BRUT = {
     for (let y = cy - w / 2 - 6; y < cy + w / 2 + 6; y += 16) ctx.fillRect(x - 4, y, 8, 8);
     ctx.restore();
   },
-  drawScore(ctx, s0, s1, target) {
-    // stark grotesk numerals
-    const t = target || 7;
-    ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '64px ' + THEME.font.display;
-    const label = String(s0).padStart(2, '0') + ' : ' + String(s1).padStart(2, '0');
-    const x = CX, y = 34;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillText(label, x + 3, y + 4);
-    ctx.fillStyle = '#f2f2f0';
-    ctx.fillText(label, x, y);
-    // orange index bar under score
-    const frac = Math.max(s0, s1) / t;
-    ctx.fillStyle = '#ff4d00';
-    ctx.fillRect(x - 90, y + 34, 180 * frac, 5);
-    ctx.strokeStyle = 'rgba(242,242,240,0.35)'; ctx.lineWidth = 1;
-    ctx.strokeRect(x - 90, y + 34, 180, 5);
-    ctx.font = '600 11px ' + THEME.font.body;
-    ctx.fillStyle = '#8f9397';
-    ctx.fillText('FIRST TO ' + t, x, y + 52);
-    ctx.restore();
-  }
 };
 
 /* ================= 4. BILLIARD HERITAGE ================= */
@@ -433,6 +353,9 @@ const THEME_BIL = {
   ink: '#ecdfc2', accent: '#c9a227', gold: '#c9a227', particle: '#e8d488', trail: '#c9a227',
   flash: 'rgba(201,162,39,1)', vignette: 'rgba(10,5,2,0.5)',
   goalChord: [329.63, 440, 523.25, 659.25],
+  scoreboard: 'cribbage',
+  board: { board: '#5a3a22', boardHi: '#7a5230', hole: '#160e06',
+           peg: '#d8a93f', pegHi: '#f4dfa0', ring: '#c9a227' },
   puck: { hi: '#fffdf4', body: '#ece5d3', edge: '#b8ac8e', ring: '#1d5c40' },
   mallet: { hi: '#7a4a34', base: '#4a2a1e', edge: '#241209', ring: '#c9a227', dish: '#382015', dishHi: '#5c3a28', knob: '#e8dcc0', knobHi: '#fffdf4' },
   css: { pageBg: '#0d0805', panelBg: 'rgba(24,15,9,0.95)', panelBorder: '#8a6d2f', btnBg: '#c9a227', btnInk: '#1a1008', title: '#ecdfc2', sub: '#a89468', ghost: 'rgba(201,162,39,0.14)' },
@@ -511,25 +434,6 @@ const THEME_BIL = {
     rr(ctx, x - 4, cy - w / 2 - 4, 8, w + 8, 4); ctx.fill();
     ctx.restore();
   },
-  drawScore(ctx, s0, s1, target) {
-    // chalkboard plaque
-    const t = target || 7;
-    const w = 300, h = 54, x = CX - w / 2, y = 6;
-    ctx.save();
-    rr(ctx, x, y, w, h, 6);
-    ctx.fillStyle = '#14100c'; ctx.fill();
-    ctx.strokeStyle = '#8a6d2f'; ctx.lineWidth = 3; ctx.stroke();
-    ctx.strokeStyle = 'rgba(201,162,39,0.4)'; ctx.lineWidth = 1;
-    rr(ctx, x + 5, y + 5, w - 10, h - 10, 4); ctx.stroke();
-    ctx.fillStyle = 'rgba(236,229,211,0.92)';
-    ctx.font = '700 30px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(s0 + '  —  ' + s1, CX, y + h / 2 + 1);
-    ctx.font = 'italic 12px ' + THEME.font.body;
-    ctx.fillStyle = 'rgba(168,148,104,0.9)';
-    ctx.fillText('first to ' + t, CX, y + h - 2);
-    ctx.restore();
-  }
 };
 
 const THEMES = { deco: THEME_DECO, mid: THEME_MID, brut: THEME_BRUT, bil: THEME_BIL };

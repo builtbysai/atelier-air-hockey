@@ -170,13 +170,14 @@ const G = {
   timeScale: 1, freezeT: 0,
   trauma: 0,
   countT: 0, countN: 3, goalT: 0, goalSlowT: 0, goalSide: 0,
-  stallT: 0, lastTouch: -1,
+  stallT: 0, stallX: CX, stallY: CY, anchorT: 0, lastTouch: -1,
   idleT: 0, demo: false,
   serveDir: 1,
   pausedFrom: 'play',
   scuffs: [], parts: [], trail: [], texts: [],
   puckSq: 1, puckSqA: 0,    // squash amount / angle
   letterT: 0, flashA: 0,
+  board: freshBoard(),      // scoreboard animation state
   ai: null,                 // per-ai brain state
   stats: null,              // per-match stats (top speed, rally, time)
 };
@@ -198,6 +199,7 @@ function resetPositions() {
   m1.vx = m1.vy = m2.vx = m2.vy = 0;
   G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R };
   G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
+  G.stallX = CX; G.stallY = CY; G.anchorT = 0;
   G.puckSq = 1;
 }
 G.m1 = mkMallet(0); G.m2 = mkMallet(1);
@@ -224,6 +226,24 @@ function resize() {
     view.ox = (w - VH * view.s) / 2; view.oy = (h - VW * view.s) / 2;
   }
   view.dpr = dpr;
+  paintRoom();
+}
+// pre-render the theme's room to an offscreen canvas (screen space)
+function paintRoom() {
+  const w = view.w, h = view.h, dpr = view.dpr || 1;
+  if (!w || !h) return;
+  const c = document.createElement('canvas');
+  c.width = Math.max(2, Math.round(w * dpr));
+  c.height = Math.max(2, Math.round(h * dpr));
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  if (THEME.paintRoom) THEME.paintRoom(g, w, h);
+  else {
+    const bg = g.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#141414'); bg.addColorStop(1, '#080808');
+    g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  }
+  G.roomCanvas = c;
 }
 // client px -> rink coords (inverse of render transform)
 function screenToRink(cx, cy) {
@@ -387,6 +407,21 @@ function stepPhysics(dt) {
 // attract demo so neither can freeze mid-rink.
 function stallWatch(dt) {
   const p = G.puck;
+  // displacement anchor: a pinned puck (constant mallet contact keeps
+  // resetting stallT below) still counts as stalled if it goes nowhere.
+  // The nudge aims at open ice, not random — it reads as the table
+  // breathing, not a glitch.
+  if (hyp(p.x - G.stallX, p.y - G.stallY) > 90) {
+    G.stallX = p.x; G.stallY = p.y; G.anchorT = 0;
+  } else {
+    G.anchorT += dt;
+    if (G.anchorT > 2.6) {
+      G.anchorT = 0; G.stallX = p.x; G.stallY = p.y;
+      const dx = CX - p.x, dy = CY - p.y, dl = hyp(dx, dy) || 1;
+      p.vx = dx / dl * 430; p.vy = dy / dl * 430;
+      airPuff(p.x, p.y);
+    }
+  }
   const sp = hyp(p.vx, p.vy);
   if (sp < STALL_V) {
     G.stallT += dt;
@@ -410,7 +445,7 @@ function mkBrain(side, diffIdx) {
     side, diff: DIFFS[diffIdx],
     state: 'guard', tState: 0, tickT: 0,
     aimX: 0, aimY: 0, windT: 0,
-    cornerT: 0, swayT: rnd(10), possessT: 0,
+    pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
     seen: { x: CX, y: CY, vx: 0, vy: 0 }, // delayed perception
     hist: [], // puck history for reaction delay
   };
@@ -463,6 +498,21 @@ function aiThink(b, dt, m) {
   };
   const goHome = () => { const h = aiHome(b); setTx(h.x, h.y); };
 
+  // pin rescue: if I'm smothering the puck into my corner and it hasn't gone
+  // anywhere, I'm the trap — back off and dig it out. Speed-based checks
+  // fail here because a pinned puck jitters fast between mallet and rail.
+  if (b.state !== 'windup' && b.state !== 'strike') {
+    const myCorner = b.side === 0
+      ? (p.x < PX + 210 && (p.y < PY + 210 || p.y > PY + PH - 210))
+      : (p.x > PX + PW - 210 && (p.y < PY + 210 || p.y > PY + PH - 210));
+    const smothering = hyp(p.x - m.x, p.y - m.y) < MALLET_R + PUCK_R + 46;
+    if (myCorner && smothering) {
+      if (hyp(p.x - b.pinX, p.y - b.pinY) > 120) { b.pinX = p.x; b.pinY = p.y; b.pinT = 0; }
+      b.pinT += D.tick;
+      if (b.pinT > 0.8 && b.state !== 'escape') { b.state = 'escape'; b.tState = 0; b.pinT = 0; }
+    } else { b.pinT = 0; b.pinX = p.x; b.pinY = p.y; }
+  }
+
   switch (b.state) {
     case 'guard': {
       goHome();
@@ -500,12 +550,6 @@ function aiThink(b, dt, m) {
         }
       }
       if (!puckOnMySide || puckSpeed > 1700) { b.state = 'guard'; b.tState = 0; b.possessT = 0; }
-      // corner rescue: puck wedged in my corner
-      const inCorner = b.side === 0
-        ? (s.x < PX + 150 && (s.y < PY + 150 || s.y > PY + PH - 150))
-        : (s.x > PX + PW - 150 && (s.y < PY + 150 || s.y > PY + PH - 150));
-      if (inCorner && puckSpeed < 260) { b.cornerT += D.tick; if (b.cornerT > 0.9) { b.state = 'escape'; b.tState = 0; b.cornerT = 0; } }
-      else b.cornerT = 0;
       break;
     }
     case 'windup': {
@@ -538,10 +582,16 @@ function aiThink(b, dt, m) {
       break;
     }
     case 'escape': {
-      // swipe along the rail to dig the puck out of the corner
-      const dir = s.y < CY ? 1 : -1;
-      setTx(s.x + (b.side === 0 ? 60 : -60), s.y + dir * 170);
-      if (b.tState > 0.5) { b.state = 'guard'; b.tState = 0; }
+      // two-beat dig-out: first back off to release the pin, then drive
+      // through the puck toward open ice
+      if (b.tState < 0.32) {
+        const h = aiHome(b);
+        setTx(m.x + (h.x - m.x) * 0.85, m.y + (h.y - m.y) * 0.85);
+      } else {
+        const dx = CX - p.x, dy = CY - p.y, dl = hyp(dx, dy) || 1;
+        setTx(p.x + dx / dl * 160, p.y + dy / dl * 160);
+      }
+      if (b.tState > 0.9) { b.state = 'guard'; b.tState = 0; }
       break;
     }
   }
@@ -646,13 +696,23 @@ function onRailHit(x, y, impact) {
   AudioSys.rail(v);
 }
 
+// ---------- state management ----------
+// Ceremony flags (letterbox, flash, slow-mo) belong to the 'goal' state.
+// Every exit path funnels through clearCeremony so a mid-ceremony quit,
+// restart, or win can never leave GOAL! / slow-mo stuck on screen.
+function clearCeremony() {
+  G.letterT = 0; G.flashA = 0; G.goalT = 0; G.goalSlowT = 0;
+  G.timeScale = 1;
+}
 // ---------- game flow ----------
 function startGame(mode, diff) {
   AudioSys.init(); AudioSys.resume();
   G.mode = mode; G.difficulty = diff == null ? G.difficulty : diff;
   G.score = [0, 0]; G.winSide = 0;
   G.demo = false; G.idleT = 0;
-  G.timeScale = 1; G.freezeT = 0; G.trauma = 0;
+  clearCeremony();
+  G.freezeT = 0; G.trauma = 0;
+  G.board = freshBoard();
   G.scuffs.length = 0; G.texts.length = 0;
   resetPositions();
   G.ai2 = mkBrain(1, G.difficulty);
@@ -683,7 +743,6 @@ function updateCount(rdt) {
   }
 }
 function onGoal(scorer) {
-  if (G.state !== 'play') return;
   if (G.demo) { // attract mode: no ceremony, just play on
     burst(G.puck.x, G.puck.y, 24, THEME.particle, 420);
     AudioSys.hit(0.8);
@@ -691,13 +750,16 @@ function onGoal(scorer) {
     G.puck.vx = paceServe() * (Math.random() < 0.5 ? 1 : -1);
     return;
   }
+  if (G.state !== 'play') return;
   G.score[scorer]++;
+  boardKick(scorer);
   G.goalSide = scorer;
   if (G.stats) G.stats.rally = 0; // new rally after each goal
   G.state = 'goal';
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
   G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
   G.flashA = 1;
+  $('topbar').classList.add('hidden'); // ceremony is cinematic — no mis-taps
   const gx = scorer === 0 ? PX + PW : PX;
   burst(gx, CY, 46, THEME.particle, 620, 4.5);
   burst(gx, CY, 20, '#ffffff', 380, 3);
@@ -718,7 +780,7 @@ function updateGoal(rdt) {
   p.y = lerp(p.y, CY, clamp(rdt * 5, 0, 1));
   p.vx *= 0.9; p.vy *= 0.9;
   if (G.goalT > 2.2) {
-    G.timeScale = 1; G.letterT = 0; G.flashA = 0;
+    clearCeremony();
     if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
       G.winSide = G.score[0] > G.score[1] ? 0 : 1;
       G.state = 'win';
@@ -726,11 +788,14 @@ function updateGoal(rdt) {
     } else {
       resetPositions();
       G.serveDir = G.goalSide === 0 ? 1 : -1;
+      $('topbar').classList.remove('hidden');
       startCount();
     }
   }
 }
 function showWin() {
+  clearCeremony(); // defensive: no ceremony visuals leak under the overlay
+  $('topbar').classList.add('hidden');
   const you = G.winSide === 0;
   $('winTitle').textContent = G.mode === '2p'
     ? (you ? 'Player One wins' : 'Player Two wins')
@@ -761,7 +826,9 @@ function togglePause(force) {
 }
 function quitToMenu() {
   G.state = 'menu'; G.idleT = 0; G.demo = false;
-  G.timeScale = 1; G.trauma = 0;
+  clearCeremony();
+  G.freezeT = 0; G.trauma = 0;
+  G.board = freshBoard();
   pointers.clear();
   resetPositions();
   hideAll(); $('menu').classList.remove('hidden');
@@ -809,6 +876,7 @@ function frame(t) {
   lastT = t;
   if (G.freezeT > 0) { G.freezeT -= rdt; render(); return; } // hit-stop
   G.trauma = Math.max(0, G.trauma - rdt * 1.7);
+  tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
   switch (G.state) {
     case 'menu':
       G.idleT += rdt; G.demo = G.idleT > 5;
@@ -858,14 +926,15 @@ function easeOutBack(t) { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1
 
 function render() {
   const dpr = view.dpr || 1, w = view.w, h = view.h, s = view.s;
+  // the room: pre-rendered on theme change / resize — one drawImage, no shake
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (G.roomCanvas) ctx.drawImage(G.roomCanvas, 0, 0, w, h);
+  else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); }
   // trauma shake: slight rotation + translation (rotation reads as force)
   const sh = shakeOffset();
   ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
   if (!view.portrait) { ctx.translate(view.ox, view.oy); ctx.scale(s, s); }
   else ctx.transform(0, -s, -s, 0, view.ox + s * VH, view.oy + s * VW);
-
-  THEME.drawRoom(ctx);
 
   // goal zoom: ease toward the mouth during the ceremony (playfield only)
   ctx.save();
@@ -986,7 +1055,7 @@ function render() {
     ctx.restore();
   }
 
-  THEME.drawScore(ctx, G.score[0], G.score[1], Settings.firstTo);
+  drawScoreboard(ctx);
 
   // match-point ribbon — theme-agnostic, sits under the scoreboard
   if ((G.state === 'play' || G.state === 'count') && !G.demo) {
@@ -1069,12 +1138,15 @@ function drawMallet(c, m) {
 }
 
 // ---------- themes ----------
+const THEME_ORDER = ['deco', 'mid', 'brut', 'bil', 'mem', 'sashi'];
 function setTheme(id, silent) {
   if (!THEMES[id]) id = 'deco';
   THEME = THEMES[id];
-  document.querySelectorAll('.tablecard').forEach(el => {
+  document.querySelectorAll('.tslide').forEach(el => {
     el.classList.toggle('sel', el.dataset.theme === id);
+    el.setAttribute('aria-selected', el.dataset.theme === id ? 'true' : 'false');
   });
+  carSync(id);
   const css = THEME.css, root = document.documentElement.style;
   root.setProperty('--pagebg', css.pageBg);
   root.setProperty('--panel', css.panelBg);
@@ -1087,6 +1159,7 @@ function setTheme(id, silent) {
   root.setProperty('--display', THEME.font.display);
   root.setProperty('--body', THEME.font.body);
   document.title = THEME.name + ' — Atelier Air Hockey';
+  paintRoom();
   if (!silent) AudioSys.ui();
 }
 function paintThumbnails() {
@@ -1152,14 +1225,86 @@ function applySettingsToUI() {
 }
 
 // ---------- UI wiring ----------
-function wireUI() {
-  document.querySelectorAll('.tablecard').forEach(el => {
-    const pick = () => { AudioSys.init(); setTheme(el.dataset.theme); };
-    el.addEventListener('click', pick);
-    el.addEventListener('keydown', e => {
+/* table carousel: slides are built from THEME_ORDER so markup stays
+   a single source of truth; scroll position <-> selected theme. */
+let carGuard = false; // true while we scroll programmatically
+function buildCarousel() {
+  const track = $('carTrack'), dots = $('carDots');
+  if (!track || track.children.length) return;
+  THEME_ORDER.forEach((id, i) => {
+    const T = THEMES[id];
+    const d = document.createElement('div');
+    d.className = 'tslide'; d.dataset.theme = id;
+    d.setAttribute('role', 'option'); d.tabIndex = 0;
+    d.setAttribute('aria-label', T.name + ' table');
+    d.innerHTML = '<canvas data-thumb="' + id + '" width="640" height="400"></canvas>' +
+      '<div class="tmeta"><div class="tname">' + T.name + '</div>' +
+      '<div class="tsub">' + T.tagline + '</div></div>';
+    const pick = () => { AudioSys.init(); setTheme(id); };
+    d.addEventListener('click', pick);
+    d.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+      if (e.key === 'ArrowRight') carStep(1);
+      if (e.key === 'ArrowLeft') carStep(-1);
     });
+    track.appendChild(d);
+    const dot = document.createElement('i');
+    dot.addEventListener('click', () => carGo(i));
+    dots.appendChild(dot);
   });
+  let raf = 0;
+  track.addEventListener('scroll', () => {
+    if (carGuard) return;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(carFromScroll);
+  }, { passive: true });
+}
+function carIndex() {
+  const track = $('carTrack');
+  if (!track || !track.children.length) return 0;
+  const w = track.children[0].offsetWidth + 12;
+  return Math.round(track.scrollLeft / w);
+}
+function carFromScroll() {
+  const i = Math.max(0, Math.min(THEME_ORDER.length - 1, carIndex()));
+  if (THEMES[THEME_ORDER[i]] !== THEME) setTheme(THEME_ORDER[i]);
+  else carPaint(i);
+}
+function carPaint(i) {
+  const dots = $('carDots');
+  if (dots) [...dots.children].forEach((d, j) => d.classList.toggle('sel', j === i));
+  const cc = $('carCount');
+  if (cc) cc.textContent = (i + 1) + ' / ' + THEME_ORDER.length;
+}
+function carGo(i) {
+  const track = $('carTrack');
+  if (!track || !track.children.length) return;
+  i = (i + THEME_ORDER.length) % THEME_ORDER.length;
+  const w = track.children[0].offsetWidth + 12;
+  carGuard = true;
+  track.scrollTo({ left: i * w, behavior: 'smooth' });
+  setTimeout(() => { carGuard = false; }, 450);
+  setTheme(THEME_ORDER[i]);
+}
+function carStep(d) { carGo(carIndex() + d); }
+/* called by setTheme — scrolls the track when the theme changed
+   from anywhere else (deep link, settings restore). */
+function carSync(id) {
+  const i = THEME_ORDER.indexOf(id);
+  carPaint(Math.max(0, i));
+  const track = $('carTrack');
+  if (!track || !track.children.length || i < 0) return;
+  const w = track.children[0].offsetWidth + 12;
+  if (Math.abs(track.scrollLeft - i * w) > 4) {
+    carGuard = true;
+    track.scrollTo({ left: i * w });
+    setTimeout(() => { carGuard = false; }, 120);
+  }
+}
+function wireUI() {
+  buildCarousel();
+  $('carPrev').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(-1); });
+  $('carNext').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(1); });
   document.querySelectorAll('[data-diff]').forEach(btn => {
     btn.addEventListener('click', () => startGame('ai', +btn.dataset.diff));
   });
@@ -1212,8 +1357,6 @@ function wireUI() {
 function boot() {
   loadSettings();
   resize(); wireUI(); applySettingsToUI();
-  const sel = document.querySelector('.tablecard[data-theme="deco"]');
-  if (sel) sel.classList.add('sel');
   setTheme('deco', true);
   try { paintThumbnails(); } catch (e) { /* thumbnails must never break the game */ }
   resetPositions();

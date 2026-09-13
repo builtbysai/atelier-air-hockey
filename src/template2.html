@@ -42,39 +42,79 @@
     max-height:calc(100vh - 28px); max-height:calc(100dvh - 28px); overflow-y:auto;
     margin:auto;
   }
-  .menusheet{ max-width:860px; }
-  .menu-cols{ display:block; }
-  /* short-but-wide (landscape): tables left, game right — no scroll */
+  .menusheet{ max-width:600px; }
+  .lobby-title{ font-size:clamp(26px,5.4vw,38px); }
+  .carcount{ color:var(--title); letter-spacing:2px; }
+
+  /* table carousel — one featured table, snap scroll, arrows + dots */
+  .carousel{ position:relative; margin:2px -6px 0; }
+  .ctrack{
+    display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory;
+    scrollbar-width:none; -ms-overflow-style:none; padding:6px 34px;
+    cursor:grab;
+  }
+  .ctrack::-webkit-scrollbar{ display:none; }
+  .ctrack:focus{ outline:none; }
+  .tslide{
+    flex:0 0 calc(100% - 8px); scroll-snap-align:center;
+    border:1px solid var(--pline); border-radius:12px; overflow:hidden;
+    background:rgba(0,0,0,0.35); opacity:0.55; transform:scale(0.97);
+    transition:opacity .18s, transform .18s, border-color .18s, box-shadow .18s;
+    min-width:0;
+  }
+  .tslide.sel{
+    opacity:1; transform:scale(1); border-color:var(--btnbg);
+    box-shadow:0 0 0 2px var(--btnbg), 0 14px 40px rgba(0,0,0,0.55);
+  }
+  .tslide canvas{ width:100%; aspect-ratio:8/5; display:block; }
+  .tslide .tmeta{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; padding:10px 14px 12px; }
+  .tslide .tname{ font-family:var(--display); font-size:17px; font-weight:700; white-space:nowrap; }
+  .tslide .tsub{ font-size:11.5px; color:var(--sub); text-align:right; line-height:1.4; }
+  .carrow{
+    position:absolute; top:50%; transform:translateY(-62%); z-index:2;
+    width:40px; height:40px; border-radius:50%; border:1px solid var(--pline);
+    background:var(--panel); color:var(--title); font-size:24px; line-height:1;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    font-family:var(--body); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  }
+  .carrow:active{ transform:translateY(-62%) scale(0.9); }
+  #carPrev{ left:2px; } #carNext{ right:2px; }
+  .cdots{ display:flex; justify-content:center; gap:8px; margin:10px 0 2px; }
+  .cdots i{ width:7px; height:7px; border-radius:50%; background:var(--sub); opacity:0.4; transition:opacity .15s, transform .15s; }
+  .cdots i.sel{ opacity:1; transform:scale(1.35); background:var(--btnbg); }
+
+  .seg4{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .btn.lablight{ border-style:dashed; opacity:0.75; margin-top:10px; }
+  .menugrid{ display:block; }
+  /* short-but-wide (landscape phones): tables left, rivals right — no scroll */
   @media (max-height:540px) and (min-width:700px){
-    #menu .card{ text-align:left; }
-    #menu .menu-head{ text-align:center; }
-    #menu .menu-head h1{ font-size:18px; }
-    #menu .menu-cols{ display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
-    #menu .tablegrid{ grid-template-columns:repeat(2,1fr); }
-    #menu .seclabel{ margin:4px 0 4px; }
-    #menu .modegrid{ grid-template-columns:1fr; }
-    #menu .foot{ text-align:center; }
+    #menu{ padding:8px; }
+    #menu .card{ padding:10px 18px; text-align:left; }
+    #menu .kicker{ margin-bottom:2px; }
+    #menu .lobby-title{ font-size:20px; text-align:center; }
+    #menu .tagline{ display:none; }
+    #menu .seclabel{ margin:6px 0 6px; }
+    #menu .seclabel:first-of-type{ text-align:center; }
+    #menu .menugrid{ display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:0 18px; align-items:start; }
+    #menu .carousel{ margin:0 -4px; }
+    #menu .ctrack{ padding:4px 24px; }
+    #menu .tslide canvas{ height:150px; aspect-ratio:auto; object-fit:cover; }
+    #menu .tslide .tmeta{ padding:6px 10px 8px; }
+    #menu .tslide .tname{ font-size:13px; }
+    #menu .tslide .tsub{ display:none; }
+    #menu .cdots{ margin:6px 0 0; }
+    #menu .seg4{ grid-template-columns:repeat(2,1fr); }
+    #menu .seg4 .btn{ padding:9px 6px; font-size:13px; }
+    #menu .btn.lablight{ margin-top:8px; padding:9px 6px; }
+    #menu .foot{ margin-top:8px; text-align:center; }
   }
   .kicker{ font-size:11px; letter-spacing:4px; color:var(--sub); margin-bottom:8px; }
   h1{ font-family:var(--display); font-size:clamp(24px,5vw,36px); font-weight:800; letter-spacing:1px; margin-bottom:4px; }
   .tagline{ color:var(--sub); font-style:italic; font-size:14px; margin-bottom:16px; }
   .seclabel{ font-size:11px; letter-spacing:3px; color:var(--sub); margin:18px 0 10px; }
 
-  .tablegrid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
-  @media (max-width:700px){ .tablegrid{ grid-template-columns:repeat(2,1fr); } }
-  .tablecard{
-    border:1px solid var(--pline); border-radius:10px; overflow:hidden; cursor:pointer;
-    background:rgba(0,0,0,0.35); transition:transform .12s, box-shadow .12s, border-color .12s, opacity .12s;
-    opacity:0.7; text-align:left; min-width:0;
-  }
-  .tablecard canvas{ width:100%; aspect-ratio:13/8; display:block; }
-  .tablecard .tname{ font-family:var(--display); font-size:14px; font-weight:700; padding:8px 10px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .tablecard .tsub{ font-size:10.5px; color:var(--sub); padding:2px 10px 10px; line-height:1.4; }
-  .tablecard.sel{ opacity:1; border-color:var(--btnbg); box-shadow:0 0 0 2px var(--btnbg), 0 10px 30px rgba(0,0,0,0.5); transform:translateY(-2px); }
-  .tablecard:active{ transform:scale(0.97); }
-
-  .modegrid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
-  @media (max-width:480px){ .modegrid{ grid-template-columns:1fr; } }
+  .lobfoot{ display:flex; align-items:center; justify-content:center; gap:4px; flex-wrap:wrap; }
+  .lobfoot .ver{ color:var(--sub); opacity:0.7; padding:8px 4px; }
   .btn{
     display:block; width:100%; margin:6px 0; padding:14px 16px; border-radius:10px;
     border:1px solid var(--pline); background:transparent; color:var(--title);
@@ -118,12 +158,13 @@
     .seclabel{ margin:6px 0 4px; font-size:10px; }
     .btn{ padding:10px 12px; font-size:14px; }
     .btn small{ display:none; }
-    .tablecard canvas{ aspect-ratio:16/7; object-fit:cover; }
-    .tablecard .tsub{ display:none; }
-    .tablecard .tname{ padding:6px 8px 8px; font-size:12px; }
-    .tablegrid{ gap:8px; }
-    .seg3{ gap:8px; }
-    .seg3 .btn{ padding:10px 4px; font-size:13px; }
+    .tslide .tsub{ display:none; }
+    .tslide .tname{ font-size:14px; }
+    .tslide .tmeta{ padding:8px 12px 10px; justify-content:center; }
+    .seg4{ gap:8px; }
+    .seg4 .btn{ padding:10px 4px; font-size:13px; }
+    .carrow{ width:34px; height:34px; font-size:20px; }
+    .ctrack{ padding:4px 26px; }
     .foot{ margin-top:6px; font-size:11px; }
     .foot button{ padding:6px; }
     .setrow{ margin:8px 0; }
@@ -151,49 +192,34 @@
 
 <div class="overlay" id="menu">
   <div class="card menusheet">
-    <div class="menu-head">
-      <div class="kicker">ATELIER AIR HOCKEY</div>
-      <h1>Choose your table</h1>
-      <p class="tagline">Four rooms. One puck. No neon in sight.</p>
-    </div>
-    <div class="menu-cols">
-      <div class="menu-col">
-        <div class="seclabel">THE TABLE</div>
-        <div class="tablegrid">
-      <div class="tablecard" data-theme="deco" role="button" tabindex="0" aria-label="Noir Deco table">
-        <canvas data-thumb="deco" width="520" height="320"></canvas>
-        <div class="tname">Noir Deco</div><div class="tsub">Black lacquer &middot; brass &middot; walnut</div>
+    <div class="kicker">ATELIER AIR HOCKEY</div>
+    <h1 class="lobby-title">The tables are waiting.</h1>
+    <p class="tagline">Six rooms. One puck. No neon in sight.</p>
+
+    <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 6</span></div>
+    <div class="menugrid">
+      <div class="mg-tables">
+        <div class="carousel">
+          <button class="carrow" id="carPrev" aria-label="Previous table">&#8249;</button>
+          <div class="ctrack" id="carTrack" aria-label="Table selector"></div>
+          <button class="carrow" id="carNext" aria-label="Next table">&#8250;</button>
+        </div>
+        <div class="cdots" id="carDots" aria-hidden="true"></div>
       </div>
-      <div class="tablecard" data-theme="mid" role="button" tabindex="0" aria-label="Palm Springs 62 table">
-        <canvas data-thumb="mid" width="520" height="320"></canvas>
-        <div class="tname">Palm Springs &rsquo;62</div><div class="tsub">Walnut &middot; brass &middot; cream laminate</div>
-      </div>
-      <div class="tablecard" data-theme="brut" role="button" tabindex="0" aria-label="Beton table">
-        <canvas data-thumb="brut" width="520" height="320"></canvas>
-        <div class="tname">Beton</div><div class="tsub">Raw concrete &middot; aluminum &middot; safety orange</div>
-      </div>
-      <div class="tablecard" data-theme="bil" role="button" tabindex="0" aria-label="The Billiard Room table">
-        <canvas data-thumb="bil" width="520" height="320"></canvas>
-        <div class="tname">The Billiard Room</div><div class="tsub">Mahogany &middot; brass &middot; snooker green</div>
-      </div>
-    </div>
-      </div>
-      <div class="menu-col">
-    <div class="seclabel">SOLO — PICK YOUR RIVAL</div>
-    <div class="seg3">
-      <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small></button>
-      <button class="btn primary" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small></button>
-      <button class="btn" data-diff="2">Champion<small>NO MERCY</small></button>
-    </div>
-    <div class="seclabel">MULTIPLAYER</div>
-    <div class="modegrid">
-      <button class="btn" id="btn2p">Two Players<small>SAME SCREEN &middot; TWO MALLETS</small></button>
-      <button class="btn" id="btnOnline" disabled>Online<small>IN THE LAB — COMING SOON</small></button>
-    </div>
+      <div class="mg-rivals">
+        <div class="seclabel">THE RIVAL</div>
+        <div class="seg4">
+          <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small></button>
+          <button class="btn primary" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small></button>
+          <button class="btn" data-diff="2">Champion<small>NO MERCY</small></button>
+          <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small></button>
+        </div>
+        <button class="btn lablight" id="btnOnline" disabled>Online<small>IN THE LAB — COMING SOON</small></button>
       </div>
     </div>
+
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot"><button id="btnHelp">How to play</button> &middot; <button id="btnSettings">Settings</button> &middot; <a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a> &middot; v4</div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v5</span></div>
   </div>
 </div>
 
@@ -278,7 +304,11 @@
 
 <script>
 %%THEME_JS%%
+%%THEME2_JS%%
 let THEME = THEMES['deco'];
+</script>
+<script>
+%%BOARD_JS%%
 </script>
 <script>
 %%ENGINE_JS%%

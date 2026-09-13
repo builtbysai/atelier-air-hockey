@@ -1,6 +1,6 @@
 # Atelier Air Hockey
 
-A premium, fully self-contained web air-hockey game. Four hand-designed tables, a 240 Hz physics core, three AI rivals, local two-player, and a proper menu / settings / match flow — in a single HTML file with zero dependencies and zero network requests.
+A premium, fully self-contained web air-hockey game. Six hand-designed tables, a 240 Hz physics core, three AI rivals, local two-player, and a proper menu / settings / match flow — in a single HTML file with zero dependencies and zero network requests.
 
 **Play it now:** https://builtbysai.com/atelier-air-hockey/
 
@@ -14,11 +14,26 @@ A premium, fully self-contained web air-hockey game. Four hand-designed tables, 
 | **Palm Springs '62** | Cream laminate, walnut, brass — mid-century poolside |
 | **Beton** | Raw concrete, aluminum, safety orange — brutalist |
 | **The Billiard Room** | Mahogany, brass, snooker green — the old hall |
+| **Memphis Milano** | Warm cream laminate, primary geometry — Milan, 1981 |
+| **Wabi-Sabi Sashiko** | Indigo textile, stitch-work, pine rails — the machiya |
 
-Each table has its own palette, typography, scoreboard (abacus beads, grotesk numerals…), sound tuning, and background room. Thumbnails on the menu are painted live from the same renderers — what you see is what you play.
+Each table has its own palette, typography, physical scoring device, sound tuning, and background room. Menu previews are painted live from the same renderers — what you see is what you play.
 
 ![Noir Deco](docs/screenshots/d4-t-deco.png)
 ![Palm Springs '62](docs/screenshots/d4-t-mid.png)
+![Memphis Milano](docs/screenshots/d4-t-mem.png)
+![Wabi-Sabi Sashiko](docs/screenshots/d4-t-sashi.png)
+
+## Scoring devices
+
+Every table keeps score the way its world would:
+
+- **Solari split-flap** — Noir Deco, Wabi-Sabi Sashiko. Analog flaps clatter through the digits with a half-flap settle.
+- **Electromechanical score reels** — Palm Springs '62, Memphis Milano. Spring-driven odometer drums with a reel-spin flicker.
+- **Mahogany cribbage peg track** — The Billiard Room. Brass pegs hop forward along a 60-hole track.
+- **5×7 incandescent bulb matrix** — Beton. Grandstand-style dots that roll upward with a filament cool-down fade.
+
+All devices show the **First to N** target, a match-point treatment, and solo/two-player labels.
 
 ## Play
 
@@ -46,10 +61,11 @@ Countdown serve, goal slow-motion with letterbox ceremony and chord, match-point
 
 - **Single file, no build step to play** — open `index.html` (or the versioned file in `releases/`) in any modern browser. No CDN, no fonts, no trackers, no requests.
 - **240 Hz fixed-timestep physics** with substeps, speed-dependent mallet restitution, and an anti-stall air jet so the puck never dies in a corner.
-- **AI** with guard / defend / engage / windup / strike / recover states, reaction latency, bank shots, and corner escapes — it scores in AI-vs-AI rallies.
+- **AI** with guard / defend / engage / windup / strike / recover states, reaction latency, bank shots, pin detection with a two-beat corner escape, and a displacement-based stall backstop — verified with AI-vs-AI stall watches.
 - **Game feel** — hit-stop, trauma-based screen shake, particles, squash & stretch, puck trails, scuff marks, goal flash.
+- **Rooms** — every table sits in a place-based, pre-rendered room (Skyline Bar, Cabana, Bunker Gallery, Century Club, Loft Party, Machiya). Painted once per resize/theme; one blit per frame, zero per-frame cost.
 - **Responsive** — desktop, portrait phones (the rink rotates, your goal goes to the bottom), landscape phones, small screens. No page scroll, no card scroll, at any size.
-- **Source** — `src/` holds the real sources (`engine2.js`, `themes.js`, `template2.html`) and `build2.js` inlines them into the single-file release.
+- **Source** — `src/` holds the real sources (`engine2.js`, `themes.js`, `themes2.js`, `scoreboards.js`, `template2.html`) and `build3.js` inlines them into the single-file release.
 
 ## Online multiplayer — the plan
 
