@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Atelier Air Hockey</title>
+<style>
+  :root{
+    --pagebg:#070606; --panel:rgba(18,14,10,0.94); --pline:#8a6d2f;
+    --btnbg:#c9a227; --btnink:#14100a; --title:#e9d9a6;
+    --sub:#9a8a68; --ghost:rgba(201,162,39,0.16);
+    --display:Georgia,'Times New Roman',serif; --body:Georgia,'Times New Roman',serif;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ height:100%; overflow:hidden; overscroll-behavior:none; }
+  body{
+    background:var(--pagebg); color:var(--title); font-family:var(--body);
+    height:100vh; height:100dvh; user-select:none; -webkit-user-select:none;
+    transition:background .4s;
+  }
+  #game{ position:fixed; inset:0; display:block; touch-action:none; }
+  .hidden{ display:none !important; }
+
+  #topbar{ position:fixed; top:10px; top:calc(10px + env(safe-area-inset-top)); right:12px; right:calc(12px + env(safe-area-inset-right)); display:flex; gap:8px; z-index:30; }
+  .iconbtn{
+    width:44px; height:44px; border-radius:50%; border:1px solid var(--pline);
+    background:var(--ghost); color:var(--title); font-size:17px; line-height:1;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    font-family:var(--body); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  }
+  .iconbtn:active{ transform:scale(0.92); }
+  .iconbtn.off{ opacity:0.4; }
+
+  .overlay{
+    position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    padding:14px; overflow-y:auto;
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--pline); border-radius:14px;
+    padding:26px 26px; max-width:440px; width:100%; text-align:center;
+    box-shadow:0 30px 80px rgba(0,0,0,0.6);
+    max-height:calc(100vh - 28px); max-height:calc(100dvh - 28px); overflow-y:auto;
+    margin:auto;
+  }
+  .menusheet{ max-width:860px; }
+  .menu-cols{ display:block; }
+  /* short-but-wide (landscape): tables left, game right — no scroll */
+  @media (max-height:540px) and (min-width:700px){
+    #menu .card{ text-align:left; }
+    #menu .menu-head{ text-align:center; }
+    #menu .menu-head h1{ font-size:18px; }
+    #menu .menu-cols{ display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+    #menu .tablegrid{ grid-template-columns:repeat(2,1fr); }
+    #menu .seclabel{ margin:4px 0 4px; }
+    #menu .modegrid{ grid-template-columns:1fr; }
+    #menu .foot{ text-align:center; }
+  }
+  .kicker{ font-size:11px; letter-spacing:4px; color:var(--sub); margin-bottom:8px; }
+  h1{ font-family:var(--display); font-size:clamp(24px,5vw,36px); font-weight:800; letter-spacing:1px; margin-bottom:4px; }
+  .tagline{ color:var(--sub); font-style:italic; font-size:14px; margin-bottom:16px; }
+  .seclabel{ font-size:11px; letter-spacing:3px; color:var(--sub); margin:18px 0 10px; }
+
+  .tablegrid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  @media (max-width:700px){ .tablegrid{ grid-template-columns:repeat(2,1fr); } }
+  .tablecard{
+    border:1px solid var(--pline); border-radius:10px; overflow:hidden; cursor:pointer;
+    background:rgba(0,0,0,0.35); transition:transform .12s, box-shadow .12s, border-color .12s, opacity .12s;
+    opacity:0.7; text-align:left; min-width:0;
+  }
+  .tablecard canvas{ width:100%; aspect-ratio:13/8; display:block; }
+  .tablecard .tname{ font-family:var(--display); font-size:14px; font-weight:700; padding:8px 10px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tablecard .tsub{ font-size:10.5px; color:var(--sub); padding:2px 10px 10px; line-height:1.4; }
+  .tablecard.sel{ opacity:1; border-color:var(--btnbg); box-shadow:0 0 0 2px var(--btnbg), 0 10px 30px rgba(0,0,0,0.5); transform:translateY(-2px); }
+  .tablecard:active{ transform:scale(0.97); }
+
+  .modegrid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  @media (max-width:480px){ .modegrid{ grid-template-columns:1fr; } }
+  .btn{
+    display:block; width:100%; margin:6px 0; padding:14px 16px; border-radius:10px;
+    border:1px solid var(--pline); background:transparent; color:var(--title);
+    font-family:var(--body); font-size:16px; cursor:pointer;
+  }
+  .btn small{ display:block; font-size:10px; color:var(--sub); margin-top:3px; letter-spacing:2px; }
+  .btn:active{ transform:scale(0.97); background:var(--ghost); }
+  .btn.primary{ background:var(--btnbg); color:var(--btnink); border-color:transparent; font-weight:700; }
+  .btn.primary small{ color:var(--btnink); opacity:0.75; }
+  .foot{ margin-top:16px; font-size:12px; color:var(--sub); }
+  .foot button{ background:none; border:none; color:var(--title); text-decoration:underline; cursor:pointer; font-size:12px; font-family:var(--body); padding:8px; }
+  #winSub{ font-family:var(--display); font-size:34px; margin:6px 0 18px; }
+  #help .card{ text-align:left; }
+  #help h1{ font-size:24px; text-align:center; }
+  #help p{ font-size:14px; line-height:1.65; color:var(--sub); margin:10px 0; }
+  #help p b{ color:var(--title); }
+  .seg3{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .seg{ display:flex; gap:8px; }
+  .seg button{
+    flex:1; padding:11px 6px; border-radius:9px; border:1px solid var(--pline);
+    background:transparent; color:var(--sub); font-family:var(--body); font-size:14px; cursor:pointer;
+  }
+  .seg button.sel{ background:var(--btnbg); color:var(--btnink); border-color:transparent; font-weight:700; }
+  .seg button:active{ transform:scale(0.96); }
+  .setrow{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:13px 0; text-align:left; }
+  .setlabel{ font-size:14px; letter-spacing:1px; flex:0 0 auto; }
+  .setrow .seg{ flex:1 1 auto; max-width:310px; }
+  .btn:disabled{ opacity:0.45; cursor:default; }
+  .btn:disabled:active{ transform:none; background:transparent; }
+  .winstats{ color:var(--sub); font-size:13px; letter-spacing:1px; margin:-6px 0 18px; }
+  .foot a{ color:var(--title); }
+  .foot b{ color:var(--title); }
+  #settings .card{ max-width:500px; text-align:left; }
+  #settings .kicker, #settings h1, #settings .tagline{ text-align:center; }
+  /* compact menu: narrow phones AND short landscape — nothing may scroll */
+  @media (max-width:480px), (max-height:540px){
+    .card{ padding:10px 12px; }
+    h1{ font-size:20px; }
+    .kicker{ margin-bottom:2px; font-size:10px; }
+    .tagline{ display:none; }
+    .seclabel{ margin:6px 0 4px; font-size:10px; }
+    .btn{ padding:10px 12px; font-size:14px; }
+    .btn small{ display:none; }
+    .tablecard canvas{ aspect-ratio:16/7; object-fit:cover; }
+    .tablecard .tsub{ display:none; }
+    .tablecard .tname{ padding:6px 8px 8px; font-size:12px; }
+    .tablegrid{ gap:8px; }
+    .seg3{ gap:8px; }
+    .seg3 .btn{ padding:10px 4px; font-size:13px; }
+    .foot{ margin-top:6px; font-size:11px; }
+    .foot button{ padding:6px; }
+    .setrow{ margin:8px 0; }
+    .setrow .seg button{ padding:8px 4px; font-size:13px; }
+    #settings h1{ font-size:20px; }
+  }
+  @media (max-width:480px){
+    .setrow{ flex-direction:column; align-items:stretch; gap:6px; }
+    .setrow .seg{ max-width:none; }
+  }
+  @media (max-width:480px){
+    .card{ padding:20px 16px; }
+    .overlay{ padding:10px; align-items:flex-start; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="topbar" class="hidden">
+  <button class="iconbtn" id="btnPause" title="Pause (P)" aria-label="Pause">&#10074;&#10074;</button>
+  <button class="iconbtn" id="btnSound" title="Sound (M)" aria-label="Sound">&#9834;</button>
+  <button class="iconbtn" id="btnMenu2" title="Menu" aria-label="Menu">&equiv;</button>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="card menusheet">
+    <div class="menu-head">
+      <div class="kicker">ATELIER AIR HOCKEY</div>
+      <h1>Choose your table</h1>
+      <p class="tagline">Four rooms. One puck. No neon in sight.</p>
+    </div>
+    <div class="menu-cols">
+      <div class="menu-col">
+        <div class="seclabel">THE TABLE</div>
+        <div class="tablegrid">
+      <div class="tablecard" data-theme="deco" role="button" tabindex="0" aria-label="Noir Deco table">
+        <canvas data-thumb="deco" width="520" height="320"></canvas>
+        <div class="tname">Noir Deco</div><div class="tsub">Black lacquer &middot; brass &middot; walnut</div>
+      </div>
+      <div class="tablecard" data-theme="mid" role="button" tabindex="0" aria-label="Palm Springs 62 table">
+        <canvas data-thumb="mid" width="520" height="320"></canvas>
+        <div class="tname">Palm Springs &rsquo;62</div><div class="tsub">Walnut &middot; brass &middot; cream laminate</div>
+      </div>
+      <div class="tablecard" data-theme="brut" role="button" tabindex="0" aria-label="Beton table">
+        <canvas data-thumb="brut" width="520" height="320"></canvas>
+        <div class="tname">Beton</div><div class="tsub">Raw concrete &middot; aluminum &middot; safety orange</div>
+      </div>
+      <div class="tablecard" data-theme="bil" role="button" tabindex="0" aria-label="The Billiard Room table">
+        <canvas data-thumb="bil" width="520" height="320"></canvas>
+        <div class="tname">The Billiard Room</div><div class="tsub">Mahogany &middot; brass &middot; snooker green</div>
+      </div>
+    </div>
+      </div>
+      <div class="menu-col">
+    <div class="seclabel">SOLO — PICK YOUR RIVAL</div>
+    <div class="seg3">
+      <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small></button>
+      <button class="btn primary" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small></button>
+      <button class="btn" data-diff="2">Champion<small>NO MERCY</small></button>
+    </div>
+    <div class="seclabel">MULTIPLAYER</div>
+    <div class="modegrid">
+      <button class="btn" id="btn2p">Two Players<small>SAME SCREEN &middot; TWO MALLETS</small></button>
+      <button class="btn" id="btnOnline" disabled>Online<small>IN THE LAB — COMING SOON</small></button>
+    </div>
+      </div>
+    </div>
+    <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
+    <div class="foot"><button id="btnHelp">How to play</button> &middot; <button id="btnSettings">Settings</button> &middot; <a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a> &middot; v4</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="help">
+  <div class="card">
+    <h1>How to play</h1>
+    <p><b>Move your mallet</b> with mouse or finger — it tracks you one-to-one. Flick it to <b>smash</b> the puck; ease it to deaden and control.</p>
+    <p>Your mallet can't cross the center line. First to <b id="helpFirst">7</b> goals wins the table.</p>
+    <p><b>Two players:</b> each takes an end — mouse and touch work at once, or two fingers on mobile.</p>
+    <p><b>Keys:</b> P pause &middot; M mute &middot; Esc menu.</p>
+    <p style="text-align:center"><button class="btn" id="helpClose" style="width:auto;padding:10px 34px;margin:14px auto 0;">Back to the table</button></p>
+  </div>
+</div>
+
+<div class="overlay hidden" id="settings">
+  <div class="card">
+    <div class="kicker">TABLE RULES</div>
+    <h1>Settings</h1>
+    <p class="tagline">Tune the room to your liking. Saved on this device.</p>
+    <div class="setrow">
+      <div class="setlabel">Screen shake</div>
+      <div class="seg">
+        <button data-set="shake" data-val="off">Off</button>
+        <button data-set="shake" data-val="subtle">Subtle</button>
+        <button data-set="shake" data-val="full">Full</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Sound</div>
+      <div class="seg">
+        <button data-set="sound" data-val="true">On</button>
+        <button data-set="sound" data-val="false">Off</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Haptics</div>
+      <div class="seg">
+        <button data-set="haptics" data-val="true">On</button>
+        <button data-set="haptics" data-val="false">Off</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">First to</div>
+      <div class="seg">
+        <button data-set="firstTo" data-val="5">5</button>
+        <button data-set="firstTo" data-val="7">7</button>
+        <button data-set="firstTo" data-val="11">11</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Puck pace</div>
+      <div class="seg">
+        <button data-set="pace" data-val="casual">Casual</button>
+        <button data-set="pace" data-val="classic">Classic</button>
+        <button data-set="pace" data-val="lightning">Lightning</button>
+      </div>
+    </div>
+    <button class="btn primary" id="settingsClose" style="margin-top:16px">Back to the table</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="pauseov">
+  <div class="card">
+    <div class="kicker">INTERMISSION</div>
+    <h1>Paused</h1>
+    <p class="tagline">The puck waits for no one. Except now.</p>
+    <button class="btn primary" id="btnResume">Resume</button>
+    <button class="btn" id="btnQuit">Quit to menu</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="winov">
+  <div class="card">
+    <div class="kicker">FULL TIME</div>
+    <h1 id="winTitle">You win</h1>
+    <p id="winSub">7 — 4</p>
+    <p id="winStats" class="winstats"></p>
+    <button class="btn primary" id="btnRematch">Rematch</button>
+    <button class="btn" id="btnWinMenu">Change table</button>
+  </div>
+</div>
+
+<script>
+%%THEME_JS%%
+let THEME = THEMES['deco'];
+</script>
+<script>
+%%ENGINE_JS%%
+</script>
+</body>
+</html>

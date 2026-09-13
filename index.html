@@ -1,0 +1,2053 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Atelier Air Hockey</title>
+<style>
+  :root{
+    --pagebg:#070606; --panel:rgba(18,14,10,0.94); --pline:#8a6d2f;
+    --btnbg:#c9a227; --btnink:#14100a; --title:#e9d9a6;
+    --sub:#9a8a68; --ghost:rgba(201,162,39,0.16);
+    --display:Georgia,'Times New Roman',serif; --body:Georgia,'Times New Roman',serif;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ height:100%; overflow:hidden; overscroll-behavior:none; }
+  body{
+    background:var(--pagebg); color:var(--title); font-family:var(--body);
+    height:100vh; height:100dvh; user-select:none; -webkit-user-select:none;
+    transition:background .4s;
+  }
+  #game{ position:fixed; inset:0; display:block; touch-action:none; }
+  .hidden{ display:none !important; }
+
+  #topbar{ position:fixed; top:10px; top:calc(10px + env(safe-area-inset-top)); right:12px; right:calc(12px + env(safe-area-inset-right)); display:flex; gap:8px; z-index:30; }
+  .iconbtn{
+    width:44px; height:44px; border-radius:50%; border:1px solid var(--pline);
+    background:var(--ghost); color:var(--title); font-size:17px; line-height:1;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    font-family:var(--body); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  }
+  .iconbtn:active{ transform:scale(0.92); }
+  .iconbtn.off{ opacity:0.4; }
+
+  .overlay{
+    position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    padding:14px; overflow-y:auto;
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--pline); border-radius:14px;
+    padding:26px 26px; max-width:440px; width:100%; text-align:center;
+    box-shadow:0 30px 80px rgba(0,0,0,0.6);
+    max-height:calc(100vh - 28px); max-height:calc(100dvh - 28px); overflow-y:auto;
+    margin:auto;
+  }
+  .menusheet{ max-width:860px; }
+  .menu-cols{ display:block; }
+  /* short-but-wide (landscape): tables left, game right — no scroll */
+  @media (max-height:540px) and (min-width:700px){
+    #menu .card{ text-align:left; }
+    #menu .menu-head{ text-align:center; }
+    #menu .menu-head h1{ font-size:18px; }
+    #menu .menu-cols{ display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+    #menu .tablegrid{ grid-template-columns:repeat(2,1fr); }
+    #menu .seclabel{ margin:4px 0 4px; }
+    #menu .modegrid{ grid-template-columns:1fr; }
+    #menu .foot{ text-align:center; }
+  }
+  .kicker{ font-size:11px; letter-spacing:4px; color:var(--sub); margin-bottom:8px; }
+  h1{ font-family:var(--display); font-size:clamp(24px,5vw,36px); font-weight:800; letter-spacing:1px; margin-bottom:4px; }
+  .tagline{ color:var(--sub); font-style:italic; font-size:14px; margin-bottom:16px; }
+  .seclabel{ font-size:11px; letter-spacing:3px; color:var(--sub); margin:18px 0 10px; }
+
+  .tablegrid{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  @media (max-width:700px){ .tablegrid{ grid-template-columns:repeat(2,1fr); } }
+  .tablecard{
+    border:1px solid var(--pline); border-radius:10px; overflow:hidden; cursor:pointer;
+    background:rgba(0,0,0,0.35); transition:transform .12s, box-shadow .12s, border-color .12s, opacity .12s;
+    opacity:0.7; text-align:left; min-width:0;
+  }
+  .tablecard canvas{ width:100%; aspect-ratio:13/8; display:block; }
+  .tablecard .tname{ font-family:var(--display); font-size:14px; font-weight:700; padding:8px 10px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tablecard .tsub{ font-size:10.5px; color:var(--sub); padding:2px 10px 10px; line-height:1.4; }
+  .tablecard.sel{ opacity:1; border-color:var(--btnbg); box-shadow:0 0 0 2px var(--btnbg), 0 10px 30px rgba(0,0,0,0.5); transform:translateY(-2px); }
+  .tablecard:active{ transform:scale(0.97); }
+
+  .modegrid{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  @media (max-width:480px){ .modegrid{ grid-template-columns:1fr; } }
+  .btn{
+    display:block; width:100%; margin:6px 0; padding:14px 16px; border-radius:10px;
+    border:1px solid var(--pline); background:transparent; color:var(--title);
+    font-family:var(--body); font-size:16px; cursor:pointer;
+  }
+  .btn small{ display:block; font-size:10px; color:var(--sub); margin-top:3px; letter-spacing:2px; }
+  .btn:active{ transform:scale(0.97); background:var(--ghost); }
+  .btn.primary{ background:var(--btnbg); color:var(--btnink); border-color:transparent; font-weight:700; }
+  .btn.primary small{ color:var(--btnink); opacity:0.75; }
+  .foot{ margin-top:16px; font-size:12px; color:var(--sub); }
+  .foot button{ background:none; border:none; color:var(--title); text-decoration:underline; cursor:pointer; font-size:12px; font-family:var(--body); padding:8px; }
+  #winSub{ font-family:var(--display); font-size:34px; margin:6px 0 18px; }
+  #help .card{ text-align:left; }
+  #help h1{ font-size:24px; text-align:center; }
+  #help p{ font-size:14px; line-height:1.65; color:var(--sub); margin:10px 0; }
+  #help p b{ color:var(--title); }
+  .seg3{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .seg{ display:flex; gap:8px; }
+  .seg button{
+    flex:1; padding:11px 6px; border-radius:9px; border:1px solid var(--pline);
+    background:transparent; color:var(--sub); font-family:var(--body); font-size:14px; cursor:pointer;
+  }
+  .seg button.sel{ background:var(--btnbg); color:var(--btnink); border-color:transparent; font-weight:700; }
+  .seg button:active{ transform:scale(0.96); }
+  .setrow{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:13px 0; text-align:left; }
+  .setlabel{ font-size:14px; letter-spacing:1px; flex:0 0 auto; }
+  .setrow .seg{ flex:1 1 auto; max-width:310px; }
+  .btn:disabled{ opacity:0.45; cursor:default; }
+  .btn:disabled:active{ transform:none; background:transparent; }
+  .winstats{ color:var(--sub); font-size:13px; letter-spacing:1px; margin:-6px 0 18px; }
+  .foot a{ color:var(--title); }
+  .foot b{ color:var(--title); }
+  #settings .card{ max-width:500px; text-align:left; }
+  #settings .kicker, #settings h1, #settings .tagline{ text-align:center; }
+  /* compact menu: narrow phones AND short landscape — nothing may scroll */
+  @media (max-width:480px), (max-height:540px){
+    .card{ padding:10px 12px; }
+    h1{ font-size:20px; }
+    .kicker{ margin-bottom:2px; font-size:10px; }
+    .tagline{ display:none; }
+    .seclabel{ margin:6px 0 4px; font-size:10px; }
+    .btn{ padding:10px 12px; font-size:14px; }
+    .btn small{ display:none; }
+    .tablecard canvas{ aspect-ratio:16/7; object-fit:cover; }
+    .tablecard .tsub{ display:none; }
+    .tablecard .tname{ padding:6px 8px 8px; font-size:12px; }
+    .tablegrid{ gap:8px; }
+    .seg3{ gap:8px; }
+    .seg3 .btn{ padding:10px 4px; font-size:13px; }
+    .foot{ margin-top:6px; font-size:11px; }
+    .foot button{ padding:6px; }
+    .setrow{ margin:8px 0; }
+    .setrow .seg button{ padding:8px 4px; font-size:13px; }
+    #settings h1{ font-size:20px; }
+  }
+  @media (max-width:480px){
+    .setrow{ flex-direction:column; align-items:stretch; gap:6px; }
+    .setrow .seg{ max-width:none; }
+  }
+  @media (max-width:480px){
+    .card{ padding:20px 16px; }
+    .overlay{ padding:10px; align-items:flex-start; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="topbar" class="hidden">
+  <button class="iconbtn" id="btnPause" title="Pause (P)" aria-label="Pause">&#10074;&#10074;</button>
+  <button class="iconbtn" id="btnSound" title="Sound (M)" aria-label="Sound">&#9834;</button>
+  <button class="iconbtn" id="btnMenu2" title="Menu" aria-label="Menu">&equiv;</button>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="card menusheet">
+    <div class="menu-head">
+      <div class="kicker">ATELIER AIR HOCKEY</div>
+      <h1>Choose your table</h1>
+      <p class="tagline">Four rooms. One puck. No neon in sight.</p>
+    </div>
+    <div class="menu-cols">
+      <div class="menu-col">
+        <div class="seclabel">THE TABLE</div>
+        <div class="tablegrid">
+      <div class="tablecard" data-theme="deco" role="button" tabindex="0" aria-label="Noir Deco table">
+        <canvas data-thumb="deco" width="520" height="320"></canvas>
+        <div class="tname">Noir Deco</div><div class="tsub">Black lacquer &middot; brass &middot; walnut</div>
+      </div>
+      <div class="tablecard" data-theme="mid" role="button" tabindex="0" aria-label="Palm Springs 62 table">
+        <canvas data-thumb="mid" width="520" height="320"></canvas>
+        <div class="tname">Palm Springs &rsquo;62</div><div class="tsub">Walnut &middot; brass &middot; cream laminate</div>
+      </div>
+      <div class="tablecard" data-theme="brut" role="button" tabindex="0" aria-label="Beton table">
+        <canvas data-thumb="brut" width="520" height="320"></canvas>
+        <div class="tname">Beton</div><div class="tsub">Raw concrete &middot; aluminum &middot; safety orange</div>
+      </div>
+      <div class="tablecard" data-theme="bil" role="button" tabindex="0" aria-label="The Billiard Room table">
+        <canvas data-thumb="bil" width="520" height="320"></canvas>
+        <div class="tname">The Billiard Room</div><div class="tsub">Mahogany &middot; brass &middot; snooker green</div>
+      </div>
+    </div>
+      </div>
+      <div class="menu-col">
+    <div class="seclabel">SOLO — PICK YOUR RIVAL</div>
+    <div class="seg3">
+      <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small></button>
+      <button class="btn primary" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small></button>
+      <button class="btn" data-diff="2">Champion<small>NO MERCY</small></button>
+    </div>
+    <div class="seclabel">MULTIPLAYER</div>
+    <div class="modegrid">
+      <button class="btn" id="btn2p">Two Players<small>SAME SCREEN &middot; TWO MALLETS</small></button>
+      <button class="btn" id="btnOnline" disabled>Online<small>IN THE LAB — COMING SOON</small></button>
+    </div>
+      </div>
+    </div>
+    <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
+    <div class="foot"><button id="btnHelp">How to play</button> &middot; <button id="btnSettings">Settings</button> &middot; <a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a> &middot; v4</div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="help">
+  <div class="card">
+    <h1>How to play</h1>
+    <p><b>Move your mallet</b> with mouse or finger — it tracks you one-to-one. Flick it to <b>smash</b> the puck; ease it to deaden and control.</p>
+    <p>Your mallet can't cross the center line. First to <b id="helpFirst">7</b> goals wins the table.</p>
+    <p><b>Two players:</b> each takes an end — mouse and touch work at once, or two fingers on mobile.</p>
+    <p><b>Keys:</b> P pause &middot; M mute &middot; Esc menu.</p>
+    <p style="text-align:center"><button class="btn" id="helpClose" style="width:auto;padding:10px 34px;margin:14px auto 0;">Back to the table</button></p>
+  </div>
+</div>
+
+<div class="overlay hidden" id="settings">
+  <div class="card">
+    <div class="kicker">TABLE RULES</div>
+    <h1>Settings</h1>
+    <p class="tagline">Tune the room to your liking. Saved on this device.</p>
+    <div class="setrow">
+      <div class="setlabel">Screen shake</div>
+      <div class="seg">
+        <button data-set="shake" data-val="off">Off</button>
+        <button data-set="shake" data-val="subtle">Subtle</button>
+        <button data-set="shake" data-val="full">Full</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Sound</div>
+      <div class="seg">
+        <button data-set="sound" data-val="true">On</button>
+        <button data-set="sound" data-val="false">Off</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Haptics</div>
+      <div class="seg">
+        <button data-set="haptics" data-val="true">On</button>
+        <button data-set="haptics" data-val="false">Off</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">First to</div>
+      <div class="seg">
+        <button data-set="firstTo" data-val="5">5</button>
+        <button data-set="firstTo" data-val="7">7</button>
+        <button data-set="firstTo" data-val="11">11</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Puck pace</div>
+      <div class="seg">
+        <button data-set="pace" data-val="casual">Casual</button>
+        <button data-set="pace" data-val="classic">Classic</button>
+        <button data-set="pace" data-val="lightning">Lightning</button>
+      </div>
+    </div>
+    <button class="btn primary" id="settingsClose" style="margin-top:16px">Back to the table</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="pauseov">
+  <div class="card">
+    <div class="kicker">INTERMISSION</div>
+    <h1>Paused</h1>
+    <p class="tagline">The puck waits for no one. Except now.</p>
+    <button class="btn primary" id="btnResume">Resume</button>
+    <button class="btn" id="btnQuit">Quit to menu</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="winov">
+  <div class="card">
+    <div class="kicker">FULL TIME</div>
+    <h1 id="winTitle">You win</h1>
+    <p id="winSub">7 — 4</p>
+    <p id="winStats" class="winstats"></p>
+    <button class="btn primary" id="btnRematch">Rematch</button>
+    <button class="btn" id="btnWinMenu">Change table</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   ATELIER AIR HOCKEY — theme renderers
+   Each theme paints: room, rails, surface, markings, goal trim,
+   scoreboard. Engine draws physics entities from theme palettes.
+   Helpers below are shared; every theme function receives ctx.
+   ============================================================ */
+
+function noiseTile(base, flecks, n, alpha) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 160;
+  const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, 160, 160);
+  for (let i = 0; i < (n || 900); i++) {
+    g.fillStyle = flecks[(Math.random() * flecks.length) | 0];
+    g.globalAlpha = Math.random() * (alpha || 0.08);
+    const s = Math.random() < 0.9 ? 1 : 2;
+    g.fillRect(Math.random() * 160, Math.random() * 160, s, s);
+  }
+  return c;
+}
+function tileOver(ctx, tile, x, y, w, h, alpha) {
+  ctx.save();
+  ctx.globalAlpha = alpha == null ? 1 : alpha;
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  for (let ty = y; ty < y + h; ty += 160)
+    for (let tx = x; tx < x + w; tx += 160)
+      ctx.drawImage(tile, tx, ty);
+  ctx.restore();
+}
+function woodGrain(ctx, x, y, w, h, dark, light, vertical) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  for (let i = 0; i < 46; i++) {
+    ctx.strokeStyle = Math.random() < 0.5 ? dark : light;
+    ctx.globalAlpha = 0.05 + Math.random() * 0.09;
+    ctx.lineWidth = 0.6 + Math.random() * 1.8;
+    ctx.beginPath();
+    if (vertical) {
+      const gx = x + Math.random() * w;
+      ctx.moveTo(gx, y);
+      ctx.bezierCurveTo(gx + rand(-14, 14), y + h * 0.33, gx + rand(-14, 14), y + h * 0.66, gx + rand(-8, 8), y + h);
+    } else {
+      const gy = y + Math.random() * h;
+      ctx.moveTo(x, gy);
+      ctx.bezierCurveTo(x + w * 0.33, gy + rand(-14, 14), x + w * 0.66, gy + rand(-14, 14), x + w, gy + rand(-8, 8));
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function brushedMetal(ctx, x, y, w, h, vertical) {
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  for (let i = 0; i < 90; i++) {
+    ctx.strokeStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.07)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (vertical) { const gx = x + Math.random() * w; ctx.moveTo(gx, y); ctx.lineTo(gx, y + h); }
+    else { const gy = y + Math.random() * h; ctx.moveTo(x, gy); ctx.lineTo(x + w, gy); }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+function goldLine(ctx, x1, y1, x2, y2, w, color) {
+  ctx.save();
+  ctx.strokeStyle = color || '#c9a227';
+  ctx.lineWidth = w || 2;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,240,200,0.5)';
+  ctx.lineWidth = Math.max(0.6, (w || 2) * 0.3);
+  ctx.beginPath(); ctx.moveTo(x1, y1 - (w || 2) * 0.18); ctx.lineTo(x2, y2 - (w || 2) * 0.18); ctx.stroke();
+  ctx.restore();
+}
+
+/* ================= 1. ART-DECO NOIR ================= */
+const THEME_DECO = {
+  id: 'deco', name: 'Noir Deco', tagline: 'Black lacquer · brass · walnut — the speakeasy table',
+  font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, 'Times New Roman', serif" },
+  ink: '#e9d9a6', accent: '#d8a93f', gold: '#d8a93f', particle: '#e8c86a', trail: '#d8a93f',
+  flash: 'rgba(216,169,63,1)', vignette: 'rgba(0,0,0,0.5)',
+  goalChord: [523.25, 659.25, 783.99, 1046.5],
+  puck: { hi: '#4a4a52', body: '#232328', edge: '#0b0b0d', ring: '#c9a227' },
+  mallet: { hi: '#5a5a62', base: '#26262c', edge: '#0c0c0e', ring: '#c9a227', dish: '#17171b', dishHi: '#33333b', knob: '#a8842f', knobHi: '#e8c86a' },
+  css: { pageBg: '#070606', panelBg: 'rgba(18,14,10,0.94)', panelBorder: '#8a6d2f', btnBg: '#c9a227', btnInk: '#14100a', title: '#e9d9a6', sub: '#9a8a68', ghost: 'rgba(201,162,39,0.16)' },
+
+  drawRoom(ctx) {
+    const g = ctx.createRadialGradient(VW / 2, VH / 2, 120, VW / 2, VH / 2, 760);
+    g.addColorStop(0, '#171310'); g.addColorStop(0.6, '#0d0b0a'); g.addColorStop(1, '#060505');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    // faint deco fan arcs in corners
+    ctx.save(); ctx.strokeStyle = 'rgba(201,162,39,0.05)'; ctx.lineWidth = 1.5;
+    for (const [fx, fy] of [[0, 0], [VW, 0], [0, VH], [VW, VH]]) {
+      for (let r = 60; r <= 220; r += 40) { ctx.beginPath(); ctx.arc(fx, fy, r, 0, TAU); ctx.stroke(); }
+    }
+    ctx.restore();
+  },
+  drawRails(ctx) {
+    // walnut body
+    const g = ctx.createLinearGradient(TX0, TY0, TX0, TY0 + PH + RAIL * 2);
+    g.addColorStop(0, '#5a3a24'); g.addColorStop(0.5, '#432a19'); g.addColorStop(1, '#2e1d11');
+    rr(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 26); ctx.fillStyle = g; ctx.fill();
+    woodGrain(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, '#1c1008', '#7a5230');
+    // cut out playfield
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 8); ctx.fill();
+    ctx.restore();
+    // brass inner edge
+    ctx.save();
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 8); ctx.clip();
+    ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 5;
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 8); ctx.stroke();
+    ctx.restore();
+    // outer gold pinline
+    ctx.save();
+    ctx.strokeStyle = 'rgba(201,162,39,0.55)'; ctx.lineWidth = 2;
+    rr(ctx, TX0 + 9, TY0 + 9, PW + RAIL * 2 - 18, PH + RAIL * 2 - 18, 20); ctx.stroke();
+    ctx.restore();
+  },
+  drawSurface(ctx) {
+    const g = ctx.createLinearGradient(PX, PY, PX + PW, PY + PH);
+    g.addColorStop(0, '#191920'); g.addColorStop(0.45, '#101014'); g.addColorStop(1, '#0a0a0d');
+    ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
+    // lacquer sheen
+    const s = ctx.createLinearGradient(PX, PY, PX + PW, PY + PH);
+    s.addColorStop(0.18, 'rgba(255,255,255,0)');
+    s.addColorStop(0.42, 'rgba(255,255,255,0.055)');
+    s.addColorStop(0.6, 'rgba(255,255,255,0)');
+    ctx.fillStyle = s; ctx.fillRect(PX, PY, PW, PH);
+  },
+  drawMarkings(ctx) {
+    ctx.save();
+    goldLine(ctx, CX, PY + 14, CX, PY + PH - 14, 2.5);
+    ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(CX, CY, 62, 0, TAU); ctx.stroke();
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(CX, CY, 52, 0, TAU); ctx.stroke();
+    // face-off dots
+    ctx.fillStyle = '#c9a227';
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72]) {
+        ctx.beginPath(); ctx.arc(fx, fy, 5, 0, TAU); ctx.fill();
+      }
+    // goal creases
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(PX, CY, 74, -0.72, 0.72); ctx.stroke();
+    ctx.beginPath(); ctx.arc(PX + PW, CY, 74, Math.PI - 0.72, Math.PI + 0.72); ctx.stroke();
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 4;
+    const x = side === 0 ? gx - RAIL + 8 : gx + RAIL - 8;
+    ctx.beginPath(); ctx.moveTo(x, cy - w / 2); ctx.lineTo(x, cy + w / 2); ctx.stroke();
+    ctx.fillStyle = '#c9a227';
+    ctx.beginPath(); ctx.arc(x, cy - w / 2, 5, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, cy + w / 2, 5, 0, TAU); ctx.fill();
+    ctx.restore();
+  },
+  drawScore(ctx, s0, s1, target) {
+    // brass abacus — bead count follows the match target
+    const N = target || 7;
+    const w = 320, h = 46, x = CX - w / 2, y = 8;
+    ctx.save();
+    rr(ctx, x, y, w, h, 10);
+    const g = ctx.createLinearGradient(x, y, x, y + h);
+    g.addColorStop(0, '#3a2a1c'); g.addColorStop(1, '#241a10');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = '#8a6d2f'; ctx.lineWidth = 2; ctx.stroke();
+    const rodY = y + h / 2;
+    ctx.strokeStyle = '#c9a227'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x + 38, rodY); ctx.lineTo(x + w - 38, rodY); ctx.stroke();
+    const scores = [s0, s1];
+    for (let side = 0; side < 2; side++) {
+      const n = Math.min(N, scores[side]);
+      const dir = side === 0 ? -1 : 1;
+      const baseX = CX + dir * 16;
+      const step = N > 7 ? 96 / (N - 1) : 14;   // counted-bead spacing
+      const wait = N > 7 ? step * 0.8 : 12;      // waiting-bead spacing
+      for (let i = 0; i < N; i++) {
+        const counted = i < n;
+        const bx = counted ? CX + dir * (16 + i * step) : CX + dir * (112 - (N - 1 - i) * wait);
+        const bg = ctx.createRadialGradient(bx - 3, rodY - 4, 1, bx, rodY, 10);
+        bg.addColorStop(0, counted ? '#f0d488' : '#6a5a3a');
+        bg.addColorStop(1, counted ? '#a8842f' : '#2c2416');
+        ctx.fillStyle = bg;
+        ctx.beginPath(); ctx.arc(bx, rodY, 9.5, 0, TAU); ctx.fill();
+      }
+      ctx.fillStyle = '#e9d9a6'; ctx.font = '600 15px ' + THEME.font.display;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(side === 0 ? 'YOU' : 'CPU', x + (side === 0 ? 34 : w - 34), rodY);
+    }
+    ctx.restore();
+  }
+};
+
+/* ================= 2. MID-CENTURY ================= */
+const THEME_MID = {
+  id: 'mid', name: "Palm Springs '62", tagline: 'Walnut · brass · cream laminate — the Eichler game room',
+  font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, serif" },
+  ink: '#4a3826', accent: '#c96a2e', gold: '#b98a2f', particle: '#e0955a', trail: '#c96a2e',
+  flash: 'rgba(201,106,46,1)', vignette: 'rgba(60,35,15,0.35)',
+  goalChord: [392, 523.25, 659.25, 783.99],
+  puck: { hi: '#e06a5a', body: '#b03a2e', edge: '#7c231b', ring: '#f0e6d2' },
+  mallet: { hi: '#a9764a', base: '#7a4f2c', edge: '#4a2f18', ring: '#f0e6d2', dish: '#5e3c21', dishHi: '#8a5c34', knob: '#b98a2f', knobHi: '#e8c86a' },
+  css: { pageBg: '#14100b', panelBg: 'rgba(32,24,16,0.94)', panelBorder: '#b98a2f', btnBg: '#c96a2e', btnInk: '#fff8ec', title: '#f0e6d2', sub: '#b09a78', ghost: 'rgba(201,106,46,0.16)' },
+
+  _tile: null,
+  drawRoom(ctx) {
+    const g = ctx.createRadialGradient(VW / 2, VH / 2, 100, VW / 2, VH / 2, 780);
+    g.addColorStop(0, '#2b2119'); g.addColorStop(1, '#120e09');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    // faint atomic starburst
+    ctx.save(); ctx.strokeStyle = 'rgba(240,230,210,0.045)'; ctx.lineWidth = 2;
+    for (const [sx, sy] of [[120, 90], [VW - 120, VH - 90]]) {
+      for (let i = 0; i < 8; i++) {
+        const a = i / 8 * TAU + 0.4;
+        ctx.beginPath(); ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + Math.cos(a) * 46, sy + Math.sin(a) * 46); ctx.stroke();
+        ctx.beginPath(); ctx.arc(sx + Math.cos(a) * 54, sy + Math.sin(a) * 54, 4, 0, TAU); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  },
+  drawRails(ctx) {
+    const g = ctx.createLinearGradient(TX0, TY0, TX0, TY0 + PH + RAIL * 2);
+    g.addColorStop(0, '#7a5230'); g.addColorStop(0.5, '#5e3f24'); g.addColorStop(1, '#402a16');
+    rr(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 30); ctx.fillStyle = g; ctx.fill();
+    woodGrain(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, '#2c1c0e', '#96703f');
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 10); ctx.fill();
+    ctx.restore();
+    // brass inner edge
+    ctx.save();
+    ctx.strokeStyle = '#c9a55a'; ctx.lineWidth = 5;
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 10); ctx.stroke();
+    ctx.restore();
+    // tapered leg hints at corners (mid-century splay)
+    ctx.save();
+    ctx.fillStyle = '#33220f';
+    for (const [lx, ly, dx] of [[TX0 + 26, TY0 + PH + RAIL * 2 - 4, -1], [TX0 + PW + RAIL * 2 - 26, TY0 + PH + RAIL * 2 - 4, 1]]) {
+      ctx.beginPath();
+      ctx.moveTo(lx - 12, ly); ctx.lineTo(lx + 12, ly);
+      ctx.lineTo(lx + 12 + dx * 26, ly + 66); ctx.lineTo(lx - 12 + dx * 26, ly + 66);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  },
+  drawSurface(ctx) {
+    if (!this._tile) this._tile = noiseTile('#efe4cd', ['#e0d2b4', '#fbf5e6', '#d8c8a8'], 1400, 0.1);
+    tileOver(ctx, this._tile, PX, PY, PW, PH, 1);
+    const g = ctx.createLinearGradient(PX, PY, PX, PY + PH);
+    g.addColorStop(0, 'rgba(255,250,235,0.25)'); g.addColorStop(0.5, 'rgba(255,250,235,0)'); g.addColorStop(1, 'rgba(120,90,50,0.14)');
+    ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
+  },
+  drawMarkings(ctx) {
+    ctx.save();
+    ctx.strokeStyle = '#5a3a26'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(CX, PY + 14); ctx.lineTo(CX, PY + PH - 14); ctx.stroke();
+    ctx.strokeStyle = '#c96a2e'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(CX, CY, 58, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = '#5a3a26'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(CX, CY, 46, 0, TAU); ctx.stroke();
+    ctx.fillStyle = '#c96a2e';
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72]) {
+        ctx.beginPath(); ctx.arc(fx, fy, 6, 0, TAU); ctx.fill();
+      }
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    const x = side === 0 ? gx - RAIL + 8 : gx + RAIL - 8;
+    ctx.fillStyle = '#402a16';
+    ctx.fillRect(x - 5, cy - w / 2 - 8, 10, w + 16);
+    ctx.fillStyle = '#c9a55a';
+    ctx.beginPath(); ctx.arc(x, cy - w / 2 - 4, 6, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, cy + w / 2 + 4, 6, 0, TAU); ctx.fill();
+    ctx.restore();
+  },
+  drawScore(ctx, s0, s1, target) {
+    // bead string scorer — bead count follows the match target
+    const N = target || 7;
+    const w = 320, h = 50, x = CX - w / 2, y = 6;
+    ctx.save();
+    rr(ctx, x, y, w, h, 12);
+    ctx.fillStyle = 'rgba(24,17,11,0.85)'; ctx.fill();
+    ctx.strokeStyle = '#b98a2f'; ctx.lineWidth = 2; ctx.stroke();
+    const rodY = y + h / 2 + 2;
+    const scores = [s0, s1];
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let side = 0; side < 2; side++) {
+      const dir = side === 0 ? -1 : 1;
+      ctx.strokeStyle = '#8a6f4d'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(CX + dir * 24, rodY); ctx.lineTo(CX + dir * 118, rodY); ctx.stroke();
+      const step = N > 7 ? 78 / (N - 1) : 13;   // counted-bead spacing
+      const wait = N > 7 ? step * 0.8 : 10;     // waiting-bead spacing
+      for (let i = 0; i < N; i++) {
+        const counted = i < Math.min(N, scores[side]);
+        const bx = counted ? CX + dir * (24 + i * step) : CX + dir * (108 - (N - 1 - i) * wait);
+        const cols = counted ? ['#e0955a', '#a34e22'] : ['#6a5a44', '#3a3026'];
+        const bg = ctx.createRadialGradient(bx - 3, rodY - 4, 1, bx, rodY, 9);
+        bg.addColorStop(0, cols[0]); bg.addColorStop(1, cols[1]);
+        ctx.fillStyle = bg;
+        ctx.beginPath(); ctx.arc(bx, rodY, 8.5, 0, TAU); ctx.fill();
+      }
+      ctx.fillStyle = '#f0e6d2'; ctx.font = '600 14px ' + THEME.font.display;
+      ctx.fillText(side === 0 ? 'YOU' : 'CPU', x + (side === 0 ? 36 : w - 36), rodY);
+    }
+    ctx.restore();
+  }
+};
+
+/* ================= 3. BRUTALIST ================= */
+const THEME_BRUT = {
+  id: 'brut', name: 'Beton', tagline: 'Raw concrete · aluminum · safety orange — the bunker table',
+  font: { display: "'Arial Black', 'Helvetica Neue', sans-serif", body: "'Helvetica Neue', Arial, sans-serif" },
+  ink: '#f2f2f0', accent: '#ff4d00', gold: '#ff4d00', particle: '#ff7a33', trail: '#ff4d00',
+  flash: 'rgba(255,77,0,1)', vignette: 'rgba(0,0,0,0.5)',
+  goalChord: [220, 277.18, 329.63, 440],
+  puck: { hi: '#5a5e63', body: '#2e3134', edge: '#101112', ring: '#ff4d00' },
+  mallet: { hi: '#c9ccce', base: '#8f9397', edge: '#4c4f52', ring: '#ff4d00', dish: '#6e7276', dishHi: '#a8acaf', knob: '#1c1d1f', knobHi: '#4c4f52' },
+  css: { pageBg: '#0c0d0e', panelBg: 'rgba(16,17,18,0.96)', panelBorder: '#ff4d00', btnBg: '#ff4d00', btnInk: '#101112', title: '#f2f2f0', sub: '#8f9397', ghost: 'rgba(255,77,0,0.14)' },
+
+  _roomTile: null, _surfTile: null,
+  drawRoom(ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, VH);
+    g.addColorStop(0, '#1b1d1f'); g.addColorStop(1, '#0c0d0e');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    if (!this._roomTile) this._roomTile = noiseTile('#17181a', ['#232527', '#0e0f10'], 700, 0.12);
+    tileOver(ctx, this._roomTile, -200, -200, VW + 400, VH + 400, 0.5);
+    // hazard tick strip top + bottom, very subtle
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,77,0,0.16)';
+    for (let x = 0; x < VW; x += 44) {
+      ctx.fillRect(x, 2, 22, 5);
+      ctx.fillRect(x + 22, VH - 7, 22, 5);
+    }
+    ctx.restore();
+  },
+  drawRails(ctx) {
+    // raw aluminum
+    const g = ctx.createLinearGradient(TX0, TY0, TX0 + PW + RAIL * 2, TY0);
+    g.addColorStop(0, '#7e8286'); g.addColorStop(0.5, '#a8acaf'); g.addColorStop(1, '#6e7276');
+    ctx.fillStyle = g;
+    ctx.fillRect(TX0, TY0, PW + RAIL * 2, PH + RAIL * 2);
+    brushedMetal(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, false);
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+    // black rubber inner edge
+    ctx.save();
+    ctx.strokeStyle = '#17181a'; ctx.lineWidth = 8;
+    ctx.strokeRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+    // bolt heads
+    ctx.save();
+    ctx.fillStyle = '#3c3f43';
+    const bx = [TX0 + 22, TX0 + (PW + RAIL * 2) / 2, TX0 + PW + RAIL * 2 - 22];
+    const by = [TY0 + 22, TY0 + PH + RAIL * 2 - 22];
+    for (const x of bx) for (const y of by) {
+      if (x > PX - 30 && x < PX + PW + 30 && y > PY - 30 && y < PY + PH + 30) continue;
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#222426'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.stroke();
+    }
+    ctx.restore();
+  },
+  drawSurface(ctx) {
+    if (!this._surfTile) this._surfTile = noiseTile('#83837e', ['#8f8f89', '#74746f', '#9a9a94'], 2200, 0.14);
+    tileOver(ctx, this._surfTile, PX, PY, PW, PH, 1);
+    // trowel arcs
+    ctx.save();
+    ctx.globalAlpha = 0.05; ctx.strokeStyle = '#5c5c58'; ctx.lineWidth = 9;
+    for (let i = 0; i < 7; i++) {
+      ctx.beginPath();
+      ctx.arc(PX + Math.random() * PW, PY + Math.random() * PH, 90 + Math.random() * 130, rand(0, TAU), rand(0, TAU) + 1.4);
+      ctx.stroke();
+    }
+    ctx.restore();
+  },
+  drawMarkings(ctx) {
+    ctx.save();
+    ctx.strokeStyle = '#f2f2f0'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(CX, PY + 12); ctx.lineTo(CX, PY + PH - 12); ctx.stroke();
+    ctx.strokeStyle = '#ff4d00'; ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.arc(CX, CY, 60, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = '#f2f2f0'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(CX, CY, 44, 0, TAU); ctx.stroke();
+    ctx.fillStyle = '#f2f2f0';
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72])
+        ctx.fillRect(fx - 5, fy - 5, 10, 10);
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    const x = side === 0 ? gx - RAIL + 6 : gx + RAIL - 6;
+    ctx.fillStyle = '#ff4d00';
+    ctx.fillRect(x - 4, cy - w / 2 - 10, 8, w + 20);
+    ctx.fillStyle = '#101112';
+    for (let y = cy - w / 2 - 6; y < cy + w / 2 + 6; y += 16) ctx.fillRect(x - 4, y, 8, 8);
+    ctx.restore();
+  },
+  drawScore(ctx, s0, s1, target) {
+    // stark grotesk numerals
+    const t = target || 7;
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '64px ' + THEME.font.display;
+    const label = String(s0).padStart(2, '0') + ' : ' + String(s1).padStart(2, '0');
+    const x = CX, y = 34;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillText(label, x + 3, y + 4);
+    ctx.fillStyle = '#f2f2f0';
+    ctx.fillText(label, x, y);
+    // orange index bar under score
+    const frac = Math.max(s0, s1) / t;
+    ctx.fillStyle = '#ff4d00';
+    ctx.fillRect(x - 90, y + 34, 180 * frac, 5);
+    ctx.strokeStyle = 'rgba(242,242,240,0.35)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x - 90, y + 34, 180, 5);
+    ctx.font = '600 11px ' + THEME.font.body;
+    ctx.fillStyle = '#8f9397';
+    ctx.fillText('FIRST TO ' + t, x, y + 52);
+    ctx.restore();
+  }
+};
+
+/* ================= 4. BILLIARD HERITAGE ================= */
+const THEME_BIL = {
+  id: 'bil', name: 'The Billiard Room', tagline: 'Mahogany · brass · snooker green — the members\u2019 club table',
+  font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, serif" },
+  ink: '#ecdfc2', accent: '#c9a227', gold: '#c9a227', particle: '#e8d488', trail: '#c9a227',
+  flash: 'rgba(201,162,39,1)', vignette: 'rgba(10,5,2,0.5)',
+  goalChord: [329.63, 440, 523.25, 659.25],
+  puck: { hi: '#fffdf4', body: '#ece5d3', edge: '#b8ac8e', ring: '#1d5c40' },
+  mallet: { hi: '#7a4a34', base: '#4a2a1e', edge: '#241209', ring: '#c9a227', dish: '#382015', dishHi: '#5c3a28', knob: '#e8dcc0', knobHi: '#fffdf4' },
+  css: { pageBg: '#0d0805', panelBg: 'rgba(24,15,9,0.95)', panelBorder: '#8a6d2f', btnBg: '#c9a227', btnInk: '#1a1008', title: '#ecdfc2', sub: '#a89468', ghost: 'rgba(201,162,39,0.14)' },
+
+  _tile: null,
+  drawRoom(ctx) {
+    const g = ctx.createRadialGradient(VW / 2, VH * 0.42, 120, VW / 2, VH / 2, 800);
+    g.addColorStop(0, '#2a1a10'); g.addColorStop(0.65, '#180e07'); g.addColorStop(1, '#0b0603');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    // wainscot rail line
+    ctx.save();
+    ctx.strokeStyle = 'rgba(201,162,39,0.07)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(0, VH * 0.72); ctx.lineTo(VW, VH * 0.72); ctx.stroke();
+    ctx.restore();
+  },
+  drawRails(ctx) {
+    const g = ctx.createLinearGradient(TX0, TY0, TX0, TY0 + PH + RAIL * 2);
+    g.addColorStop(0, '#5c2f1d'); g.addColorStop(0.5, '#472415'); g.addColorStop(1, '#2e160b');
+    rr(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 18); ctx.fillStyle = g; ctx.fill();
+    woodGrain(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, '#1c0d05', '#7a4a2e');
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 6); ctx.fill();
+    ctx.restore();
+    // brass corner plates
+    ctx.save();
+    for (const [cxp, cyp] of [[TX0 + 24, TY0 + 24], [TX0 + PW + RAIL * 2 - 24, TY0 + 24], [TX0 + 24, TY0 + PH + RAIL * 2 - 24], [TX0 + PW + RAIL * 2 - 24, TY0 + PH + RAIL * 2 - 24]]) {
+      const bg = ctx.createRadialGradient(cxp - 4, cyp - 5, 2, cxp, cyp, 20);
+      bg.addColorStop(0, '#e8c86a'); bg.addColorStop(1, '#8a6d2f');
+      ctx.fillStyle = bg;
+      ctx.beginPath(); ctx.arc(cxp, cyp, 17, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.arc(cxp, cyp, 4, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+    // leather inner cushion edge
+    ctx.save();
+    ctx.strokeStyle = '#1e3a2a'; ctx.lineWidth = 7;
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 6); ctx.stroke();
+    ctx.restore();
+  },
+  drawSurface(ctx) {
+    if (!this._tile) this._tile = noiseTile('#1d5c40', ['#256e4d', '#174a33', '#2c7a55'], 2600, 0.12);
+    tileOver(ctx, this._tile, PX, PY, PW, PH, 1);
+    // cloth sheen + center wear
+    const g = ctx.createRadialGradient(CX, CY, 60, CX, CY, 480);
+    g.addColorStop(0, 'rgba(255,255,240,0.06)');
+    g.addColorStop(0.7, 'rgba(255,255,240,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.16)');
+    ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
+  },
+  drawMarkings(ctx) {
+    // chalk lines: double-strike for texture
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (const [dy, a] of [[0, 0.85], [1.5, 0.3]]) {
+      ctx.strokeStyle = 'rgba(232,224,204,' + a + ')'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(CX + dy, PY + 14); ctx.lineTo(CX + dy, PY + PH - 14); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX + dy, CY, 58, 0, TAU); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(232,224,204,0.85)';
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72]) {
+        ctx.beginPath(); ctx.arc(fx, fy, 5, 0, TAU); ctx.fill();
+      }
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    const x = side === 0 ? gx - RAIL + 8 : gx + RAIL - 8;
+    // brass pocket plate
+    const bg = ctx.createLinearGradient(x - 8, 0, x + 8, 0);
+    bg.addColorStop(0, '#8a6d2f'); bg.addColorStop(0.5, '#e8c86a'); bg.addColorStop(1, '#8a6d2f');
+    ctx.fillStyle = bg;
+    rr(ctx, x - 8, cy - w / 2 - 12, 16, w + 24, 6); ctx.fill();
+    ctx.fillStyle = '#0a0a0a';
+    rr(ctx, x - 4, cy - w / 2 - 4, 8, w + 8, 4); ctx.fill();
+    ctx.restore();
+  },
+  drawScore(ctx, s0, s1, target) {
+    // chalkboard plaque
+    const t = target || 7;
+    const w = 300, h = 54, x = CX - w / 2, y = 6;
+    ctx.save();
+    rr(ctx, x, y, w, h, 6);
+    ctx.fillStyle = '#14100c'; ctx.fill();
+    ctx.strokeStyle = '#8a6d2f'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.strokeStyle = 'rgba(201,162,39,0.4)'; ctx.lineWidth = 1;
+    rr(ctx, x + 5, y + 5, w - 10, h - 10, 4); ctx.stroke();
+    ctx.fillStyle = 'rgba(236,229,211,0.92)';
+    ctx.font = '700 30px ' + THEME.font.display;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(s0 + '  —  ' + s1, CX, y + h / 2 + 1);
+    ctx.font = 'italic 12px ' + THEME.font.body;
+    ctx.fillStyle = 'rgba(168,148,104,0.9)';
+    ctx.fillText('first to ' + t, CX, y + h - 2);
+    ctx.restore();
+  }
+};
+
+const THEMES = { deco: THEME_DECO, mid: THEME_MID, brut: THEME_BRUT, bil: THEME_BIL };
+
+let THEME = THEMES['deco'];
+</script>
+<script>
+/* ============================================================
+   ATELIER AIR HOCKEY — engine v2
+   Rebuilt from research: Brunswick 1969 roots, near-zero-friction
+   puck glide, velocity-transfer striking, human-like AI, and the
+   full juice canon (hit-stop, trauma shake + rotation, particles,
+   squash, trails, scuff permanence, slow-mo goal ceremony).
+   Single file. Mobile-first. No external assets but fonts.
+   ============================================================ */
+'use strict';
+
+// ---------- dimensions (2:1 rink, USAA-style proportions) ----------
+const VW = 1440, VH = 1040;          // view space
+const PX = 200, PY = 200, PW = 1040, PH = 640;  // playfield
+const CX = PX + PW / 2, CY = PY + PH / 2;
+const PUCK_R = 26, MALLET_R = 46, GOAL_W = 230, RAIL = 26;
+const TX0 = PX - RAIL, TY0 = PY - RAIL;
+const TAU = Math.PI * 2;
+
+// ---------- user settings (persisted) ----------
+const Settings = {
+  shake: 'full',      // 'off' | 'subtle' | 'full'
+  sound: true,
+  haptics: true,
+  firstTo: 7,         // 5 | 7 | 11
+  pace: 'classic',     // 'casual' | 'classic' | 'lightning'
+};
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem('atelier-ah-settings') || '{}');
+    for (const k of Object.keys(Settings)) if (s[k] !== undefined) Settings[k] = s[k];
+  } catch (e) {}
+  if (![5, 7, 11].includes(Settings.firstTo)) Settings.firstTo = 7;
+  if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
+  if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
+}
+function saveSettings() {
+  try { localStorage.setItem('atelier-ah-settings', JSON.stringify(Settings)); } catch (e) {}
+}
+// puck pace: how lively the table plays
+const PACES = {
+  casual:    { damp: 0.22,  wall: 0.88, serve: 560, label: 'Casual' },
+  classic:   { damp: 0.09,  wall: 0.95, serve: 780, label: 'Classic' },
+  lightning: { damp: 0.045, wall: 0.99, serve: 980, label: 'Lightning' },
+};
+const paceDamp = () => PACES[Settings.pace].damp;
+const paceWall = () => PACES[Settings.pace].wall;
+const paceServe = () => PACES[Settings.pace].serve;
+
+// ---------- physics tuning (from research) ----------
+// Real tables: puck floats on air jets — near-zero friction. A good shove
+// crosses an 8ft table several times. Damping here is exponential /s.
+const PUCK_DAMP = 0.09;              // default damping; pace setting overrides at runtime
+const WALL_REST = 0.95;              // default rail restitution; pace setting overrides at runtime
+const PUCK_MAX = 3100;               // fastest pro smash, in units/s
+const STRIKE_XFER = 1.45;            // mallet->puck velocity transfer
+const SMACK_BONUS = 0.55;            // extra punch on fast flicks
+const SUB_HZ = 240;                  // physics substeps (anti-tunnel)
+const STALL_V = 130, STALL_T = 1.4;  // anti-dead-puck trigger
+
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const rnd = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
+const rand = (a, b) => a + Math.random() * (b - a); // themes.js uses rand(a,b)
+const hyp = Math.hypot;
+let interacted = false; // set on first real pointer input (gates vibrate)
+
+// ---------- procedural audio ----------
+const AudioSys = {
+  ctx: null, master: null, muted: false,
+  init() {
+    if (this.ctx) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AC();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.5;
+      this.master.connect(this.ctx.destination);
+    } catch (e) { /* silent */ }
+  },
+  resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+  toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; return this.muted; },
+  // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance
+  hit(power) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, vr = 1 + rnd(-0.05, 0.05);
+    const p = clamp(power, 0, 1);
+    // transient
+    const len = Math.floor(this.ctx.sampleRate * 0.03);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+    const g1 = this.ctx.createGain(); g1.gain.value = 0.5 * p + 0.08;
+    src.connect(hp); hp.connect(g1); g1.connect(this.master);
+    src.start(t);
+    // body
+    const o = this.ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.value = (170 + p * 460) * vr;
+    const g2 = this.ctx.createGain();
+    g2.gain.setValueAtTime(0.55 * p + 0.06, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.10);
+    o.connect(g2); g2.connect(this.master);
+    o.start(t); o.stop(t + 0.12);
+  },
+  rail(power) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, p = clamp(power, 0, 1);
+    const o = this.ctx.createOscillator(); o.type = 'square';
+    o.frequency.value = 130 * (1 + rnd(-0.05, 0.05));
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.22 * p + 0.03, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+    o.connect(lp); lp.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.1);
+  },
+  goalChord(notes) {
+    if (!this.ctx || this.muted) return;
+    const t0 = this.ctx.currentTime;
+    notes.forEach((f, i) => {
+      const t = t0 + i * 0.09;
+      const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + 0.75);
+    });
+    // air swell
+    const len = Math.floor(this.ctx.sampleRate * 0.5);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len);
+    const src = this.ctx.createBufferSource(); src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 0.7;
+    const g = this.ctx.createGain(); g.gain.value = 0.25;
+    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.start(t0);
+  },
+  blip(f, dur = 0.09, vol = 0.3) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  ui() { this.blip(1150, 0.05, 0.18); },
+  count(final) { this.blip(final ? 990 : 620, final ? 0.28 : 0.12, 0.32); },
+};
+function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
+
+// ---------- game state ----------
+const DIFFS = [
+  { name: 'Rookie',   maxSpeed: 780,  react: 0.30, aimErr: 120, strike: 0.62, aggro: 0.35, tick: 0.14 },
+  { name: 'Club Pro', maxSpeed: 1180, react: 0.15, aimErr: 55,  strike: 1.00, aggro: 0.70, tick: 0.09 },
+  { name: 'Champion', maxSpeed: 1520, react: 0.06, aimErr: 22,  strike: 1.32, aggro: 0.95, tick: 0.06 },
+];
+const PLAYER_CAP = 4200; // mallet tracking cap — 1:1 feel, no teleporting
+
+const G = {
+  state: 'menu',            // menu | count | play | goal | win | pause
+  mode: 'ai', difficulty: 1,
+  score: [0, 0], winSide: 0,
+  m1: null, m2: null, puck: null,
+  timeScale: 1, freezeT: 0,
+  trauma: 0,
+  countT: 0, countN: 3, goalT: 0, goalSlowT: 0, goalSide: 0,
+  stallT: 0, lastTouch: -1,
+  idleT: 0, demo: false,
+  serveDir: 1,
+  pausedFrom: 'play',
+  scuffs: [], parts: [], trail: [], texts: [],
+  puckSq: 1, puckSqA: 0,    // squash amount / angle
+  letterT: 0, flashA: 0,
+  ai: null,                 // per-ai brain state
+  stats: null,              // per-match stats (top speed, rally, time)
+};
+function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, t0: 0 }; }
+G.stats = freshStats();
+const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
+
+function mkMallet(side) {
+  return {
+    side, x: 0, y: 0, tx: 0, ty: 0,
+    vx: 0, vy: 0,             // smoothed velocity (for strike transfer)
+    r: MALLET_R,
+  };
+}
+function resetPositions() {
+  const m1 = G.m1, m2 = G.m2;
+  m1.x = m1.tx = PX + 170; m1.y = m1.ty = CY;
+  m2.x = m2.tx = PX + PW - 170; m2.y = m2.ty = CY;
+  m1.vx = m1.vy = m2.vx = m2.vy = 0;
+  G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R };
+  G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
+  G.puckSq = 1;
+}
+G.m1 = mkMallet(0); G.m2 = mkMallet(1);
+
+// ---------- view / input mapping ----------
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let view = { w: 0, h: 0, s: 1, ox: 0, oy: 0, portrait: false };
+
+function resize() {
+  const vv = window.visualViewport;
+  const w = Math.round(vv ? vv.width : window.innerWidth);
+  const h = Math.round(vv ? vv.height : window.innerHeight);
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
+  view.w = w; view.h = h;
+  view.portrait = h > w * 1.05;
+  if (!view.portrait) {
+    view.s = Math.min(w / VW, h / VH);
+    view.ox = (w - VW * view.s) / 2; view.oy = (h - VH * view.s) / 2;
+  } else {
+    view.s = Math.min(w / VH, h / VW);
+    view.ox = (w - VH * view.s) / 2; view.oy = (h - VW * view.s) / 2;
+  }
+  view.dpr = dpr;
+}
+// client px -> rink coords (inverse of render transform)
+function screenToRink(cx, cy) {
+  const { s, ox, oy, portrait } = view;
+  const u = (cx - ox) / s, v = (cy - oy) / s;
+  if (!portrait) return { x: u, y: v };
+  return { x: VW - v, y: VH - u };
+}
+function clampMallet(m) {
+  const r = m.r;
+  if (m.side === 0) m.x = clamp(m.x, PX + r, CX - 8);
+  else m.x = clamp(m.x, CX + 8, PX + PW - r);
+  m.y = clamp(m.y, PY + r, PY + PH - r);
+  m.tx = clamp(m.tx, m.side === 0 ? PX + r : CX + 8, m.side === 0 ? CX - 8 : PX + PW - r);
+  m.ty = clamp(m.ty, PY + r, PY + PH - r);
+}
+// move mallet toward target with a speed cap — 1:1 feel, never teleports
+function driveMallet(m, dt, cap) {
+  const dx = m.tx - m.x, dy = m.ty - m.y;
+  const d = hyp(dx, dy), maxD = cap * dt;
+  if (d > 0.5) {
+    const step = Math.min(d, maxD);
+    const nx = m.x + dx / d * step, ny = m.y + dy / d * step;
+    const ivx = (nx - m.x) / dt, ivy = (ny - m.y) / dt;
+    const k = 1 - Math.exp(-22 * dt);
+    m.vx += (ivx - m.vx) * k; m.vy += (ivy - m.vy) * k;
+    m.x = nx; m.y = ny;
+  } else {
+    const k = 1 - Math.exp(-14 * dt);
+    m.vx += (0 - m.vx) * k; m.vy += (0 - m.vy) * k;
+  }
+  clampMallet(m);
+}
+
+function onPointerDown(e) {
+  AudioSys.init(); AudioSys.resume();
+  interacted = true;
+  if (G.state === 'menu' || G.state === 'win') return; // buttons own the UI
+  const touch = e.pointerType === 'touch';
+  const r = screenToRink(e.clientX, e.clientY - (touch ? 70 : 0));
+  if (G.mode === '2p' && !pointers.has(e.pointerId)) {
+    const side = r.x > CX ? 1 : 0;
+    const taken = [...pointers.values()];
+    if (!taken.includes(side)) pointers.set(e.pointerId, side);
+    else return;
+  } else if (!pointers.has(e.pointerId)) {
+    if (pointers.size > 0 && G.mode !== '2p') return;
+    pointers.set(e.pointerId, 0);
+  }
+  const m = pointers.get(e.pointerId) === 0 ? G.m1 : G.m2;
+  m.tx = r.x; m.ty = r.y;
+  G.idleT = 0;
+}
+function onPointerMove(e) {
+  if (!pointers.has(e.pointerId)) return;
+  if (G.state === 'menu' || G.state === 'win') return;
+  const touch = e.pointerType === 'touch';
+  const r = screenToRink(e.clientX, e.clientY - (touch ? 70 : 0));
+  const m = pointers.get(e.pointerId) === 0 ? G.m1 : G.m2;
+  m.tx = r.x; m.ty = r.y;
+  G.idleT = 0;
+}
+function onPointerUp(e) { pointers.delete(e.pointerId); }
+
+// ---------- physics ----------
+function puckSpeed() { return hyp(G.puck.vx, G.puck.vy); }
+
+function collideWalls(p) {
+  const r = p.r;
+  // top / bottom rails
+  if (p.y < PY + r) {
+    p.y = PY + r;
+    if (p.vy < 0) {
+      const imp = -p.vy;
+      p.vy = -p.vy * paceWall(); p.vx *= 0.995;
+      onRailHit(p.x, PY, imp);
+    }
+  } else if (p.y > PY + PH - r) {
+    p.y = PY + PH - r;
+    if (p.vy > 0) {
+      const imp = p.vy;
+      p.vy = -p.vy * paceWall(); p.vx *= 0.995;
+      onRailHit(p.x, PY + PH, imp);
+    }
+  }
+  // end walls with goal mouths
+  const inMouth = Math.abs(p.y - CY) < GOAL_W / 2 - 6;
+  if (p.x < PX + r && !inMouth) {
+    p.x = PX + r;
+    if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp); }
+  } else if (p.x > PX + PW - r && !inMouth) {
+    p.x = PX + PW - r;
+    if (p.vx > 0) { const imp = p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX + PW, p.y, imp); }
+  }
+}
+
+// mallet is kinematic (infinite mass): positional separation + impulse
+// with full mallet-velocity transfer, so flicks become rockets.
+function collideMallet(p, m) {
+  const dx = p.x - m.x, dy = p.y - m.y;
+  const minD = p.r + m.r;
+  const d2 = dx * dx + dy * dy;
+  if (d2 >= minD * minD || d2 === 0) return;
+  const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+  p.x = m.x + nx * minD; p.y = m.y + ny * minD;
+  const rvx = p.vx - m.vx, rvy = p.vy - m.vy;
+  const vn = rvx * nx + rvy * ny;
+  if (vn >= 0) return; // separating
+  // Speed-dependent restitution: a still/slow mallet SMOTHERS the puck
+  // (real goalie play — the puck drops dead for possession), a driven
+  // mallet bounces it lively. This is what makes traps, dribbles and
+  // possession possible instead of endless pinball.
+  const msp0 = hyp(m.vx, m.vy);
+  const e = lerp(0.35, 0.92, clamp(msp0 / 1200, 0, 1));
+  let j = -(1 + e) * vn;
+  // smack bonus: mallet driving into the puck adds extra punch
+  const mvn = m.vx * nx + m.vy * ny; // >0 means mallet moving toward puck
+  if (mvn > 0) j += mvn * SMACK_BONUS;
+  p.vx += nx * j; p.vy += ny * j;
+  // safety: a genuinely driven hit never dies
+  const sp = hyp(p.vx, p.vy);
+  const msp = hyp(m.vx, m.vy);
+  if (sp < 250 && msp > 800) {
+    p.vx = nx * 250; p.vy = ny * 250;
+  }
+  const nsp = hyp(p.vx, p.vy);
+  if (nsp > PUCK_MAX) { p.vx *= PUCK_MAX / nsp; p.vy *= PUCK_MAX / nsp; }
+  G.lastTouch = m.side;
+  G.stallT = 0;
+  onMalletHit(p.x, p.y, -vn + Math.max(0, mvn), nx, ny);
+}
+
+function stepPhysics(dt) {
+  const p = G.puck;
+  // glide: near-zero friction, like air jets (pace setting tunes the table)
+  const damp = Math.exp(-paceDamp() * dt);
+  p.vx *= damp; p.vy *= damp;
+  // match stats: fastest the puck ever flies (table-scale km/h later)
+  if (G.state === 'play' && !G.demo) {
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > G.stats.topSpeed) G.stats.topSpeed = sp;
+  }
+  p.x += p.vx * dt; p.y += p.vy * dt;
+  collideMallet(p, G.m1);
+  collideMallet(p, G.m2);
+  collideWalls(p);
+  // goals: full crossing of the line inside the mouth
+  if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(0);
+  else if (p.x < PX - p.r * 0.35 && Math.abs(p.y - CY) < GOAL_W / 2) onGoal(1);
+  // anti-stall: a real table never lets the puck die mid-rink — a whisper
+  // of air from the jets keeps the game alive
+  if (G.state === 'play') stallWatch(dt);
+  // trail
+  G.trail.push({ x: p.x, y: p.y });
+  if (G.trail.length > 16) G.trail.shift();
+  // squash recovery
+  G.puckSq += (1 - G.puckSq) * Math.min(1, dt * 9);
+}
+
+// Anti-stall: air jets. A dead puck never sits — shared by live play and the
+// attract demo so neither can freeze mid-rink.
+function stallWatch(dt) {
+  const p = G.puck;
+  const sp = hyp(p.vx, p.vy);
+  if (sp < STALL_V) {
+    G.stallT += dt;
+    if (G.stallT > STALL_T) {
+      G.stallT = 0;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      const ang = (Math.random() < 0.75 ? 0 : Math.PI) + rnd(-0.5, 0.5) + (dir > 0 ? 0 : Math.PI);
+      const push = 380;
+      p.vx += Math.cos(ang) * push; p.vy += Math.sin(ang) * push * 0.6;
+      airPuff(p.x, p.y);
+    }
+  } else G.stallT = 0;
+}
+
+// ---------- AI: plays like a real person ----------
+// States: guard -> track -> engage -> windup -> strike -> recover,
+// plus defend (intercept) and cornerEscape. One brain drives m2 in
+// solo play; in demo mode a second brain drives m1.
+function mkBrain(side, diffIdx) {
+  return {
+    side, diff: DIFFS[diffIdx],
+    state: 'guard', tState: 0, tickT: 0,
+    aimX: 0, aimY: 0, windT: 0,
+    cornerT: 0, swayT: rnd(10), possessT: 0,
+    seen: { x: CX, y: CY, vx: 0, vy: 0 }, // delayed perception
+    hist: [], // puck history for reaction delay
+  };
+}
+function aiPerceive(b, dt) {
+  b.hist.push({ x: G.puck.x, y: G.puck.y, vx: G.puck.vx, vy: G.puck.vy, t: perfNow() });
+  const cutoff = perfNow() - b.diff.react;
+  while (b.hist.length > 2 && b.hist[0].t < cutoff) b.hist.shift();
+  const s = b.hist[0];
+  b.seen.x = s.x; b.seen.y = s.y; b.seen.vx = s.vx; b.seen.vy = s.vy;
+}
+function perfNow() { return performance.now() / 1000; }
+
+// predict puck position t seconds ahead, with top/bottom wall bounces
+function predictPuck(x, y, vx, vy, t) {
+  let px = x, py = y;
+  const step = 1 / 60;
+  let rem = t;
+  while (rem > 0) {
+    const dt = Math.min(step, rem);
+    px += vx * dt; py += vy * dt;
+    if (py < PY + PUCK_R) { py = PY + PUCK_R; vy = Math.abs(vy) * paceWall(); }
+    else if (py > PY + PH - PUCK_R) { py = PY + PH - PUCK_R; vy = -Math.abs(vy) * paceWall(); }
+    rem -= dt;
+  }
+  return { x: px, y: py };
+}
+function aiHome(b) {
+  // home: goal-side, slightly favoring puck's vertical zone — with idle sway
+  b.swayT += 1 / 60;
+  const hx = b.side === 0 ? PX + 190 : PX + PW - 190;
+  const hy = CY + (b.seen.y - CY) * 0.35 + Math.sin(b.swayT * 1.7) * 14;
+  return { x: hx, y: clamp(hy, PY + 90, PY + PH - 90) };
+}
+function aiThink(b, dt, m) {
+  const D = b.diff;
+  b.tState += dt; b.tickT += dt;
+  if (b.tickT < D.tick) return; // decisions at 7–16 Hz, like a human
+  b.tickT = 0;
+  const s = b.seen, p = G.puck;
+  const myGoalX = b.side === 0 ? PX : PX + PW;
+  const foeGoalX = b.side === 0 ? PX + PW : PX;
+  const puckOnMySide = b.side === 0 ? s.x < CX : s.x > CX;
+  const puckSpeed = hyp(s.vx, s.vy);
+  const threat = (b.side === 0 ? s.vx < -500 : s.vx > 500) && puckOnMySide;
+
+  const setTx = (x, y) => {
+    m.tx = b.side === 0 ? clamp(x, PX + MALLET_R, CX - 8) : clamp(x, CX + 8, PX + PW - MALLET_R);
+    m.ty = clamp(y, PY + MALLET_R, PY + PH - MALLET_R);
+  };
+  const goHome = () => { const h = aiHome(b); setTx(h.x, h.y); };
+
+  switch (b.state) {
+    case 'guard': {
+      goHome();
+      if (threat) { b.state = 'defend'; b.tState = 0; }
+      else if (puckOnMySide && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
+      break;
+    }
+    case 'defend': {
+      // intercept the predicted trajectory in front of goal
+      const tHit = clamp(Math.abs((s.x - (b.side === 0 ? PX + 150 : PX + PW - 150)) / (s.vx || 1)), 0, 1.1);
+      const pr = predictPuck(s.x, s.y, s.vx, s.vy, tHit * 0.85);
+      const gx = b.side === 0 ? PX + 130 : PX + PW - 130;
+      setTx(gx + (pr.x - gx) * 0.35, pr.y);
+      if (!threat) { b.state = 'guard'; b.tState = 0; }
+      // if the puck sits in reach (smothered block, loose puck), take it
+      if (puckSpeed < 900 && hyp(s.x - m.x, s.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
+      break;
+    }
+    case 'engage': {
+      // skate to the puck, then set up the strike
+      setTx(s.x, s.y);
+      const d = hyp(s.x - m.x, s.y - m.y);
+      // possession clock: herding the puck at close range counts as control
+      if (d < MALLET_R + PUCK_R + 44) b.possessT += D.tick; else b.possessT = Math.max(0, b.possessT - D.tick);
+      if (d < MALLET_R + PUCK_R + 26 && (puckSpeed < 700 || b.possessT > 0.35)) {
+        b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
+        // pick aim: usually straight at the goal mouth, sometimes a bank
+        const bank = Math.random() < (b.diff === DIFFS[2] ? 0.35 : 0.12);
+        if (bank) {
+          b.bankY = Math.random() < 0.5 ? PY + 40 : PY + PH - 40;
+          b.aimX = foeGoalX; b.aimY = CY + rnd(-1, 1) * D.aimErr;
+        } else {
+          b.bankY = null;
+          b.aimX = foeGoalX; b.aimY = CY + rnd(-1, 1) * D.aimErr;
+        }
+      }
+      if (!puckOnMySide || puckSpeed > 1700) { b.state = 'guard'; b.tState = 0; b.possessT = 0; }
+      // corner rescue: puck wedged in my corner
+      const inCorner = b.side === 0
+        ? (s.x < PX + 150 && (s.y < PY + 150 || s.y > PY + PH - 150))
+        : (s.x > PX + PW - 150 && (s.y < PY + 150 || s.y > PY + PH - 150));
+      if (inCorner && puckSpeed < 260) { b.cornerT += D.tick; if (b.cornerT > 0.9) { b.state = 'escape'; b.tState = 0; b.cornerT = 0; } }
+      else b.cornerT = 0;
+      break;
+    }
+    case 'windup': {
+      // ANTICIPATION: pull back away from the aim point — telegraphs the smash
+      b.windT += D.tick;
+      let ax = b.aimX, ay = b.aimY;
+      if (b.bankY !== null) { ax = s.x; ay = b.bankY; } // aim at the rail first
+      const dx = ax - s.x, dy = ay - s.y, dl = hyp(dx, dy) || 1;
+      const back = 95;
+      setTx(s.x - dx / dl * back, s.y - dy / dl * back);
+      if (b.windT > 0.11) { b.state = 'strike'; b.tState = 0; }
+      break;
+    }
+    case 'strike': {
+      // drive THROUGH the puck toward the aim point — this is where
+      // mallet velocity becomes puck velocity. Lead the puck slightly
+      // so the lunge connects on a moving target.
+      const px = s.x + s.vx * 0.1, py = s.y + s.vy * 0.1;
+      let ax = b.aimX, ay = b.aimY;
+      if (b.bankY !== null) { ax = s.x; ay = b.bankY; }
+      const dx = ax - px, dy = ay - py, dl = hyp(dx, dy) || 1;
+      const through = 150;
+      setTx(px + dx / dl * through, py + dy / dl * through);
+      if (b.tState > 0.34) { b.state = 'recover'; b.tState = 0; }
+      break;
+    }
+    case 'recover': {
+      goHome();
+      if (b.tState > 0.4) { b.state = 'guard'; b.tState = 0; }
+      break;
+    }
+    case 'escape': {
+      // swipe along the rail to dig the puck out of the corner
+      const dir = s.y < CY ? 1 : -1;
+      setTx(s.x + (b.side === 0 ? 60 : -60), s.y + dir * 170);
+      if (b.tState > 0.5) { b.state = 'guard'; b.tState = 0; }
+      break;
+    }
+  }
+}
+function aiDrive(b, dt, m) {
+  aiPerceive(b, dt);
+  aiThink(b, dt, m);
+  driveMallet(m, dt, b.diff.maxSpeed * (b.state === 'strike' ? 1.5 : 1));
+}
+
+// ---------- juice ----------
+function addTrauma(x) {
+  const k = Settings.shake === 'off' ? 0 : Settings.shake === 'subtle' ? 0.45 : 1;
+  G.trauma = clamp(G.trauma + x * k, 0, 1);
+}
+function shakeOffset() {
+  // Nijman's rule: a touch of ROTATION reads as force; pure translation reads as a glitch
+  const t2 = G.trauma * G.trauma;
+  return {
+    x: rnd(-1, 1) * 13 * t2,
+    y: rnd(-1, 1) * 13 * t2,
+    r: rnd(-1, 1) * 0.011 * t2,
+  };
+}
+// pooled particles — no allocation in the hot loop
+const PPOOL = [];
+for (let i = 0; i < 260; i++) PPOOL.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, max: 1, size: 3, color: '#fff' });
+function burst(x, y, n, color, speed, size = 3.5) {
+  let c = 0;
+  for (const q of PPOOL) {
+    if (q.on) continue;
+    q.on = true;
+    const a = rnd(TAU), sp = rnd(0.25, 1) * speed;
+    q.x = x; q.y = y; q.vx = Math.cos(a) * sp; q.vy = Math.sin(a) * sp;
+    q.life = q.max = rnd(0.25, 0.6); q.size = size * rnd(0.6, 1.3); q.color = color;
+    if (++c >= n) break;
+  }
+}
+function airPuff(x, y) {
+  // the table's air jets whisper the dead puck back to life
+  for (let i = 0; i < 10; i++) {
+    for (const q of PPOOL) {
+      if (q.on) continue;
+      q.on = true;
+      q.x = x + rnd(-30, 30); q.y = y + rnd(-30, 30);
+      q.vx = rnd(-40, 40); q.vy = rnd(-90, -20);
+      q.life = q.max = rnd(0.4, 0.8); q.size = rnd(2, 5); q.color = 'rgba(200,220,235,0.5)';
+      break;
+    }
+  }
+}
+function updateParts(dt) {
+  for (const q of PPOOL) {
+    if (!q.on) continue;
+    q.life -= dt;
+    if (q.life <= 0) { q.on = false; continue; }
+    q.x += q.vx * dt; q.y += q.vy * dt;
+    const d = Math.exp(-3.2 * dt);
+    q.vx *= d; q.vy *= d;
+  }
+  for (let i = G.scuffs.length - 1; i >= 0; i--) {
+    G.scuffs[i].a -= dt * 0.10;
+    if (G.scuffs[i].a <= 0) G.scuffs.splice(i, 1);
+  }
+  for (let i = G.texts.length - 1; i >= 0; i--) {
+    const t = G.texts[i];
+    t.t += dt; t.y -= dt * 46;
+    if (t.t > 1.1) G.texts.splice(i, 1);
+  }
+}
+function addText(x, y, str, color, size = 44) {
+  G.texts.push({ x, y, str, color, size, t: 0 });
+  if (G.texts.length > 8) G.texts.shift();
+}
+
+// impact events — the layered hit stack
+function onMalletHit(x, y, impact, nx, ny) {
+  const v = clamp(impact / 2200, 0, 1);
+  // hit-stop: 1–2 frames, scaled — the brain reads it as weight
+  if (impact > 650) G.freezeT = Math.max(G.freezeT, Math.min(0.032, 0.010 + v * 0.022));
+  addTrauma(0.18 + v * 0.5);
+  // puck squash along the impact normal, 10–20%
+  G.puckSq = 1 - (0.10 + v * 0.10);
+  G.puckSqA = Math.atan2(ny, nx);
+  burst(x, y, 5 + Math.round(v * 12), THEME.particle, 200 + v * 480);
+  // permanence: hard hits leave a fading scuff on the cloth
+  if (impact > 900 && G.scuffs.length < 48) {
+    G.scuffs.push({ x, y, a: 0.20, ang: Math.atan2(ny, nx) + Math.PI / 2, len: 26 + v * 40 });
+  }
+  AudioSys.hit(v);
+  if (v > 0.55) buzz(12);
+  // rally stat: count mallet strikes while a real match is live
+  if (G.state === 'play' && !G.demo && G.stats) {
+    G.stats.rally++;
+    if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
+  }
+}
+function onRailHit(x, y, impact) {
+  const v = clamp(impact / 2200, 0, 1);
+  if (impact > 1100) { G.freezeT = Math.max(G.freezeT, 0.012); addTrauma(0.12 + v * 0.2); }
+  if (impact > 300) burst(x, y, 3 + Math.round(v * 6), THEME.particle, 140 + v * 260, 2.5);
+  AudioSys.rail(v);
+}
+
+// ---------- game flow ----------
+function startGame(mode, diff) {
+  AudioSys.init(); AudioSys.resume();
+  G.mode = mode; G.difficulty = diff == null ? G.difficulty : diff;
+  G.score = [0, 0]; G.winSide = 0;
+  G.demo = false; G.idleT = 0;
+  G.timeScale = 1; G.freezeT = 0; G.trauma = 0;
+  G.scuffs.length = 0; G.texts.length = 0;
+  resetPositions();
+  G.ai2 = mkBrain(1, G.difficulty);
+  G.ai1 = (mode === '2p') ? null : mkBrain(0, G.difficulty); // demo brain, unused in 1p
+  G.stats = freshStats(); G.stats.t0 = performance.now();
+  pointers.clear();
+  hideAll();
+  $('menu').classList.add('hidden');
+  $('topbar').classList.remove('hidden');
+  startCount();
+  G.serveDir = Math.random() < 0.5 ? 1 : -1;
+}
+function startCount() {
+  G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
+  G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
+  G.trail.length = 0;
+}
+function updateCount(rdt) {
+  G.countT += rdt;
+  const n = 3 - Math.floor(G.countT / 0.55);
+  if (n !== G.countN && n >= 1) { G.countN = n; AudioSys.count(false); }
+  if (G.countT >= 1.65 && !G.goPlayed) { G.goPlayed = true; AudioSys.count(true); }
+  if (G.countT >= 2.0) {
+    G.goPlayed = false;
+    G.state = 'play';
+    // serve toward the player who was scored on — the classic face-off courtesy
+    G.puck.vx = paceServe() * G.serveDir; G.puck.vy = rnd(-160, 160);
+  }
+}
+function onGoal(scorer) {
+  if (G.state !== 'play') return;
+  if (G.demo) { // attract mode: no ceremony, just play on
+    burst(G.puck.x, G.puck.y, 24, THEME.particle, 420);
+    AudioSys.hit(0.8);
+    resetPositions();
+    G.puck.vx = paceServe() * (Math.random() < 0.5 ? 1 : -1);
+    return;
+  }
+  G.score[scorer]++;
+  G.goalSide = scorer;
+  if (G.stats) G.stats.rally = 0; // new rally after each goal
+  G.state = 'goal';
+  G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
+  G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
+  G.flashA = 1;
+  const gx = scorer === 0 ? PX + PW : PX;
+  burst(gx, CY, 46, THEME.particle, 620, 4.5);
+  burst(gx, CY, 20, '#ffffff', 380, 3);
+  addTrauma(0.85);
+  addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
+  AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
+  buzz([25, 40, 40]);
+}
+function updateGoal(rdt) {
+  G.goalT += rdt; G.goalSlowT += rdt;
+  G.letterT = clamp(G.letterT + rdt * 3.2, 0, 1);
+  G.flashA = Math.max(0, G.flashA - rdt * 2.4);
+  if (G.goalSlowT > 1.0) G.timeScale = lerp(G.timeScale, 1, clamp(rdt * 5, 0, 1));
+  // ease the puck into the net
+  const p = G.puck;
+  const gx = G.goalSide === 0 ? PX + PW + 70 : PX - 70;
+  p.x = lerp(p.x, gx, clamp(rdt * 5, 0, 1));
+  p.y = lerp(p.y, CY, clamp(rdt * 5, 0, 1));
+  p.vx *= 0.9; p.vy *= 0.9;
+  if (G.goalT > 2.2) {
+    G.timeScale = 1; G.letterT = 0; G.flashA = 0;
+    if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
+      G.winSide = G.score[0] > G.score[1] ? 0 : 1;
+      G.state = 'win';
+      showWin();
+    } else {
+      resetPositions();
+      G.serveDir = G.goalSide === 0 ? 1 : -1;
+      startCount();
+    }
+  }
+}
+function showWin() {
+  const you = G.winSide === 0;
+  $('winTitle').textContent = G.mode === '2p'
+    ? (you ? 'Player One wins' : 'Player Two wins')
+    : (you ? 'You win' : DIFFS[G.difficulty].name + ' wins');
+  $('winSub').textContent = G.score[0] + ' — ' + G.score[1];
+  // match stats: top puck speed (table-scale km/h), longest rally, duration
+  try {
+    const st = G.stats || freshStats();
+    const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
+    const secs = Math.max(1, Math.round((performance.now() - st.t0) / 1000));
+    const mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, '0');
+    $('winStats').textContent = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' +
+      st.bestRally + ' · ' + mm + ':' + ss;
+  } catch (e) {}
+  hideAll(); $('winov').classList.remove('hidden');
+  AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
+}
+function togglePause(force) {
+  if (G.state === 'play' || G.state === 'count') {
+    G.pausedFrom = G.state; G.state = 'pause';
+    hideAll(); $('pauseov').classList.remove('hidden');
+    AudioSys.ui();
+  } else if (G.state === 'pause' && force !== true) {
+    G.state = G.pausedFrom;
+    hideAll();
+    if (G.state === 'play' || G.state === 'count') $('topbar').classList.remove('hidden');
+  }
+}
+function quitToMenu() {
+  G.state = 'menu'; G.idleT = 0; G.demo = false;
+  G.timeScale = 1; G.trauma = 0;
+  pointers.clear();
+  resetPositions();
+  hideAll(); $('menu').classList.remove('hidden');
+  $('topbar').classList.add('hidden');
+  AudioSys.ui();
+}
+function hideAll() {
+  for (const id of ['menu', 'help', 'settings', 'pauseov', 'winov']) $(id).classList.add('hidden');
+}
+function $(id) { return document.getElementById(id); }
+
+// demo / attract mode: two club-pro brains rally behind the menu
+function demoStep(rdt) {
+  if (!G.ai1 || !G.ai2) { G.ai1 = mkBrain(0, 1); G.ai2 = mkBrain(1, 1); }
+  const sub = 3, sdt = rdt / sub;
+  for (let i = 0; i < sub; i++) {
+    aiDrive(G.ai1, sdt, G.m1);
+    aiDrive(G.ai2, sdt, G.m2);
+    stepPhysics(sdt);
+    if (G.state !== 'menu') break;
+  }
+}
+function playStep(rdt) {
+  const sub = Math.max(1, Math.ceil(rdt / (1 / SUB_HZ)));
+  const sdt = rdt / sub;
+  for (let i = 0; i < sub; i++) {
+    // player mallets
+    if (G.mode === '2p') {
+      driveMallet(G.m1, sdt, PLAYER_CAP);
+      driveMallet(G.m2, sdt, PLAYER_CAP);
+    } else {
+      if (pointers.size > 0) driveMallet(G.m1, sdt, PLAYER_CAP);
+      else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
+      aiDrive(G.ai2, sdt, G.m2);
+    }
+    stepPhysics(sdt);
+    if (G.state !== 'play') break;
+  }
+}
+
+let lastT = 0;
+function frame(t) {
+  requestAnimationFrame(frame);
+  const rdt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
+  lastT = t;
+  if (G.freezeT > 0) { G.freezeT -= rdt; render(); return; } // hit-stop
+  G.trauma = Math.max(0, G.trauma - rdt * 1.7);
+  switch (G.state) {
+    case 'menu':
+      G.idleT += rdt; G.demo = G.idleT > 5;
+      if (G.demo) {
+        if (!G._demoKick) { // serve the demo so the attract screen actually rallies
+          G._demoKick = true;
+          G.puck.vx = paceServe() * (Math.random() < 0.5 ? 1 : -1); G.puck.vy = rnd(-200, 200);
+        }
+        demoStep(rdt);
+        stallWatch(rdt);
+      } else { G._demoKick = false; G.stallT = 0; }
+      updateParts(rdt);
+      break;
+    case 'count':
+      updateCount(rdt);
+      if (G.mode === '2p') { driveMallet(G.m1, rdt, PLAYER_CAP); driveMallet(G.m2, rdt, PLAYER_CAP); }
+      else { if (pointers.size > 0) driveMallet(G.m1, rdt, PLAYER_CAP); aiDrive(G.ai2, rdt, G.m2); }
+      updateParts(rdt);
+      break;
+    case 'play':
+      playStep(rdt * G.timeScale);
+      updateParts(rdt);
+      break;
+    case 'goal':
+      updateGoal(rdt);
+      updateParts(rdt);
+      break;
+    case 'win':
+    case 'pause':
+      updateParts(rdt * 0.25);
+      break;
+  }
+  render();
+}
+
+// ---------- render ----------
+function rr(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+function easeOutBack(t) { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
+
+function render() {
+  const dpr = view.dpr || 1, w = view.w, h = view.h, s = view.s;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // trauma shake: slight rotation + translation (rotation reads as force)
+  const sh = shakeOffset();
+  ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
+  if (!view.portrait) { ctx.translate(view.ox, view.oy); ctx.scale(s, s); }
+  else ctx.transform(0, -s, -s, 0, view.ox + s * VH, view.oy + s * VW);
+
+  THEME.drawRoom(ctx);
+
+  // goal zoom: ease toward the mouth during the ceremony (playfield only)
+  ctx.save();
+  if (G.letterT > 0) {
+    const gx = G.goalSide === 0 ? PX + PW : PX;
+    const z = 1 + 0.10 * easeOutBack(clamp(G.letterT, 0, 1));
+    ctx.translate(gx, CY); ctx.scale(z, z); ctx.translate(-gx, -CY);
+  }
+
+  // table shadow + rails + surface
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 46; ctx.shadowOffsetY = 22;
+  ctx.fillStyle = '#000';
+  rr(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 34); ctx.fill();
+  ctx.restore();
+  THEME.drawRails(ctx);
+  THEME.drawSurface(ctx);
+  THEME.drawMarkings(ctx);
+
+  // scuffs (permanence)
+  for (const sc of G.scuffs) {
+    ctx.save(); ctx.translate(sc.x, sc.y); ctx.rotate(sc.ang);
+    ctx.fillStyle = 'rgba(10,8,6,' + sc.a.toFixed(3) + ')';
+    ctx.fillRect(-sc.len / 2, -1.6, sc.len, 3.2);
+    ctx.restore();
+  }
+
+  // puck trail
+  const tr = G.trail;
+  if (tr.length > 1) {
+    ctx.save(); ctx.lineCap = 'round';
+    for (let i = 1; i < tr.length; i++) {
+      const a = (i / tr.length) * 0.35;
+      ctx.strokeStyle = THEME.trail;
+      ctx.globalAlpha = a;
+      ctx.lineWidth = 2 + (i / tr.length) * 8;
+      ctx.beginPath(); ctx.moveTo(tr[i - 1].x, tr[i - 1].y); ctx.lineTo(tr[i].x, tr[i].y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  THEME.drawGoalTrim(ctx, 0, PX, CY, GOAL_W);
+  THEME.drawGoalTrim(ctx, 1, PX + PW, CY, GOAL_W);
+
+  drawPuck(ctx);
+  drawMallet(ctx, G.m1);
+  drawMallet(ctx, G.m2);
+
+  // particles as motion streaks
+  ctx.save(); ctx.lineCap = 'round';
+  for (const q of PPOOL) {
+    if (!q.on) continue;
+    const a = clamp(q.life / q.max, 0, 1);
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = q.color;
+    ctx.lineWidth = q.size * a + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(q.x, q.y);
+    ctx.lineTo(q.x - q.vx * 0.035, q.y - q.vy * 0.035);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // goal flash
+  if (G.flashA > 0) {
+    const gx = G.goalSide === 0 ? PX + PW : PX;
+    const g = ctx.createRadialGradient(gx, CY, 10, gx, CY, 420);
+    const fc = THEME.flash || 'rgba(216,169,63,1)';
+    g.addColorStop(0, fc); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save(); ctx.globalAlpha = G.flashA * 0.55; ctx.fillStyle = g;
+    ctx.fillRect(gx - 430, CY - 430, 860, 860);
+    ctx.restore();
+  }
+
+  // floating texts
+  for (const t of G.texts) {
+    const a = 1 - t.t / 1.1;
+    ctx.save();
+    ctx.globalAlpha = clamp(a, 0, 1);
+    ctx.font = '800 ' + t.size + 'px ' + THEME.font.display;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = t.color;
+    ctx.fillText(t.str, t.x, t.y);
+    ctx.restore();
+  }
+
+  // countdown — anticipation with a pop
+  if (G.state === 'count') {
+    const frac = (G.countT % 0.55) / 0.55;
+    const label = G.countT < 1.65 ? String(3 - Math.floor(G.countT / 0.55)) : 'GO!';
+    const pop = 1 + (1 - frac) * 0.55;
+    ctx.save();
+    ctx.globalAlpha = clamp(1.4 - frac, 0, 1);
+    ctx.translate(CX, CY - 40); ctx.scale(pop, pop);
+    ctx.font = '800 120px ' + THEME.font.display;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = THEME.ink;
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24;
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  }
+
+  // letterbox + GOAL! — the reserved channel (stable screen space, above the zoom)
+  ctx.restore();
+  if (G.letterT > 0) {
+    const bh = 120 * easeOutBack(clamp(G.letterT, 0, 1));
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.88)';
+    ctx.fillRect(0, 0, VW, bh); ctx.fillRect(0, VH - bh, VW, bh);
+    ctx.globalAlpha = clamp((G.letterT - 0.25) * 2.4, 0, 1);
+    const zp = easeOutBack(clamp((G.letterT - 0.2) * 1.6, 0, 1));
+    ctx.translate(CX, CY); ctx.scale(zp, zp);
+    ctx.font = '800 92px ' + THEME.font.display;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = THEME.gold || '#d8a93f';
+    ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 30;
+    ctx.fillText('GOAL!', 0, -6);
+    ctx.restore();
+  }
+
+  THEME.drawScore(ctx, G.score[0], G.score[1], Settings.firstTo);
+
+  // match-point ribbon — theme-agnostic, sits under the scoreboard
+  if ((G.state === 'play' || G.state === 'count') && !G.demo) {
+    const t = Settings.firstTo;
+    const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
+    if (m0 || m1) {
+      const who = (m0 && m1) ? 'NEXT GOAL WINS'
+        : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ' — MATCH POINT')
+        : ((m0 ? 'YOU' : DIFFS[G.difficulty].name.toUpperCase()) + ' — MATCH POINT');
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '600 12px ' + THEME.font.body;
+      const tw = ctx.measureText(who).width;
+      const pw = tw + 30, ph = 24, px = CX - pw / 2, py = 66;
+      ctx.globalAlpha = 0.92;
+      rr(ctx, px, py, pw, ph, 12);
+      ctx.fillStyle = 'rgba(10,8,5,0.78)'; ctx.fill();
+      ctx.strokeStyle = THEME.gold || '#c9a227'; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = THEME.gold || '#e9d9a6';
+      ctx.fillText(who, CX, py + ph / 2 + 1);
+      ctx.restore();
+    }
+  }
+
+  // vignette
+  const vg = ctx.createRadialGradient(CX, CY, VH * 0.42, CX, CY, VH * 0.95);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+
+  // dim the attract game behind the menu
+  if (G.state === 'menu') {
+    ctx.fillStyle = 'rgba(0,0,0,0.38)';
+    ctx.fillRect(0, 0, VW, VH);
+  }
+}
+
+function drawPuck(c) {
+  const p = G.puck, S = THEME.puck;
+  c.save();
+  c.fillStyle = 'rgba(0,0,0,0.35)';
+  c.beginPath(); c.ellipse(p.x + 5, p.y + 8, PUCK_R, PUCK_R * 0.92, 0, 0, TAU); c.fill();
+  c.translate(p.x, p.y); c.rotate(G.puckSqA);
+  const sq = G.puckSq;
+  c.scale(sq, 1 + (1 - sq) * 0.7); // squash along the impact normal
+  const g = c.createRadialGradient(-5, -6, 2, 0, 0, PUCK_R);
+  g.addColorStop(0, S.hi); g.addColorStop(0.55, S.body); g.addColorStop(1, S.edge);
+  c.fillStyle = g;
+  c.beginPath(); c.arc(0, 0, PUCK_R, 0, TAU); c.fill();
+  c.lineWidth = 2.5; c.strokeStyle = S.ring; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,0.5)';
+  c.beginPath(); c.ellipse(-5, -7, 4.5, 3, -0.5, 0, TAU); c.fill();
+  c.restore();
+}
+
+function drawMallet(c, m) {
+  const S = THEME.mallet, r = m.r;
+  c.save();
+  // shadow
+  c.fillStyle = 'rgba(0,0,0,0.4)';
+  c.beginPath(); c.ellipse(m.x + 6, m.y + 10, r, r * 0.9, 0, 0, TAU); c.fill();
+  // body
+  const g = c.createRadialGradient(m.x - r * 0.3, m.y - r * 0.35, r * 0.1, m.x, m.y, r);
+  g.addColorStop(0, S.hi); g.addColorStop(0.6, S.base); g.addColorStop(1, S.edge);
+  c.fillStyle = g;
+  c.beginPath(); c.arc(m.x, m.y, r, 0, TAU); c.fill();
+  c.lineWidth = 3; c.strokeStyle = S.ring; c.stroke();
+  // dish
+  const dg = c.createRadialGradient(m.x - 6, m.y - 8, 2, m.x, m.y, r * 0.62);
+  dg.addColorStop(0, S.dishHi); dg.addColorStop(1, S.dish);
+  c.fillStyle = dg;
+  c.beginPath(); c.arc(m.x, m.y, r * 0.62, 0, TAU); c.fill();
+  // knob
+  const kg = c.createRadialGradient(m.x - 4, m.y - 5, 1, m.x, m.y, r * 0.30);
+  kg.addColorStop(0, S.knobHi); kg.addColorStop(1, S.knob);
+  c.fillStyle = kg;
+  c.beginPath(); c.arc(m.x, m.y, r * 0.30, 0, TAU); c.fill();
+  c.restore();
+}
+
+// ---------- themes ----------
+function setTheme(id, silent) {
+  if (!THEMES[id]) id = 'deco';
+  THEME = THEMES[id];
+  document.querySelectorAll('.tablecard').forEach(el => {
+    el.classList.toggle('sel', el.dataset.theme === id);
+  });
+  const css = THEME.css, root = document.documentElement.style;
+  root.setProperty('--pagebg', css.pageBg);
+  root.setProperty('--panel', css.panelBg);
+  root.setProperty('--pline', css.panelBorder);
+  root.setProperty('--btnbg', css.btnBg);
+  root.setProperty('--btnink', css.btnInk);
+  root.setProperty('--title', css.title);
+  root.setProperty('--sub', css.sub);
+  root.setProperty('--ghost', css.ghost);
+  root.setProperty('--display', THEME.font.display);
+  root.setProperty('--body', THEME.font.body);
+  document.title = THEME.name + ' — Atelier Air Hockey';
+  if (!silent) AudioSys.ui();
+}
+function paintThumbnails() {
+  document.querySelectorAll('canvas[data-thumb]').forEach(cv => {
+    const id = cv.dataset.thumb, T = THEMES[id];
+    if (!T) return;
+    const c = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    const k = Math.min(W / VW, H / VH);
+    c.save();
+    c.scale(k, k);
+    c.translate((W / k - VW) / 2, (H / k - VH) / 2);
+    T.drawRoom(c);
+    c.save();
+    c.shadowColor = 'rgba(0,0,0,0.5)'; c.shadowBlur = 18; c.shadowOffsetY = 8;
+    c.fillStyle = '#000'; rr(c, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 34); c.fill();
+    c.restore();
+    T.drawRails(c); T.drawSurface(c); T.drawMarkings(c);
+    T.drawGoalTrim(c, 0, PX, CY, GOAL_W); T.drawGoalTrim(c, 1, PX + PW, CY, GOAL_W);
+    // a mid-rally vignette: puck streaking, mallets poised
+    c.save();
+    c.strokeStyle = T.trail; c.globalAlpha = 0.5; c.lineWidth = 7; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(CX - 190, CY + 60); c.quadraticCurveTo(CX, CY - 40, CX + 150, CY + 20); c.stroke();
+    c.restore();
+    const S = T.puck;
+    const g = c.createRadialGradient(CX + 145, CY + 14, 2, CX + 150, CY + 20, PUCK_R);
+    g.addColorStop(0, S.hi); g.addColorStop(0.55, S.body); g.addColorStop(1, S.edge);
+    c.fillStyle = g;
+    c.beginPath(); c.arc(CX + 150, CY + 20, PUCK_R, 0, TAU); c.fill();
+    c.lineWidth = 2.5; c.strokeStyle = S.ring; c.stroke();
+    const M = T.mallet;
+    const mg = c.createRadialGradient(CX - 285, CY + 108, 4, CX - 290, CY + 114, MALLET_R);
+    mg.addColorStop(0, M.hi); mg.addColorStop(0.6, M.base); mg.addColorStop(1, M.edge);
+    c.fillStyle = mg;
+    c.beginPath(); c.arc(CX - 290, CY + 114, MALLET_R, 0, TAU); c.fill();
+    c.lineWidth = 3; c.strokeStyle = M.ring; c.stroke();
+    c.fillStyle = M.knob;
+    c.beginPath(); c.arc(CX - 290, CY + 114, MALLET_R * 0.3, 0, TAU); c.fill();
+    c.restore();
+  });
+}
+
+// ---------- settings ----------
+function setSetting(key, val) {
+  if (key === 'sound' || key === 'haptics') val = (val === 'true');
+  if (key === 'firstTo') val = parseInt(val, 10);
+  Settings[key] = val; saveSettings(); applySettingsToUI();
+}
+function applySettingsToUI() {
+  document.querySelectorAll('[data-set]').forEach(btn => {
+    btn.classList.toggle('sel', String(Settings[btn.dataset.set]) === btn.dataset.val);
+  });
+  AudioSys.muted = !Settings.sound;
+  const sb = $('btnSound');
+  if (sb) {
+    sb.classList.toggle('off', !Settings.sound);
+    sb.innerHTML = Settings.sound ? '&#9834;' : '&#215;';
+  }
+  const ff = $('footFirst');
+  if (ff) ff.innerHTML = 'First to <b>' + Settings.firstTo + '</b> takes the table';
+  const hf = $('helpFirst');
+  if (hf) hf.textContent = Settings.firstTo;
+}
+
+// ---------- UI wiring ----------
+function wireUI() {
+  document.querySelectorAll('.tablecard').forEach(el => {
+    const pick = () => { AudioSys.init(); setTheme(el.dataset.theme); };
+    el.addEventListener('click', pick);
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+    });
+  });
+  document.querySelectorAll('[data-diff]').forEach(btn => {
+    btn.addEventListener('click', () => startGame('ai', +btn.dataset.diff));
+  });
+  $('btn2p').addEventListener('click', () => startGame('2p'));
+  document.querySelectorAll('[data-set]').forEach(btn => {
+    btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); setSetting(btn.dataset.set, btn.dataset.val); });
+  });
+  $('btnSettings').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('settings').classList.remove('hidden'); });
+  $('settingsClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
+  $('btnHelp').addEventListener('click', () => { AudioSys.ui(); applySettingsToUI(); hideAll(); $('help').classList.remove('hidden'); });
+  $('helpClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
+  $('btnPause').addEventListener('click', () => togglePause());
+  $('btnResume').addEventListener('click', () => togglePause());
+  $('btnQuit').addEventListener('click', quitToMenu);
+  $('btnRematch').addEventListener('click', () => startGame(G.mode, G.difficulty));
+  $('btnWinMenu').addEventListener('click', quitToMenu);
+  $('btnMenu2').addEventListener('click', quitToMenu);
+  $('btnSound').addEventListener('click', () => {
+    AudioSys.init();
+    setSetting('sound', String(!Settings.sound)); // persists; button UI syncs via applySettingsToUI
+  });
+  window.addEventListener('keydown', e => {
+    if (e.key === 'p' || e.key === 'P') togglePause();
+    else if (e.key === 'm' || e.key === 'M') $('btnSound').click();
+    else if (e.key === 'Escape') {
+      if (G.state === 'pause') togglePause();
+      else if (G.state === 'play' || G.state === 'count') togglePause(true);
+      else if (!$('help').classList.contains('hidden')) $('helpClose').click();
+      else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
+    }
+  });
+  canvas.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove, { passive: true });
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  let rzT = 0;
+  const onResize = () => {
+    clearTimeout(rzT);
+    rzT = setTimeout(resize, 60);
+    resize();
+  };
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
+  document.addEventListener('gesturestart', e => e.preventDefault());
+}
+
+// ---------- boot ----------
+function boot() {
+  loadSettings();
+  resize(); wireUI(); applySettingsToUI();
+  const sel = document.querySelector('.tablecard[data-theme="deco"]');
+  if (sel) sel.classList.add('sel');
+  setTheme('deco', true);
+  try { paintThumbnails(); } catch (e) { /* thumbnails must never break the game */ }
+  resetPositions();
+  G.ai1 = mkBrain(0, 1); G.ai2 = mkBrain(1, 1);
+  // deep links: ?table=mid&play , ?table=bil&2p , ?demo
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get('table') && THEMES[q.get('table')]) setTheme(q.get('table'), true);
+    if (q.has('play')) startGame('ai', G.difficulty);
+    else if (q.has('2p')) startGame('2p');
+    else if (q.has('demo')) { G.idleT = 99; }
+  } catch (e) {}
+  requestAnimationFrame(frame);
+}
+document.addEventListener('DOMContentLoaded', boot);
+
+</script>
+</body>
+</html>
