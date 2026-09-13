@@ -263,7 +263,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v16</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v17</span></div>
   </div>
 </div>
 
@@ -3006,6 +3006,29 @@ const AudioSys = {
       o.start(t); o.stop(t + 0.24);
     });
   },
+  // goal-frame clank: a heavier metallic knock than the post ping — the
+  // whole frame takes the hit, so it answers low and long instead of bright
+  clank(power) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime, p = clamp(power, 0.15, 1);
+    // hollow low partials: inharmonic so it reads as bent metal, not a bell
+    [208, 311, 517].forEach((f, i) => {
+      const o = this.ctx.createOscillator(); o.type = 'square'; o.frequency.value = f * (1 + rnd(-0.015, 0.015));
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime((i ? 0.08 : 0.20) * p, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.30 + i * 0.05);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + 0.5);
+    });
+    // the metal-on-metal knock: a short burst of filtered noise up front
+    const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf();
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1900; bp.Q.value = 1.1;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.22 * p, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    src.connect(bp); bp.connect(ng); ng.connect(this.master);
+    src.start(t, rnd(1.2)); src.stop(t + 0.1);
+  },
   rail(power) {
     if (!this.ctx || this.muted) return;
     const t = this.ctx.currentTime, p = clamp(power, 0, 1);
@@ -3242,6 +3265,7 @@ const G = {
   nearCd: 0, dipT: 0,       // near-miss cooldown + shared time-dip timer
                               // (near-miss dip and SMASH slow-mo beat)
   missGlow: null,           // { side, t } post glow after a near miss
+  rattle: null,             // { side, t } goal-frame rattle after a hard frame hit
   goalFrameT: 0,            // goal-frame flash timer
   board: freshBoard(),      // scoreboard animation state
   ai: null,                 // per-ai brain state
@@ -3861,6 +3885,13 @@ function addTrauma(x) {
   if (Settings.effects === 'minimal') k = Math.min(k, 0.45); // Minimal caps Shake at Subtle
   G.trauma = clamp(G.trauma + x * k, 0, 1);
 }
+// shared shake-intensity scale: mirrors addTrauma's gating so every new
+// shake flavor respects the Shake setting + Minimal cap identically
+function shakeK() {
+  let k = Settings.shake === 'off' ? 0 : Settings.shake === 'subtle' ? 0.45 : 1;
+  if (Settings.effects === 'minimal') k = Math.min(k, 0.45);
+  return k;
+}
 function shakeOffset() {
   // Nijman's rule: a touch of ROTATION reads as force; pure translation reads as a glitch
   const t2 = G.trauma * G.trauma;
@@ -3975,7 +4006,13 @@ function onRailHit(x, y, impact, isPost) {
   const v = clamp(impact / 2200, 0, 1);
   if (impact > 1100) { G.freezeT = Math.max(G.freezeT, 0.012); addTrauma(0.12 + v * 0.2); }
   if (impact > 300) burst(x, y, Math.max(1, Math.round((3 + v * 6) * fxParticles())), THEME.particle, 140 + v * 260, 2.5);
-  if (isPost && impact > 200) {
+  if (isPost && impact > 900) {
+    // the goal frame rattles: a hard frame hit earns a low clank and a
+    // visible shake of the trim — deliberately heavier than the post ping
+    AudioSys.clank(v);
+    if (fxFlash()) G.rattle = { side: x < PX + PW / 2 ? 0 : 1, t: 0.42 };
+    burst(x, y, Math.max(1, Math.round(10 * fxParticles())), '#ffffff', 380, 2.5);
+  } else if (isPost && impact > 200) {
     // the goal frame rings — a distinct metallic ping plus a bright kiss
     AudioSys.ping();
     burst(x, y, Math.max(1, Math.round(8 * fxParticles())), '#ffffff', 320, 2.5);
@@ -4301,6 +4338,7 @@ function frame(t) {
   G.nearCd = Math.max(0, G.nearCd - rdt);
   G.dipT = Math.max(0, G.dipT - rdt);
   if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
+  if (G.rattle) { G.rattle.t -= rdt; if (G.rattle.t <= 0) G.rattle = null; }
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
   switch (G.state) {
     case 'menu':
@@ -4452,8 +4490,20 @@ function render() {
     ctx.restore();
   }
 
-  THEME.drawGoalTrim(ctx, 0, PX, CY, GOAL_W);
-  THEME.drawGoalTrim(ctx, 1, PX + PW, CY, GOAL_W);
+  // goal-frame rattle: a hard frame hit visibly shakes the trim for ~0.4s
+  // (fxFlash() gates it for Minimal effects + prefers-reduced-motion; the
+  // jitter itself scales with the Shake setting, like trauma shake)
+  for (let side = 0; side < 2; side++) {
+    const gx = side === 0 ? PX : PX + PW;
+    let ox = 0, oy = 0;
+    if (G.rattle && G.rattle.side === side && fxFlash()) {
+      const j = 4.5 * (G.rattle.t / 0.42) * shakeK();
+      ox = rnd(-1, 1) * j; oy = rnd(-1, 1) * j;
+    }
+    ctx.save(); ctx.translate(ox, oy);
+    THEME.drawGoalTrim(ctx, side, gx, CY, GOAL_W);
+    ctx.restore();
+  }
 
   // goal-frame flash: the scored-on frame lights up in theme gold
   if (G.goalFrameT > 0 && fxFlash()) {
