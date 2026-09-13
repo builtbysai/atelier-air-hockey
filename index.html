@@ -246,7 +246,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v10</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v11</span></div>
   </div>
 </div>
 
@@ -1974,14 +1974,15 @@ Net.encodeSnapshot = function () {
   return [_r1(p.x), _r1(p.y), _r1(p.vx), _r1(p.vy),
     _r1(G.m1.x), _r1(G.m1.y), _r1(G.m2.x), _r1(G.m2.y),
     G.score[0], G.score[1], flags,
-    Math.round(G.stats ? G.stats.topSpeed : 0), G.stats ? G.stats.bestRally : 0];
+    Math.round(G.stats ? G.stats.topSpeed : 0), G.stats ? G.stats.bestRally : 0,
+    G.stats ? G.stats.saves[0] : 0, G.stats ? G.stats.saves[1] : 0];
 };
 Net.decodeSnapshot = function (a) {
   return {
     px: a[0], py: a[1], pvx: a[2], pvy: a[3],
     m1x: a[4], m1y: a[5], m2x: a[6], m2y: a[7],
     s0: a[8], s1: a[9], flags: a[10],
-    top: a[11] || 0, br: a[12] || 0,
+    top: a[11] || 0, br: a[12] || 0, sv0: a[13] || 0, sv1: a[14] || 0,
   };
 };
 
@@ -2316,6 +2317,9 @@ Net.guestApply = function (rdt) {
   if (G.stats) {
     if (s.top > G.stats.topSpeed) G.stats.topSpeed = s.top;
     if (s.br > G.stats.bestRally) G.stats.bestRally = s.br;
+    // saves are monotonic counters — take the host's max, same as top speed
+    if (s.sv0 > G.stats.saves[0]) G.stats.saves[0] = s.sv0;
+    if (s.sv1 > G.stats.saves[1]) G.stats.saves[1] = s.sv1;
   }
 };
 
@@ -3155,7 +3159,7 @@ const G = {
   stats: null,              // per-match stats (top speed, rally, time)
   onlineFlip: false,        // ONLINE: guest view is mirrored — they play from their own side
 };
-function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, t0: 0 }; }
+function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0 }; }
 G.stats = freshStats();
 const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
 
@@ -3468,6 +3472,8 @@ function collideMallet(p, m, dt) {
     G.saveT = 0.55;
     G.pulses.push({ x: p.x, y: p.y, t: 0 });
     AudioSys.thud();
+    // match stat: bank a save for the defender's side (real play only — never demo)
+    if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
   }
   // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
   if (msp0 > 1300 && m.whooshT <= 0) {
@@ -4027,14 +4033,18 @@ function showWin() {
     ? (onlineSideLabel(G.winSide) === 'YOU' ? 'You win' : 'Rival wins')
     : (you ? 'You win' : DIFFS[G.difficulty].name + ' wins');
   $('winSub').textContent = G.score[0] + ' — ' + G.score[1];
-  // match stats: top puck speed (table-scale km/h), longest rally, duration
+  // match stats: top puck speed (table-scale km/h), longest rally, saves
+  // per side (same side order as the score), and match duration. Two lines
+  // so the line never overflows a phone card; innerHTML is safe here —
+  // every value is numeric.
   try {
     const st = G.stats || freshStats();
     const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
     const secs = Math.max(1, Math.round((performance.now() - st.t0) / 1000));
     const mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, '0');
-    $('winStats').textContent = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' +
-      st.bestRally + ' · ' + mm + ':' + ss;
+    const sv = st.saves || [0, 0];
+    $('winStats').innerHTML = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' + st.bestRally +
+      '<br>Saves ' + sv[0] + '–' + sv[1] + ' · ' + mm + ':' + ss;
   } catch (e) {}
   hideAll(); $('winov').classList.remove('hidden');
   AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
