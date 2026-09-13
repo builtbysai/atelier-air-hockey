@@ -116,28 +116,40 @@
 
   .seg4{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
   .btn.lablight{ border-style:dashed; opacity:0.75; margin-top:10px; }
+  /* v21: the explicit start button — the one primary action on the menu */
+  .btn.bigstart{ margin-top:12px; padding:16px 16px; font-size:18px; font-weight:800; letter-spacing:1px; }
   .menugrid{ display:block; }
+  /* the menu carousel is decorative — cap its width on roomy screens so the
+     stacked desktop menu (now with the v21 START button) never scrolls */
+  @media (min-width:700px){
+    #menu .carousel{ max-width:460px; margin-left:auto; margin-right:auto; }
+    #menu .tagline{ margin-bottom:10px; }
+    #menu .btn{ margin:5px 0; }
+  }
   /* short-but-wide (landscape phones): tables left, rivals right — no scroll */
   @media (max-height:540px) and (min-width:700px){
     #menu{ padding:8px; }
-    #menu .card{ padding:10px 18px; text-align:left; }
+    #menu .card{ padding:6px 18px; text-align:left; }
     #menu .kicker{ margin-bottom:2px; }
-    #menu .lobby-title{ font-size:20px; text-align:center; }
+    #menu .lobby-title{ font-size:18px; text-align:center; }
     #menu .tagline{ display:none; }
-    #menu .seclabel{ margin:6px 0 6px; }
+    #menu .seclabel{ margin:4px 0 4px; }
     #menu .seclabel:first-of-type{ text-align:center; }
     #menu .menugrid{ display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:0 18px; align-items:start; }
     #menu .carousel{ margin:0 -4px; }
     #menu .ctrack{ padding:4px 24px; }
-    #menu .tslide canvas{ height:150px; aspect-ratio:auto; object-fit:cover; }
-    #menu .tslide .tmeta{ padding:6px 10px 8px; }
+    #menu .tslide canvas{ height:112px; aspect-ratio:auto; object-fit:cover; }
+    #menu .tslide .tmeta{ padding:4px 10px 6px; }
     #menu .tslide .tname{ font-size:13px; }
     #menu .tslide .tsub{ display:none; }
-    #menu .cdots{ margin:6px 0 0; }
+    #menu .cdots{ margin:2px 0 0; }
     #menu .seg4{ grid-template-columns:repeat(2,1fr); }
     #menu .seg4 .btn{ padding:9px 6px; font-size:13px; }
-    #menu .btn.lablight{ margin-top:8px; padding:9px 6px; }
-    #menu .foot{ margin-top:8px; text-align:center; }
+    /* v21: the start button stays prominent but compact in short landscape */
+    #menu .btn.bigstart{ margin-top:6px; padding:8px 6px; font-size:15px; }
+    #menu .btn.bigstart small{ font-size:9px; }
+    #menu .btn.lablight{ margin-top:6px; padding:8px 6px; }
+    #menu .foot{ margin-top:4px; text-align:center; }
   }
   .kicker{ font-size:11px; letter-spacing:4px; color:var(--sub); margin-bottom:8px; }
   h1{ font-family:var(--display); font-size:clamp(24px,5vw,36px); font-weight:800; letter-spacing:1px; margin-bottom:4px; }
@@ -212,6 +224,8 @@
     .seclabel{ margin:6px 0 4px; font-size:10px; }
     .btn{ padding:10px 12px; font-size:14px; }
     .btn small{ display:none; }
+    .btn.bigstart{ padding:12px; font-size:16px; }
+    .btn.bigstart small{ display:block; font-size:10px; } /* the matchup summary stays visible */
     .tslide .tsub{ display:none; }
     .tslide .tname{ font-size:14px; }
     .tslide .tmeta{ padding:8px 12px 10px; justify-content:center; }
@@ -276,12 +290,13 @@
           <button class="btn" data-diff="2">Champion<small>NO MERCY</small><span class="rec" data-rec="ai2"></span></button>
           <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small><span class="rec" data-rec="p2p"></span></button>
         </div>
+        <button class="btn primary bigstart" id="btnStart">START MATCH<small id="startSub">CLUB PRO · FIRST TO 7</small></button>
         <button class="btn lablight" id="btnOnline">Online<small>PLAY A RIVAL ANYWHERE</small></button>
       </div>
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v20</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v21</span></div>
   </div>
 </div>
 
@@ -4997,6 +5012,7 @@ function applySettingsToUI() {
   }
   const ff = $('footFirst');
   if (ff) ff.innerHTML = 'First to <b>' + Settings.firstTo + '</b> takes the table';
+  updateStartLabel(); // v21: the START MATCH sub-line carries the current first-to
   const hf = $('helpFirst');
   if (hf) hf.textContent = Settings.firstTo;
 }
@@ -5078,17 +5094,37 @@ function carSync(id) {
     setTimeout(() => { carGuard = false; }, 120);
   }
 }
+// ---------- menu selection (v21) ----------
+// rival buttons select the matchup; the START MATCH button launches it.
+// Online keeps its own lobby flow.
+const MenuSel = { mode: 'ai', diff: 1 };
+function selectRival(mode, diff) {
+  MenuSel.mode = mode;
+  if (diff != null) MenuSel.diff = diff;
+  document.querySelectorAll('[data-diff]').forEach(b =>
+    b.classList.toggle('primary', mode === 'ai' && +b.dataset.diff === MenuSel.diff));
+  $('btn2p').classList.toggle('primary', mode === '2p');
+  updateStartLabel();
+}
+function updateStartLabel() {
+  const s = $('startSub'); if (!s) return;
+  const rival = MenuSel.mode === '2p' ? 'TWO PLAYERS' : ['ROOKIE', 'CLUB PRO', 'CHAMPION'][MenuSel.diff];
+  s.textContent = rival + ' · FIRST TO ' + Settings.firstTo;
+}
+
 function wireUI() {
   buildCarousel();
   $('carPrev').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(-1); });
   $('carNext').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(1); });
   document.querySelectorAll('[data-diff]').forEach(btn => {
-    btn.addEventListener('click', () => startGame('ai', +btn.dataset.diff));
+    btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('ai', +btn.dataset.diff); });
   });
-  $('btn2p').addEventListener('click', () => startGame('2p'));
+  $('btn2p').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('2p'); });
+  $('btnStart').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); startGame(MenuSel.mode, MenuSel.diff); });
   // ONLINE: the only entry point that touches the network — the Trystero
   // import happens inside, on the tap, never before.
   $('btnOnline').addEventListener('click', () => Net.openLobby());
+  selectRival('ai', G.difficulty); // paint the initial selection + start label
   document.querySelectorAll('[data-set]').forEach(btn => {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); setSetting(btn.dataset.set, btn.dataset.val); });
   });
@@ -5122,6 +5158,10 @@ function wireUI() {
       else if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
+    }
+    else if (e.key === 'Enter' && G.state === 'menu' && !$('menu').classList.contains('hidden')) {
+      // v21: Enter on the menu launches the selected matchup
+      AudioSys.init(); AudioSys.ui(); startGame(MenuSel.mode, MenuSel.diff);
     }
   });
   canvas.addEventListener('pointerdown', onPointerDown);
