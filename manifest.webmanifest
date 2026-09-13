@@ -1,4 +1,5 @@
 {
+  "id": "./",
   "name": "Atelier Air Hockey",
   "short_name": "Air Hockey",
   "description": "A handcrafted browser air-hockey game with nine art-directed tables.",
@@ -8,12 +9,31 @@
   "orientation": "any",
   "background_color": "#070606",
   "theme_color": "#070606",
+  "prefer_related_applications": false,
   "icons": [
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
     {
       "src": "./assets/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ]
 }

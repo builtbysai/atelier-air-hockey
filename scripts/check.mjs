@@ -16,4 +16,7 @@ assert.match(boards, /Math\.max\(11, target \+ 1\)/); assert.match(boards, /char
 assert.match(ui, /installDialogA11y/); assert.match(ui, /\[role="option"\]/); assert.match(ui, /guestOwnsRight/); assert.match(ui, /'progress'/);
 assert.match(template, />1 \/ 9</); assert.match(template, /id="settingsTitle"/); assert.match(template, /id="pauseTitle"/);
 assert.match(themes, /THEMES\.deco/); assert.match(css, /focus-visible/);
+const manifest = await readFile('manifest.webmanifest','utf8');
+assert.match(manifest, /icon-192\.png/); assert.match(manifest, /icon-512\.png/); assert.match(manifest, /\"id\"\s*:\s*\"\.\/\"/);
+assert.match(template, /apple-touch-icon/);
 console.log('Static stabilization checks passed');
