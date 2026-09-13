@@ -263,7 +263,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v13</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v14</span></div>
   </div>
 </div>
 
@@ -3769,15 +3769,15 @@ function aiThink(b, dt, m) {
       if (d < MALLET_R + PUCK_R + 44) b.possessT += D.tick; else b.possessT = Math.max(0, b.possessT - D.tick);
       if (d < MALLET_R + PUCK_R + 26 && (puckSpeed < 700 || b.possessT > 0.35)) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
-        // pick aim: usually straight at the goal mouth, sometimes a bank
+        // pick aim: the FAR post, not the middle — the mouth corner farthest
+        // from the puck's lane forces the keeper to travel across. aimErr
+        // scatters the shot per difficulty, so Rookie sprays it (missing
+        // often) while Champion pins the post.
         const bank = Math.random() < (b.diff === DIFFS[2] ? 0.35 : 0.12);
-        if (bank) {
-          b.bankY = Math.random() < 0.5 ? PY + 40 : PY + PH - 40;
-          b.aimX = foeGoalX; b.aimY = CY + rnd(-1, 1) * D.aimErr;
-        } else {
-          b.bankY = null;
-          b.aimX = foeGoalX; b.aimY = CY + rnd(-1, 1) * D.aimErr;
-        }
+        b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
+        const farSide = s.y < CY ? 1 : -1;
+        b.aimX = foeGoalX;
+        b.aimY = CY + farSide * (GOAL_W / 2 - 12) + rnd(-1, 1) * D.aimErr;
       }
       if (!puckOnMySide || puckSpeed > 1700) { b.state = 'guard'; b.tState = 0; b.possessT = 0; }
       break;
