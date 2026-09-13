@@ -31,6 +31,22 @@
   .iconbtn:active{ transform:scale(0.92); }
   .iconbtn.off{ opacity:0.4; }
 
+  /* online connection-quality chip: dot + RTT, display only */
+  .connchip{
+    display:inline-flex; align-items:center; gap:6px; align-self:center;
+    padding:0 10px; height:30px; border-radius:999px;
+    border:1px solid var(--pline); background:var(--ghost); backdrop-filter:blur(4px);
+    -webkit-backdrop-filter:blur(4px);
+    font-family:var(--body); font-size:11px; font-weight:600; color:var(--sub);
+    white-space:nowrap;
+  }
+  .connchip i{ width:7px; height:7px; border-radius:50%; background:#8a8f98; }
+  .connchip i.unknown{ background:#8a8f98; }
+  .connchip i.good{ background:#58b26a; }
+  .connchip i.fair{ background:#d9a441; }
+  .connchip i.poor{ background:#d95c4e; }
+  .connchip em{ font-style:normal; color:var(--title); font-variant-numeric:tabular-nums; }
+
   .overlay{
     position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
     padding:14px; overflow-y:auto;
@@ -212,6 +228,7 @@
 <canvas id="game"></canvas>
 
 <div id="topbar" class="hidden">
+  <span class="connchip hidden" id="connChip" title="Connection quality"><i class="unknown"></i><em>–ms</em></span>
   <button class="iconbtn" id="btnPause" title="Pause (P)" aria-label="Pause">&#10074;&#10074;</button>
   <button class="iconbtn" id="btnSound" title="Sound (M)" aria-label="Sound">&#9834;</button>
   <button class="iconbtn" id="btnMenu2" title="Menu" aria-label="Menu">&equiv;</button>
@@ -246,7 +263,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v12</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v13</span></div>
   </div>
 </div>
 
@@ -1872,6 +1889,9 @@ const Net = {
   inAcc: 0,
   savedSettings: null, // guest's own prefs, restored on leave
 
+  // ---- connection quality (display only — never affects net behavior) ----
+  conn: { rtt: -1, pingId: 0, pendingTs: 0, pingAcc: 0 }, // RTT ms of last pong
+
   // ---- plumbing ----
   roomFactory: null,   // stub injection (dev only)
   stubMode: false,     // forced loopback (dev only)
@@ -2133,6 +2153,7 @@ Net.dropRoom = function () {
   try { if (Net.room) Net.room.leave(); } catch (e) {}
   Net.room = null; Net.wire = null; Net.role = null;
   Net.active = false; Net.waitingForRival = false;
+  Net.resetConn(); // chip hides with the match
 };
 
 Net.onPeerJoin = function () {
@@ -2188,7 +2209,51 @@ Net.onEvent = function (ev) {
     case 'leave':
       if (Net.active || Net.waitingForRival) Net.onRivalLeft();
       break;
+    // connection-quality probe: the echo rides the event channel but is
+    // display-only — it never touches snapshots, inputs, or game state.
+    case 'ping':
+      if (Net.wire && Net.active) { try { Net.wire.sendEv({ t: 'pong', id: ev.id, ts: ev.ts }); } catch (e) {} }
+      break;
+    case 'pong':
+      Net.onPong(ev);
+      break;
   }
+};
+
+/* RTT probe: both sides ping every 2.5s while a match is live; each side
+ * measures its OWN round trip and paints its OWN chip. */
+Net.sendPing = function () {
+  if (!Net.wire || !Net.active) return;
+  Net.conn.pingId++;
+  Net.conn.pendingTs = performance.now();
+  try { Net.wire.sendEv({ t: 'ping', id: Net.conn.pingId, ts: Net.conn.pendingTs }); } catch (e) {}
+};
+
+Net.onPong = function (ev) {
+  if (!ev || ev.id !== Net.conn.pingId || typeof ev.ts !== 'number') return;
+  Net.conn.rtt = Math.max(0, Math.round(performance.now() - ev.ts));
+  Net.paintConn();
+};
+
+/* Quality chip in the topbar: dot + RTT ms. Pure display; the chip hides
+ * itself the moment we're not in a live online match. */
+Net.paintConn = function () {
+  const chip = $('connChip');
+  if (!chip) return;
+  const live = Net.active && G.mode === 'online';
+  chip.classList.toggle('hidden', !live);
+  if (!live) return;
+  const dot = chip.querySelector('i');
+  const label = chip.querySelector('em');
+  const rtt = Net.conn.rtt;
+  const cls = rtt < 0 ? 'unknown' : rtt < 120 ? 'good' : rtt < 300 ? 'fair' : 'poor';
+  dot.className = cls;
+  label.textContent = rtt < 0 ? '–ms' : rtt + 'ms';
+};
+
+Net.resetConn = function () {
+  Net.conn.rtt = -1; Net.conn.pingId = 0; Net.conn.pendingTs = 0; Net.conn.pingAcc = 0;
+  Net.paintConn();
 };
 
 /* ---------------- match flow ---------------- */
@@ -2217,6 +2282,7 @@ Net.beginMatch = function (role) {
   // net state
   Net.rsnap = null; Net.gview = null;
   Net.snapAcc = 0; Net.inAcc = 0;
+  Net.resetConn(); // fresh RTT chip for this match
   Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
 };
 
@@ -2280,6 +2346,9 @@ Net.applyRemotePause = function (paused) {
  * No-op unless a match is live. */
 Net.pump = function (rdt) {
   if (!Net.active || !Net.wire) return;
+  // RTT probe: cheap, on the event channel, display-only
+  Net.conn.pingAcc += rdt;
+  if (Net.conn.pingAcc >= 2.5) { Net.conn.pingAcc = 0; Net.sendPing(); }
   if (Net.role === 'host') {
     Net.snapAcc += rdt;
     if (Net.snapAcc >= 1 / 25 && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
@@ -2437,6 +2506,7 @@ Net.onRivalLeft = function () {
   Net.rsnap = null; Net.gview = null;
   hideAll();
   $('onlinedropov').classList.remove('hidden');
+  Net.paintConn(); // active is false now — the chip hides itself
   AudioSys.ui();
 };
 
@@ -2537,6 +2607,7 @@ Net.makeVirtualGuest = function (room, opts) {
       else if (ev.t === 'pause') gv.pauses.push(true);
       else if (ev.t === 'resume') gv.pauses.push(false);
       else if (ev.t === 'rematch') gv.rematchPhases.push(ev.phase);
+      else if (ev.t === 'ping') gv.wire.sendEv({ t: 'pong', id: ev.id, ts: ev.ts }); // echo the probe
       else if (ev.t === 'leave') gv.sawLeave = true;
     },
   });
@@ -2554,6 +2625,7 @@ Net.makeVirtualHost = function (room) {
     onEv: (ev) => {
       if (ev.t === 'knock') hv.knock = true;
       else if (ev.t === 'rematch' && ev.phase === 'offer') hv.offer = true;
+      else if (ev.t === 'ping') hv.wire.sendEv({ t: 'pong', id: ev.id, ts: ev.ts }); // echo the probe
       else if (ev.t === 'leave') hv.sawLeave = true;
     },
   });
