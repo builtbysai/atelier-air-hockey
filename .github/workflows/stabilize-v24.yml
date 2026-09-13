@@ -1,0 +1,34 @@
+name: Stabilize v24
+on:
+  push:
+    branches: [stabilization-v24]
+    paths:
+      - scripts/stabilize_v24.py
+      - .github/workflows/stabilize-v24.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stabilization-v24
+      - name: Apply stabilization migration
+        run: python3 scripts/stabilize_v24.py
+      - name: Verify generated sources
+        run: |
+          node scripts/build.mjs
+          node scripts/check.mjs
+      - name: Commit migration output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git commit -m "v24: stabilize architecture, gameplay, networking and UX"
+          git push origin HEAD:stabilization-v24
