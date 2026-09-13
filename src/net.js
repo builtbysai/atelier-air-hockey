@@ -60,6 +60,7 @@ const Net = {
   code: null,          // 6-character room code
   waitingForRival: false,
   peerId: null,        // the one accepted rival; all other peers are ignored
+  handshakePeerId: null, // reserves the first peer while its handshake is still pending
   opToken: 0,          // invalidates async create/join work after Cancel
   disconnectTimer: 0,
   reconnecting: false,
@@ -145,9 +146,14 @@ Net.makeRoom = async function (joinRoom, code) {
     'atelier-ah-' + code,
     {
       onPeerHandshake: async (peerId) => {
-        if (Net.peerId && Net.peerId !== peerId) throw new Error('Table is full');
+        const locked = Net.peerId || Net.handshakePeerId;
+        if (locked && locked !== peerId) throw new Error('Table is full');
+        if (!Net.handshakePeerId) Net.handshakePeerId = peerId;
       },
-      onJoinError: (details) => Net.logErr(details && (details.error || details)),
+      onJoinError: (details) => {
+        if (details && details.peerId === Net.handshakePeerId && !Net.peerId) Net.handshakePeerId = null;
+        Net.logErr(details && (details.error || details));
+      },
     }
   );
 };
@@ -399,14 +405,16 @@ Net.dropRoom = function () {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
   Net.reconnecting = false; Net.reconnectState = null;
   try { if (Net.room) Net.room.leave(); } catch (e) {}
-  Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null;
+  Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.active = false; Net.waitingForRival = false;
   Net.resetConn(); // chip hides with the match
 };
 
 Net.acceptPeer = function (id) {
   if (!id) return false;
+  if (Net.handshakePeerId && id !== Net.handshakePeerId) return false;
   if (!Net.peerId) Net.peerId = id;
+  if (id === Net.peerId) Net.handshakePeerId = null;
   return id === Net.peerId;
 };
 Net.onPeerJoin = function (id) {
@@ -415,17 +423,20 @@ Net.onPeerJoin = function (id) {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
   Net.reconnecting = false;
   Net.paintConn();
-  if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
-  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.wire.sendEv({ t: 'knock' });
-  else if (wasReconnecting && Net.active && Net.role === 'host') {
+  if (wasReconnecting && Net.active) {
+    // Both roles resume their own retained state. Previously only the host
+    // resumed here, leaving a reconnecting guest stuck on the pause overlay.
     if (G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause') togglePause(false, true);
     Net.reconnectState = null;
     if (Net.wire) Net.wire.sendEv({ t: 'resume' });
+    return;
   }
+  if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
+  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.wire.sendEv({ t: 'knock' });
 };
 Net.onPeerLeave = function (id) {
   if (id !== Net.peerId) return;
-  Net.peerId = null;
+  Net.peerId = null; Net.handshakePeerId = null;
   if (!Net.active && !Net.waitingForRival) return;
   if (Net.waitingForRival) { Net.onRivalLeft(); return; }
   Net.reconnecting = true;

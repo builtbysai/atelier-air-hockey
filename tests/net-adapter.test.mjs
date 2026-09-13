@@ -19,7 +19,7 @@ async function loadNet() {
   vm.runInContext(`${source}\nthis.__Net = Net; this.__netGenCode = netGenCode;`, context, {
     filename: 'src/net.js',
   });
-  return { Net: context.__Net, netGenCode: context.__netGenCode };
+  return { Net: context.__Net, netGenCode: context.__netGenCode, context };
 }
 
 test('room codes are six unambiguous characters', async () => {
@@ -81,12 +81,54 @@ test('Trystero 0.25 adapter targets only the accepted rival', async () => {
   assert.deepEqual(left, ['peer-a']);
 });
 
-test('peer binding accepts one rival and rejects extras', async () => {
+test('peer binding honors the pending handshake lock and rejects extras', async () => {
   const { Net } = await loadNet();
   Net.peerId = null;
-  assert.equal(Net.acceptPeer('peer-a'), true);
-  assert.equal(Net.peerId, 'peer-a');
-  assert.equal(Net.acceptPeer('peer-a'), true);
+  Net.handshakePeerId = 'peer-a';
   assert.equal(Net.acceptPeer('peer-b'), false);
+  assert.equal(Net.peerId, null);
+  assert.equal(Net.acceptPeer('peer-a'), true);
   assert.equal(Net.peerId, 'peer-a');
+  assert.equal(Net.handshakePeerId, null);
+  assert.equal(Net.acceptPeer('peer-b'), false);
+});
+
+test('handshake gate reserves one rival and releases a failed reservation', async () => {
+  const { Net } = await loadNet();
+  Net.turnCredential = async () => ({ username: 'u', password: 'p' });
+  let callbacks;
+  const fakeRoom = {};
+  await Net.makeRoom((config, roomId, cb) => { callbacks = cb; return fakeRoom; }, 'ABCDEF');
+  await callbacks.onPeerHandshake('peer-a');
+  assert.equal(Net.handshakePeerId, 'peer-a');
+  await assert.rejects(() => callbacks.onPeerHandshake('peer-b'), /Table is full/);
+  callbacks.onJoinError({ peerId: 'peer-a', error: 'failed' });
+  assert.equal(Net.handshakePeerId, null);
+});
+
+test('reconnecting guest resumes retained play state instead of remaining paused', async () => {
+  const { Net, context } = await loadNet();
+  const sent = [];
+  let resumes = 0;
+  context.G = { state: 'pause', pausedFrom: 'play', mode: 'online' };
+  context.$ = () => null;
+  context.togglePause = (force, silent) => {
+    assert.equal(force, false);
+    assert.equal(silent, true);
+    context.G.state = 'play';
+    resumes++;
+  };
+  Net.role = 'guest';
+  Net.active = true;
+  Net.reconnecting = true;
+  Net.reconnectState = 'play';
+  Net.peerId = null;
+  Net.handshakePeerId = null;
+  Net.wire = { sendEv: ev => { sent.push(ev); return Promise.resolve(); } };
+  Net.onPeerJoin('peer-a');
+  assert.equal(resumes, 1);
+  assert.equal(context.G.state, 'play');
+  assert.equal(Net.reconnecting, false);
+  assert.equal(Net.reconnectState, null);
+  assert.equal(sent.at(-1).t, 'resume');
 });
