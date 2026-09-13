@@ -1,0 +1,35 @@
+name: Finalize v24
+on:
+  push:
+    branches: [stabilization-v24]
+    paths:
+      - scripts/finalize_v24.py
+      - .github/workflows/finalize-v24.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stabilization-v24
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply final hardening
+        run: python3 scripts/finalize_v24.py
+      - name: Verify
+        run: npm test
+      - name: Commit output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/net.js package.json scripts/check.mjs tests/net-adapter.test.mjs index.html
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git commit -m "v24: close reconnect, handshake and CI drift edge cases"
+          git push origin HEAD:stabilization-v24
