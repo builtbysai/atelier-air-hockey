@@ -239,7 +239,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v7</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v8</span></div>
   </div>
 </div>
 
@@ -3081,18 +3081,35 @@ function driveMallet(m, dt, cap) {
   clampMallet(m);
 }
 
+// Touch finger-offset (v8): the mallet floats away from the fingertip so the
+// finger never covers it — the convention top mobile air hockey games use.
+// Size-aware: roughly one mallet diameter of screen-space offset, scaled by
+// the current view transform, so it feels right on phones and tablets.
+// Direction is away from the player's own body: in portrait 2P the top
+// player (side 1) gets the offset flipped so the mallet sits below the
+// fingertip. Online guests are mirror-flipped to play from their own side,
+// so they always keep the standard upward offset. Mouse/pen are untouched.
+function touchOffsetY(side) {
+  const malletScreenR = MALLET_R * (view.s || 1); // rink units -> CSS px
+  const off = clamp(malletScreenR * 2.0, 40, 96); // ~one mallet diameter
+  const topPlayer = view.portrait && side === 1 && G.mode === '2p';
+  return topPlayer ? off : -off;
+}
+
 function onPointerDown(e) {
   AudioSys.init(); AudioSys.resume();
   interacted = true;
   if (G.state === 'menu' || G.state === 'win') return; // buttons own the UI
   const touch = e.pointerType === 'touch';
-  const r = screenToRink(e.clientX, e.clientY - (touch ? 70 : 0));
+  // Side assignment uses the raw (unshifted) touch point so the vertical
+  // offset can never drag a touch across the center line in portrait 2P.
+  const raw = screenToRink(e.clientX, e.clientY);
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
     // ONLINE: exactly one local mallet — host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
     pointers.set(e.pointerId, Net.role === 'guest' ? 1 : 0);
   } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
-    const side = r.x > CX ? 1 : 0;
+    const side = raw.x > CX ? 1 : 0;
     const taken = [...pointers.values()];
     if (!taken.includes(side)) pointers.set(e.pointerId, side);
     else return;
@@ -3100,16 +3117,19 @@ function onPointerDown(e) {
     if (pointers.size > 0 && G.mode !== '2p') return;
     pointers.set(e.pointerId, 0);
   }
-  const m = pointers.get(e.pointerId) === 0 ? G.m1 : G.m2;
+  const side = pointers.get(e.pointerId);
+  const m = side === 0 ? G.m1 : G.m2;
+  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side) : 0));
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
 }
 function onPointerMove(e) {
   if (!pointers.has(e.pointerId)) return;
   if (G.state === 'menu' || G.state === 'win') return;
+  const side = pointers.get(e.pointerId);
   const touch = e.pointerType === 'touch';
-  const r = screenToRink(e.clientX, e.clientY - (touch ? 70 : 0));
-  const m = pointers.get(e.pointerId) === 0 ? G.m1 : G.m2;
+  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side) : 0));
+  const m = side === 0 ? G.m1 : G.m2;
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
 }
