@@ -246,7 +246,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v9</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v10</span></div>
   </div>
 </div>
 
@@ -2832,15 +2832,19 @@ let interacted = false; // set on first real pointer input (gates vibrate)
 const AudioSys = {
   ctx: null, master: null, muted: false,
   init() {
-    if (this.ctx) return;
+    if (this.ctx) { this._ensureAmbience(); return; }
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
       this.master.connect(this.ctx.destination);
+      this.syncMute(); // honor the persisted sound setting (boot w/ sound off)
     } catch (e) { /* silent */ }
+    this._ensureAmbience();
   },
+  // starts the pending room's bed once a ctx exists (autoplay-safe: only
+  // called from init(), which only runs on real user input)
+  _ensureAmbience() { if (this.ctx && this.ambKey) this.ambience(this.ambKey); },
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
   toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; return this.muted; },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
@@ -2958,6 +2962,160 @@ const AudioSys = {
   },
   ui() { this.blip(1150, 0.05, 0.18); },
   count(final) { this.blip(final ? 990 : 620, final ? 0.28 : 0.12, 0.32); },
+  // ---------- room ambience (generated, no assets) ----------
+  // Subtle per-room bed (looped shaped noise) plus sparse random events:
+  // jazz-room bass plucks, poolside laps, a concrete-hall wash, felt hush,
+  // loft murmur swells with the odd glass clink, machiya rain and wood
+  // creaks. Levels sit well under SFX. Everything routes through master, so
+  // Mute silences it. The bed only ever exists after init(), which runs
+  // solely on real user input (autoplay-safe). Switching rooms crossfades
+  // the bed instead of clicking.
+  ambKey: null, amb: null, ambTimer: null,
+  ambience(id) { // public: called from setTheme()
+    if (!ROOM_AMB[id]) id = 'deco';
+    this.ambKey = id;
+    if (this.ctx && (!this.amb || this.amb.key !== id)) this._startAmbience();
+  },
+  syncMute() { if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; },
+  _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
+    if (this._nb) return this._nb;
+    const len = Math.floor(this.ctx.sampleRate * 2);
+    const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let b0 = 0, b1 = 0, b2 = 0;
+    for (let i = 0; i < len; i++) {
+      const w = Math.random() * 2 - 1;
+      b0 = 0.99765 * b0 + w * 0.0990460;
+      b1 = 0.96300 * b1 + w * 0.2965164;
+      b2 = 0.57000 * b2 + w * 1.0526913;
+      d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.08;
+    }
+    this._nb = buf; return buf;
+  },
+  _startAmbience() {
+    const cfg = ROOM_AMB[this.ambKey || 'deco'];
+    const t = this.ctx.currentTime;
+    this._killAmbience(); // fade out whatever was playing
+    // bed: looped noise -> per-room filter -> gain -> master
+    const src = this.ctx.createBufferSource();
+    src.buffer = this._noiseBuf(); src.loop = true;
+    src.playbackRate.value = 0.9 + Math.random() * 0.2; // no two rooms identical
+    const flt = this.ctx.createBiquadFilter();
+    flt.type = cfg.bed.type; flt.frequency.value = cfg.bed.f; flt.Q.value = cfg.bed.q;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.setTargetAtTime(cfg.bed.g, t + 0.1, 0.9); // gentle 2s swell-in
+    src.connect(flt); flt.connect(g); g.connect(this.master);
+    const nodes = { key: this.ambKey, src, flt, g, cfg, wet: [] };
+    // brut hall: a short feedback delay as a cheap room wash on the bed
+    if (cfg.bed.hall) {
+      const dly = this.ctx.createDelay(1); dly.delayTime.value = 0.31;
+      const fb = this.ctx.createGain(); fb.gain.value = 0.35;
+      const wet = this.ctx.createGain(); wet.gain.value = 0.5;
+      g.connect(dly); dly.connect(fb); fb.connect(dly);
+      dly.connect(wet); wet.connect(this.master);
+      nodes.wet = [dly, fb, wet];
+    }
+    // poolside air breathes: slow LFO on the bed gain
+    if (cfg.bed.lfo) {
+      const lfo = this.ctx.createOscillator(); lfo.frequency.value = cfg.bed.lfo;
+      const lg = this.ctx.createGain(); lg.gain.value = cfg.bed.g * 0.35;
+      lfo.connect(lg); lg.connect(g.gain); lfo.start(t);
+      nodes.lfo = lfo;
+    }
+    src.start(t);
+    this.amb = nodes;
+    if (!this.ambTimer) this.ambTimer = setInterval(() => this._ambTick(), 1100);
+  },
+  _killAmbience() {
+    if (!this.amb) return;
+    const a = this.amb; this.amb = null;
+    const t = this.ctx.currentTime;
+    a.g.gain.cancelScheduledValues(t);
+    a.g.gain.setTargetAtTime(0.0001, t, 0.35); // fade fast, disconnect late
+    setTimeout(() => {
+      try { a.src.stop(); } catch (e) {}
+      [a.src, a.flt, a.g, a.lfo].concat(a.wet).forEach(n => { if (n) try { n.disconnect(); } catch (e) {} });
+    }, 1500);
+  },
+  _ambTick() { // every ~1.1s: roll the room's sparse events
+    if (!this.amb || !this.ctx || this.muted || this.ctx.state !== 'running') return;
+    const a = this.amb, cfg = a.cfg, t = this.ctx.currentTime;
+    // the loft murmurs: slow random swells on the bed
+    if (cfg.bed.swell) a.g.gain.setTargetAtTime(cfg.bed.g * rnd(0.7, 1.3), t, 1.2);
+    for (const ev of cfg.events) if (Math.random() < ev.p) this[ev.f]();
+  },
+  // --- sparse one-shot events (all check muted via _ambTick) ---
+  _bass() { // distant upright pluck in the jazz room
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.value = [55, 65.41, 73.42, 82.41, 98][Math.floor(rnd(5))];
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.055, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.6);
+  },
+  _mote() { // faint piano-ish mote, A-minor colour
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'triangle';
+    o.frequency.value = [110, 130.81, 146.83, 164.81, 220][Math.floor(rnd(5))];
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.028, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 1.05);
+  },
+  _splash() { // soft poolside lap
+    const t = this.ctx.currentTime;
+    const src = this.ctx.createBufferSource(); src.buffer = this._noiseBuf();
+    src.playbackRate.value = 1.4;
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2800;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.03, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    src.connect(hp); hp.connect(g); g.connect(this.master);
+    src.start(t, rnd(1.5)); src.stop(t + 0.35);
+  },
+  _clink() { // distant glass in the loft
+    const t = this.ctx.currentTime;
+    [2490, 3160].forEach((f, i) => {
+      const o = this.ctx.createOscillator(); o.type = 'sine';
+      o.frequency.value = f * (1 + rnd(-0.01, 0.01));
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(i ? 0.014 : 0.02, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + 0.45);
+    });
+  },
+  _creak() { // old wood settling in the machiya
+    const t = this.ctx.currentTime;
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(170, t);
+    o.frequency.exponentialRampToValueAtTime(105, t + 0.7);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.032, t + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.85);
+  },
+};
+// Per-room ambience character, keyed by theme id.
+const ROOM_AMB = {
+  deco:  { bed: { type: 'lowpass',  f: 400,  q: 0.6, g: 0.022 },
+           events: [ { p: 0.26, f: '_bass' }, { p: 0.16, f: '_mote' } ] },
+  mid:   { bed: { type: 'bandpass', f: 850,  q: 0.7, g: 0.026, lfo: 0.12 },
+           events: [ { p: 0.10, f: '_splash' } ] },
+  brut:  { bed: { type: 'lowpass',  f: 170,  q: 0.5, g: 0.020, hall: true },
+           events: [] },
+  bil:   { bed: { type: 'lowpass',  f: 240,  q: 0.5, g: 0.012 },
+           events: [] },
+  mem:   { bed: { type: 'bandpass', f: 520,  q: 1.0, g: 0.028, swell: true },
+           events: [ { p: 0.07, f: '_clink' } ] },
+  sashi: { bed: { type: 'highpass', f: 2600, q: 0.5, g: 0.024 },
+           events: [ { p: 0.05, f: '_creak' } ] },
 };
 function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
 
@@ -4414,6 +4572,7 @@ function setTheme(id, silent) {
   root.setProperty('--body', THEME.font.body);
   document.title = THEME.name + ' — Atelier Air Hockey';
   paintRoom();
+  AudioSys.ambience(id); // room ambience follows the room (deferred pre-gesture)
   if (!silent) AudioSys.ui();
 }
 function paintThumbnails() {
@@ -4467,6 +4626,7 @@ function applySettingsToUI() {
     btn.classList.toggle('sel', String(Settings[btn.dataset.set]) === btn.dataset.val);
   });
   AudioSys.muted = !Settings.sound;
+  AudioSys.syncMute(); // keep the looped ambience bed under Mute too
   const sb = $('btnSound');
   if (sb) {
     sb.classList.toggle('off', !Settings.sound);
