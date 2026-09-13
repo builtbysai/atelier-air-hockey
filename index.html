@@ -270,7 +270,7 @@
   <div class="card menusheet">
     <div class="kicker">ATELIER AIR HOCKEY</div>
     <h1 class="lobby-title">The tables are waiting.</h1>
-    <p class="tagline">Six rooms. One puck. No neon in sight.</p>
+    <p class="tagline">Nine rooms. One puck. No neon in sight.</p>
 
     <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 6</span></div>
     <div class="menugrid">
@@ -296,7 +296,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v21</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v22</span></div>
   </div>
 </div>
 
@@ -1459,6 +1459,512 @@ THEMES.bil.paintRoom = function (g, W, H) {
     g.fillRect(chx - chw / 2, hy - H * 0.11, chw, H * 0.06);
   }
 };
+
+/* ============================================================
+   ATELIER AIR HOCKEY — theme renderers, third set (v22)
+   Bauhaus Dessau '23, Zellige Riad, Swiss Grid.
+   Same contract as themes.js / themes2.js: each theme paints
+   room, rails, surface, markings, goal trim, and carries the
+   scoreboard / puck / mallet / css palettes. Shared helpers
+   (noiseTile, tileOver, woodGrain, brushedMetal, roomBase,
+   roomGlow, seigaiha, squiggle, mulberry32, rr) come from the
+   earlier theme files, which load first.
+   ============================================================ */
+
+/* Eight-pointed khatam star path (for the zellige inlay) */
+function star8(g, cx, cy, r, rot) {
+  g.beginPath();
+  for (let i = 0; i < 16; i++) {
+    const a = (rot || 0) + (i * Math.PI) / 8;
+    const rad = i % 2 === 0 ? r : r * 0.52;
+    const x = cx + Math.cos(a) * rad, y = cy + Math.sin(a) * rad;
+    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.closePath();
+}
+
+/* ================= 7. BAUHAUS DESSAU '23 ================= */
+const THEME_BAUHAUS = {
+  id: 'bau', name: "Bauhaus Dessau '23", tagline: 'Tubular steel · primaries · the workshop stage — 1923',
+  font: { display: "'Futura', 'Century Gothic', sans-serif", body: "'Helvetica Neue', Arial, sans-serif" },
+  ink: '#1a1a1a', accent: '#D03A2B', gold: '#E8A820', particle: '#E8A820', trail: '#2456A6',
+  flash: 'rgba(208,58,43,1)', vignette: 'rgba(40,30,18,0.28)',
+  goalChord: [392, 493.88, 587.33, 783.99],
+  scoreboard: 'reels',
+  board: { frame: '#1a1a1a', frameEdge: '#D03A2B', drum: '#F2EBDC',
+           drumShade: '#d8cdb2', ink: '#1a1a1a', jewel: '#2456A6' },
+  puck: { hi: '#fdf8ec', body: '#EFE6D0', edge: '#b8ab8c', ring: '#1a1a1a' },
+  mallet: { hi: '#3a3a3c', base: '#1c1c1e', edge: '#0a0a0a', ring: '#E8A820', dish: '#2a2a2c', dishHi: '#4a4a4e', knob: '#D03A2B', knobHi: '#f06a5a' },
+  css: { pageBg: '#161310', panelBg: 'rgba(242,235,220,0.97)', panelBorder: '#1a1a1a', btnBg: '#D03A2B', btnInk: '#FFF6E8', title: '#1a1a1a', sub: '#6a6256', ghost: 'rgba(208,58,43,0.12)' },
+
+  _tile: null,
+  drawRoom(ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, VH);
+    g.addColorStop(0, '#EFE8D8'); g.addColorStop(1, '#DCD2B8');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    // faint curtain-wall grid, Dessau building
+    ctx.save(); ctx.strokeStyle = 'rgba(26,26,26,0.06)'; ctx.lineWidth = 2;
+    for (let x = -200; x < VW + 200; x += 120) { ctx.beginPath(); ctx.moveTo(x, -200); ctx.lineTo(x, VH + 200); ctx.stroke(); }
+    for (let y = -200; y < VH + 200; y += 120) { ctx.beginPath(); ctx.moveTo(-200, y); ctx.lineTo(VW + 200, y); ctx.stroke(); }
+    // one big red circle, very faint — the Albers wall
+    ctx.strokeStyle = 'rgba(208,58,43,0.07)'; ctx.lineWidth = 26;
+    ctx.beginPath(); ctx.arc(VW * 0.85, VH * 0.2, 150, 0, TAU); ctx.stroke();
+    ctx.restore();
+  },
+  paintRoom(g, W, H) {
+    // The Workshop — white cubic Dessau blocks, glass grid, red balcony
+    const R = mulberry32(1923);
+    const hy = roomBase(g, W, H, ['#F4EEE0', '#E0D5BC'], ['#CFC2A4', '#A8977A']);
+    // main workshop block
+    const bx = W * 0.16, bw = W * 0.42, bh = H * 0.34, by = hy - bh;
+    g.fillStyle = '#FBF7EC'; g.fillRect(bx, by, bw, bh);
+    g.fillStyle = 'rgba(0,0,0,0.10)'; g.fillRect(bx, by + bh - 8, bw, 8);
+    // glass curtain wall grid
+    g.strokeStyle = '#2a2a2c'; g.lineWidth = 3;
+    for (let i = 0; i <= 6; i++) {
+      const gx = bx + (bw / 6) * i;
+      g.beginPath(); g.moveTo(gx, by + 10); g.lineTo(gx, by + bh - 10); g.stroke();
+    }
+    for (let i = 0; i <= 4; i++) {
+      const gy = by + 10 + ((bh - 20) / 4) * i;
+      g.beginPath(); g.moveTo(bx + 8, gy); g.lineTo(bx + bw - 8, gy); g.stroke();
+    }
+    g.fillStyle = 'rgba(36,86,166,0.16)'; g.fillRect(bx + 8, by + 10, bw - 16, bh - 20);
+    // red balcony bar
+    g.fillStyle = '#D03A2B';
+    g.fillRect(bx + bw * 0.1, by + bh * 0.42, bw * 0.8, 10);
+    // second cubic block + yellow door
+    const cx2 = W * 0.66, cw2 = W * 0.20, ch2 = H * 0.24;
+    g.fillStyle = '#F7F2E4'; g.fillRect(cx2, hy - ch2, cw2, ch2);
+    g.fillStyle = '#E8A820'; g.fillRect(cx2 + cw2 * 0.35, hy - ch2 * 0.62, cw2 * 0.3, ch2 * 0.62);
+    g.strokeStyle = '#1a1a1a'; g.lineWidth = 3;
+    g.strokeRect(cx2 + cw2 * 0.35, hy - ch2 * 0.62, cw2 * 0.3, ch2 * 0.62);
+    // stage floor boards
+    g.save(); g.beginPath(); g.rect(0, hy, W, H - hy); g.clip();
+    g.strokeStyle = 'rgba(90,70,50,0.35)'; g.lineWidth = 2;
+    for (let x = 0; x < W; x += 64) { g.beginPath(); g.moveTo(x, hy); g.lineTo(x - 30, H); g.stroke(); }
+    g.restore();
+    // floating primary shapes on the wall — the Vorkurs exercise
+    g.fillStyle = '#D03A2B';
+    g.beginPath(); g.arc(W * 0.10, H * 0.20, 26, 0, TAU); g.fill();
+    g.fillStyle = '#E8A820';
+    g.beginPath(); g.moveTo(W * 0.90, H * 0.14); g.lineTo(W * 0.94, H * 0.24); g.lineTo(W * 0.86, H * 0.24); g.closePath(); g.fill();
+    g.fillStyle = '#2456A6'; g.fillRect(W * 0.885, H * 0.42, 44, 44);
+    roomGlow(g, W * 0.5, hy + 40, 220, 'rgba(255,244,220,0.5)', 0.7);
+  },
+  drawRails(ctx) {
+    // tubular steel: chrome gradient + brushed finish
+    const g = ctx.createLinearGradient(TX0, TY0, TX0 + PW + RAIL * 2, TY0);
+    g.addColorStop(0, '#8f9296'); g.addColorStop(0.35, '#d7d9db'); g.addColorStop(0.65, '#a9acae'); g.addColorStop(1, '#7c7f83');
+    ctx.fillStyle = g;
+    ctx.fillRect(TX0, TY0, PW + RAIL * 2, PH + RAIL * 2);
+    brushedMetal(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, true);
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+    // black leather inner edge
+    ctx.save();
+    ctx.strokeStyle = '#141414'; ctx.lineWidth = 8;
+    ctx.strokeRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+    // primary-color joint caps at the corners
+    ctx.save();
+    const caps = ['#D03A2B', '#E8A820', '#2456A6', '#D03A2B'];
+    const pts = [[TX0 + 20, TY0 + 20], [TX0 + PW + RAIL * 2 - 20, TY0 + 20], [TX0 + 20, TY0 + PH + RAIL * 2 - 20], [TX0 + PW + RAIL * 2 - 20, TY0 + PH + RAIL * 2 - 20]];
+    pts.forEach(([x, y], i) => {
+      ctx.fillStyle = caps[i];
+      ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#141414'; ctx.lineWidth = 2; ctx.stroke();
+    });
+    ctx.restore();
+  },
+  drawSurface(ctx) {
+    if (!this._tile) this._tile = noiseTile('#F2EBDC', ['#e6dcc4', '#faf4e6', '#dccfb2'], 1300, 0.10);
+    tileOver(ctx, this._tile, PX, PY, PW, PH, 1);
+    const g = ctx.createLinearGradient(PX, PY, PX + PW, PY + PH);
+    g.addColorStop(0, 'rgba(255,255,255,0.22)'); g.addColorStop(1, 'rgba(120,100,70,0.10)');
+    ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
+  },
+  drawMarkings(ctx) {
+    ctx.save();
+    // the Vorkurs trio at center: red circle, yellow triangle, blue square
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(CX, PY + 14); ctx.lineTo(CX, PY + PH - 14); ctx.stroke();
+    ctx.fillStyle = '#D03A2B';
+    ctx.beginPath(); ctx.arc(CX, CY, 52, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.fillStyle = '#E8A820';
+    ctx.beginPath(); ctx.moveTo(CX, CY - 30); ctx.lineTo(CX + 30, CY + 24); ctx.lineTo(CX - 30, CY + 24); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = '#2456A6';
+    ctx.fillRect(CX - 17, CY - 17, 34, 34);
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3; ctx.strokeRect(CX - 17, CY - 17, 34, 34);
+    // face-off squares in primaries
+    const cols = ['#D03A2B', '#E8A820', '#2456A6', '#1a1a1a'];
+    let i = 0;
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72]) {
+        ctx.fillStyle = cols[i++ % 4];
+        ctx.fillRect(fx - 7, fy - 7, 14, 14);
+      }
+    // goal creases: black arcs
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(PX, CY, 74, -0.72, 0.72); ctx.stroke();
+    ctx.beginPath(); ctx.arc(PX + PW, CY, 74, Math.PI - 0.72, Math.PI + 0.72); ctx.stroke();
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    const x = side === 0 ? gx - RAIL + 8 : gx + RAIL - 8;
+    // black posts stacked with the three primaries
+    ctx.fillStyle = '#141414';
+    ctx.fillRect(x - 6, cy - w / 2 - 10, 12, w + 20);
+    const cols = ['#D03A2B', '#E8A820', '#2456A6'];
+    for (const sgn of [-1, 1]) {
+      cols.forEach((c, i) => {
+        ctx.fillStyle = c;
+        ctx.beginPath(); ctx.arc(x, cy + sgn * (w / 2 + 10) - sgn * i * 16, 7, 0, TAU); ctx.fill();
+      });
+    }
+    ctx.restore();
+  },
+};
+
+/* ================= 8. ZELLIGE RIAD ================= */
+const THEME_ZEL = {
+  id: 'zel', name: 'Zellige Riad', tagline: 'Cobalt stars · terracotta · the courtyard fountain — Marrakech',
+  font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, serif" },
+  ink: '#F0E6D2', accent: '#C96A3B', gold: '#C96A3B', particle: '#E8A06A', trail: '#4E7AC2',
+  flash: 'rgba(201,106,59,1)', vignette: 'rgba(30,18,8,0.42)',
+  goalChord: [261.63, 329.63, 392, 523.25],
+  scoreboard: 'bulbs',
+  board: { cab: '#143A75', cabHi: '#1E4E9D', bulb: '#ffcf7a',
+           bulbDim: '#0e2a52', bolt: '#C96A3B' },
+  puck: { hi: '#e08a5a', body: '#C96A3B', edge: '#7a3a1e', ring: '#F0E6D2' },
+  mallet: { hi: '#6e4a30', base: '#4a2f1e', edge: '#241209', ring: '#4E7AC2', dish: '#38220f', dishHi: '#5c3a24', knob: '#b98a2f', knobHi: '#e8c86a' },
+  css: { pageBg: '#120d08', panelBg: 'rgba(28,20,14,0.95)', panelBorder: '#C96A3B', btnBg: '#1E4E9D', btnInk: '#F7EFDD', title: '#F0E6D2', sub: '#b09a78', ghost: 'rgba(30,78,157,0.16)' },
+
+  _tile: null, _starTile: null,
+  drawRoom(ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, VH);
+    g.addColorStop(0, '#EFDDB8'); g.addColorStop(1, '#D9BC8C');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    // faint horseshoe arch outlines
+    ctx.save(); ctx.strokeStyle = 'rgba(120,70,40,0.10)'; ctx.lineWidth = 10;
+    for (const ax of [VW * 0.2, VW * 0.8]) {
+      ctx.beginPath(); ctx.arc(ax, VH * 0.42, 120, Math.PI, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax - 120, VH * 0.42); ctx.lineTo(ax - 120, VH * 0.75); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ax + 120, VH * 0.42); ctx.lineTo(ax + 120, VH * 0.75); ctx.stroke();
+    }
+    ctx.restore();
+  },
+  _makeStarTile() {
+    // pre-rendered zellige lattice: cobalt stars on deep blue
+    const c = document.createElement('canvas');
+    c.width = c.height = 220;
+    const g = c.getContext('2d');
+    g.fillStyle = '#143A75'; g.fillRect(0, 0, 220, 220);
+    const R = mulberry32(77);
+    const cols = ['#1E4E9D', '#4E7AC2', '#C96A3B', '#F0E6D2'];
+    for (let yy = 0; yy <= 220; yy += 55) {
+      for (let xx = 0; xx <= 220; xx += 55) {
+        const ox = (yy / 55) % 2 ? 27.5 : 0;
+        g.fillStyle = cols[(R() * cols.length) | 0];
+        star8(g, xx + ox - 27.5 + 27.5, yy, 20, R() * 0.4);
+        g.fill();
+        g.strokeStyle = '#F0E6D2'; g.lineWidth = 1.5; g.stroke();
+      }
+    }
+    return c;
+  },
+  paintRoom(g, W, H) {
+    // The Courtyard — tadelakt walls, horseshoe arch, star fountain
+    const R = mulberry32(1550);
+    const hy = roomBase(g, W, H, ['#EFDDB8', '#D9BC8C'], ['#C9A878', '#96703F']);
+    if (!this._starTile) this._starTile = this._makeStarTile();
+    // grand horseshoe arch, centered
+    const ax = W * 0.5, ar = W * 0.22, ay = hy;
+    g.fillStyle = '#C96A3B';
+    g.beginPath();
+    g.arc(ax, ay - ar * 0.55, ar, Math.PI, 0);
+    g.rect(ax - ar, ay - ar * 0.55, ar * 2, ar * 0.55 + 4);
+    g.fill();
+    g.fillStyle = '#8a4a26';
+    g.beginPath();
+    g.arc(ax, ay - ar * 0.55, ar * 0.82, Math.PI, 0);
+    g.rect(ax - ar * 0.82, ay - ar * 0.55, ar * 1.64, ar * 0.55 + 4);
+    g.fill();
+    // through the arch: hint of blue sky + palm
+    const sky = g.createLinearGradient(0, ay - ar * 1.4, 0, ay);
+    sky.addColorStop(0, '#7AB5D6'); sky.addColorStop(1, '#C9E2EE');
+    g.fillStyle = sky;
+    g.beginPath();
+    g.arc(ax, ay - ar * 0.55, ar * 0.82, Math.PI, 0);
+    g.rect(ax - ar * 0.82, ay - ar * 0.55, ar * 1.64, ar * 0.55 + 4);
+    g.fill();
+    g.strokeStyle = '#2c4a2e'; g.lineCap = 'round'; g.lineWidth = 8;
+    g.beginPath(); g.moveTo(ax + ar * 0.3, ay); g.quadraticCurveTo(ax + ar * 0.34, ay - ar * 0.5, ax + ar * 0.42, ay - ar * 0.75); g.stroke();
+    g.lineWidth = 5;
+    for (let i = 0; i < 6; i++) {
+      const a = -0.5 - i * 0.3, fx = ax + ar * 0.42, fy = ay - ar * 0.75;
+      g.beginPath(); g.moveTo(fx, fy);
+      g.quadraticCurveTo(fx + Math.cos(a) * 50, fy + Math.sin(a) * 30 - 12, fx + Math.cos(a) * 84, fy + Math.sin(a) * 60 + 16);
+      g.stroke();
+    }
+    // octagonal fountain basin with zellige stars
+    const fxc = W * 0.5, fyc = hy + (H - hy) * 0.42, fr = Math.min(W, H) * 0.13;
+    g.save();
+    g.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + Math.PI / 8;
+      const px = fxc + Math.cos(a) * fr, py = fyc + Math.sin(a) * fr;
+      if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    }
+    g.closePath();
+    g.fillStyle = '#143A75'; g.fill();
+    g.clip();
+    for (let ty = fyc - fr; ty < fyc + fr; ty += 52)
+      for (let tx = fxc - fr; tx < fxc + fr; tx += 52)
+        g.drawImage(this._starTile, tx, ty, 56, 56);
+    g.restore();
+    // water shimmer
+    g.fillStyle = 'rgba(180,220,240,0.25)';
+    g.beginPath(); g.ellipse(fxc, fyc, fr * 0.7, fr * 0.4, 0, 0, TAU); g.fill();
+    // hanging lanterns
+    for (const [lx, lw] of [[W * 0.18, 1], [W * 0.82, 0.8]]) {
+      const ly = H * 0.16;
+      g.strokeStyle = '#3a2a1a'; g.lineWidth = 3;
+      g.beginPath(); g.moveTo(lx, 0); g.lineTo(lx, ly); g.stroke();
+      roomGlow(g, lx, ly + 26, 90 * lw, 'rgba(255,190,110,0.85)', 0.9);
+      g.fillStyle = '#C96A3B';
+      g.beginPath(); g.ellipse(lx, ly + 26, 16 * lw, 22 * lw, 0, 0, TAU); g.fill();
+      g.fillStyle = '#1a1a1a'; g.fillRect(lx - 6 * lw, ly + 2, 12 * lw, 6);
+    }
+    // wall star band
+    g.save(); g.globalAlpha = 0.5;
+    for (let x = 20; x < W; x += 64) {
+      g.fillStyle = '#1E4E9D';
+      star8(g, x, H * 0.10, 18, 0.2); g.fill();
+    }
+    g.restore();
+  },
+  drawRails(ctx) {
+    // carved cedar with a zellige star inlay band
+    const g = ctx.createLinearGradient(TX0, TY0, TX0, TY0 + PH + RAIL * 2);
+    g.addColorStop(0, '#5c3a24'); g.addColorStop(0.5, '#402818'); g.addColorStop(1, '#2c1a0e');
+    ctx.fillStyle = g;
+    ctx.fillRect(TX0, TY0, PW + RAIL * 2, PH + RAIL * 2);
+    woodGrain(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, '#1c0f06', '#7a5230');
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+    // star inlay band around the rail ring
+    ctx.save();
+    ctx.beginPath(); ctx.rect(TX0, TY0, PW + RAIL * 2, PH + RAIL * 2);
+    ctx.rect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.clip('evenodd');
+    if (!this._starTile) this._starTile = this._makeStarTile();
+    for (let ty = TY0; ty < TY0 + PH + RAIL * 2; ty += 44)
+      for (let tx = TX0; tx < TX0 + PW + RAIL * 2; tx += 44)
+        ctx.drawImage(this._starTile, tx, ty, 44, 44);
+    ctx.fillStyle = 'rgba(20,58,117,0.25)';
+    ctx.fillRect(TX0, TY0, PW + RAIL * 2, PH + RAIL * 2);
+    ctx.restore();
+    // brass inner edge
+    ctx.save();
+    ctx.strokeStyle = '#b98a2f'; ctx.lineWidth = 5;
+    ctx.strokeRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+  },
+  drawSurface(ctx) {
+    if (!this._tile) this._tile = noiseTile('#EFE3CC', ['#e2d2b2', '#f8efdc', '#d8c49c'], 1500, 0.10);
+    tileOver(ctx, this._tile, PX, PY, PW, PH, 1);
+    // faint star lattice across the sand
+    ctx.save(); ctx.globalAlpha = 0.16;
+    if (!this._starTile) this._starTile = this._makeStarTile();
+    for (let ty = PY; ty < PY + PH; ty += 110)
+      for (let tx = PX; tx < PX + PW; tx += 110)
+        ctx.drawImage(this._starTile, tx, ty, 110, 110);
+    ctx.restore();
+    const g = ctx.createLinearGradient(PX, PY, PX, PY + PH);
+    g.addColorStop(0, 'rgba(255,250,235,0.20)'); g.addColorStop(1, 'rgba(140,100,60,0.14)');
+    ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
+  },
+  drawMarkings(ctx) {
+    ctx.save();
+    ctx.strokeStyle = '#1E4E9D'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(CX, PY + 14); ctx.lineTo(CX, PY + PH - 14); ctx.stroke();
+    ctx.beginPath(); ctx.arc(CX, CY, 62, 0, TAU); ctx.stroke();
+    // terracotta center medallion: khatam star
+    ctx.fillStyle = '#C96A3B';
+    star8(ctx, CX, CY, 40, 0.2); ctx.fill();
+    ctx.strokeStyle = '#F0E6D2'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = '#1E4E9D';
+    star8(ctx, CX, CY, 18, 0.2); ctx.fill();
+    // face-off dots: cobalt
+    ctx.fillStyle = '#1E4E9D';
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72]) {
+        ctx.beginPath(); ctx.arc(fx, fy, 6, 0, TAU); ctx.fill();
+      }
+    // goal creases
+    ctx.strokeStyle = '#1E4E9D'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(PX, CY, 74, -0.72, 0.72); ctx.stroke();
+    ctx.beginPath(); ctx.arc(PX + PW, CY, 74, Math.PI - 0.72, Math.PI + 0.72); ctx.stroke();
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    const x = side === 0 ? gx - RAIL + 8 : gx + RAIL - 8;
+    // cobalt posts, terracotta caps
+    ctx.fillStyle = '#1E4E9D';
+    ctx.fillRect(x - 7, cy - w / 2 - 10, 14, w + 20);
+    ctx.strokeStyle = '#F0E6D2'; ctx.lineWidth = 2;
+    ctx.strokeRect(x - 7, cy - w / 2 - 10, 14, w + 20);
+    ctx.fillStyle = '#C96A3B';
+    star8(ctx, x, cy - w / 2 - 10, 11, 0.2); ctx.fill();
+    star8(ctx, x, cy + w / 2 + 10, 11, 0.2); ctx.fill();
+    ctx.restore();
+  },
+};
+
+/* ================= 9. SWISS GRID ================= */
+const THEME_SUISSE = {
+  id: 'swi', name: 'Swiss Grid', tagline: 'Paper white · black rules · the Zurich gallery — 1957',
+  font: { display: "'Helvetica Neue', Helvetica, Arial, sans-serif", body: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
+  ink: '#111111', accent: '#E30613', gold: '#E30613', particle: '#E30613', trail: '#111111',
+  flash: 'rgba(227,6,19,1)', vignette: 'rgba(0,0,0,0.22)',
+  goalChord: [349.23, 440, 523.25, 698.46],
+  scoreboard: 'solari',
+  board: { housing: '#111111', housingHi: '#2c2c2c', flap: '#F7F7F5', ink: '#111111',
+           accent: '#E30613', plate: '#E30613', plateInk: '#ffffff', seam: 'rgba(0,0,0,0.14)' },
+  puck: { hi: '#4a4a4a', body: '#1c1c1c', edge: '#000000', ring: '#E30613' },
+  mallet: { hi: '#ffffff', base: '#EDEDED', edge: '#9a9a9a', ring: '#111111', dish: '#d8d8d8', dishHi: '#f4f4f4', knob: '#E30613', knobHi: '#ff5a5a' },
+  css: { pageBg: '#0e0e0e', panelBg: 'rgba(247,247,245,0.97)', panelBorder: '#111111', btnBg: '#E30613', btnInk: '#ffffff', title: '#111111', sub: '#6a6a6a', ghost: 'rgba(227,6,19,0.10)' },
+
+  _tile: null,
+  drawRoom(ctx) {
+    const g = ctx.createLinearGradient(0, 0, 0, VH);
+    g.addColorStop(0, '#F5F5F3'); g.addColorStop(1, '#E2E2DE');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    // the grid, faint
+    ctx.save(); ctx.strokeStyle = 'rgba(17,17,17,0.05)'; ctx.lineWidth = 1;
+    for (let x = -200; x < VW + 200; x += 44) { ctx.beginPath(); ctx.moveTo(x, -200); ctx.lineTo(x, VH + 200); ctx.stroke(); }
+    for (let y = -200; y < VH + 200; y += 44) { ctx.beginPath(); ctx.moveTo(-200, y); ctx.lineTo(VW + 200, y); ctx.stroke(); }
+    // one red bar, very faint
+    ctx.fillStyle = 'rgba(227,6,19,0.06)';
+    ctx.fillRect(VW * 0.7, -200, 60, VH + 400);
+    ctx.restore();
+  },
+  paintRoom(g, W, H) {
+    // The Gallery — white walls, concrete floor, one red canvas, track light
+    const hy = roomBase(g, W, H, ['#FAFAF8', '#ECECE8'], ['#D2D2CE', '#ACACA8']);
+    // concrete floor joints
+    g.save(); g.beginPath(); g.rect(0, hy, W, H - hy); g.clip();
+    g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 2;
+    for (let x = 0; x < W; x += W / 5) { g.beginPath(); g.moveTo(x, hy); g.lineTo(x, H); g.stroke(); }
+    g.restore();
+    // the red canvas — concrete art, slightly off-center
+    const cxx = W * 0.38, cyw = W * 0.20, cyh = H * 0.30, cyt = H * 0.14;
+    g.fillStyle = '#111'; g.fillRect(cxx - 8, cyt - 8, cyw + 16, cyh + 16);
+    g.fillStyle = '#F7F7F5'; g.fillRect(cxx, cyt, cyw, cyh);
+    g.fillStyle = '#E30613'; g.fillRect(cxx + cyw * 0.18, cyt + cyh * 0.16, cyw * 0.64, cyh * 0.68);
+    // small black canvas beside it
+    g.fillStyle = '#111'; g.fillRect(W * 0.64, H * 0.20, W * 0.10, H * 0.16);
+    // track spotlight beam
+    g.save(); g.globalAlpha = 0.14; g.fillStyle = '#fffbe8';
+    g.beginPath();
+    g.moveTo(W * 0.44, 0); g.lineTo(W * 0.50, 0);
+    g.lineTo(W * 0.58, cyt + cyh); g.lineTo(W * 0.36, cyt + cyh);
+    g.closePath(); g.fill();
+    g.restore();
+    roomGlow(g, cxx + cyw / 2, cyt + cyh / 2, 150, 'rgba(255,250,230,0.7)', 0.8);
+    roomGlow(g, cxx + cyw / 2, hy + 50, 260, 'rgba(255,250,230,0.35)', 0.7);
+    // black bench silhouette
+    g.fillStyle = '#1a1a1a';
+    g.fillRect(W * 0.30, hy - H * 0.085, W * 0.30, H * 0.028);
+    g.fillRect(W * 0.33, hy - H * 0.057, W * 0.015, H * 0.057);
+    g.fillRect(W * 0.555, hy - H * 0.057, W * 0.015, H * 0.057);
+    // wall label plaque
+    g.fillStyle = '#fff'; g.fillRect(W * 0.60, H * 0.40, W * 0.10, H * 0.05);
+    g.fillStyle = '#111'; g.fillRect(W * 0.615, H * 0.415, W * 0.07, 3);
+    g.fillRect(W * 0.615, H * 0.43, W * 0.045, 3);
+  },
+  drawRails(ctx) {
+    // black anodized aluminum, red pinstripe
+    const g = ctx.createLinearGradient(TX0, TY0, TX0, TY0 + PH + RAIL * 2);
+    g.addColorStop(0, '#2c2c2e'); g.addColorStop(0.5, '#171718'); g.addColorStop(1, '#0a0a0b');
+    ctx.fillStyle = g;
+    ctx.fillRect(TX0, TY0, PW + RAIL * 2, PH + RAIL * 2);
+    brushedMetal(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, false);
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+    // red pinstripe inner edge
+    ctx.save();
+    ctx.strokeStyle = '#E30613'; ctx.lineWidth = 4;
+    ctx.strokeRect(PX - 4, PY - 4, PW + 8, PH + 8);
+    ctx.restore();
+    // black outer pinline
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 2;
+    ctx.strokeRect(TX0 + 8, TY0 + 8, PW + RAIL * 2 - 16, PH + RAIL * 2 - 16);
+    ctx.restore();
+  },
+  drawSurface(ctx) {
+    if (!this._tile) this._tile = noiseTile('#F7F7F5', ['#efefec', '#ffffff', '#e6e6e2'], 900, 0.08);
+    tileOver(ctx, this._tile, PX, PY, PW, PH, 1);
+    // the Swiss grid, faint
+    ctx.save();
+    ctx.strokeStyle = 'rgba(17,17,17,0.07)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.rect(PX, PY, PW, PH); ctx.clip();
+    for (let x = PX; x <= PX + PW; x += 44) { ctx.beginPath(); ctx.moveTo(x, PY); ctx.lineTo(x, PY + PH); ctx.stroke(); }
+    for (let y = PY; y <= PY + PH; y += 44) { ctx.beginPath(); ctx.moveTo(PX, y); ctx.lineTo(PX + PW, y); ctx.stroke(); }
+    ctx.restore();
+    const g = ctx.createLinearGradient(PX, PY, PX, PY + PH);
+    g.addColorStop(0, 'rgba(255,255,255,0.30)'); g.addColorStop(1, 'rgba(0,0,0,0.06)');
+    ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
+  },
+  drawMarkings(ctx) {
+    ctx.save();
+    // strict black rules, one red dot
+    ctx.strokeStyle = '#111111'; ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(CX, PY + 14); ctx.lineTo(CX, PY + PH - 14); ctx.stroke();
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(CX, CY, 62, 0, TAU); ctx.stroke();
+    ctx.fillStyle = '#E30613';
+    ctx.beginPath(); ctx.arc(CX, CY, 12, 0, TAU); ctx.fill();
+    // face-off crosses
+    ctx.strokeStyle = '#111111'; ctx.lineWidth = 5; ctx.lineCap = 'square';
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72]) {
+        ctx.beginPath();
+        ctx.moveTo(fx - 9, fy); ctx.lineTo(fx + 9, fy);
+        ctx.moveTo(fx, fy - 9); ctx.lineTo(fx, fy + 9);
+        ctx.stroke();
+      }
+    // red goal-crease ticks
+    ctx.strokeStyle = '#E30613'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(PX, CY, 74, -0.5, 0.5); ctx.stroke();
+    ctx.beginPath(); ctx.arc(PX + PW, CY, 74, Math.PI - 0.5, Math.PI + 0.5); ctx.stroke();
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    const x = side === 0 ? gx - RAIL + 8 : gx + RAIL - 8;
+    // black posts, red square caps
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(x - 6, cy - w / 2 - 10, 12, w + 20);
+    ctx.fillStyle = '#E30613';
+    ctx.fillRect(x - 9, cy - w / 2 - 16, 18, 12);
+    ctx.fillRect(x - 9, cy + w / 2 + 4, 18, 12);
+    ctx.restore();
+  },
+};
+
+THEMES.bau = THEME_BAUHAUS;
+THEMES.zel = THEME_ZEL;
+THEMES.swi = THEME_SUISSE;
 
 let THEME = THEMES['deco'];
 </script>
@@ -3290,6 +3796,12 @@ const ROOM_AMB = {
            events: [ { p: 0.07, f: '_clink' } ] },
   sashi: { bed: { type: 'highpass', f: 2600, q: 0.5, g: 0.024 },
            events: [ { p: 0.05, f: '_creak' } ] },
+  bau:   { bed: { type: 'bandpass', f: 640,  q: 0.8, g: 0.024 },
+           events: [ { p: 0.06, f: '_clink' } ] },   // the workshop: airy room tone, distant tool clinks
+  zel:   { bed: { type: 'bandpass', f: 1200, q: 0.6, g: 0.020 },
+           events: [ { p: 0.09, f: '_splash' } ] }, // the courtyard fountain
+  swi:   { bed: { type: 'highpass', f: 3000, q: 0.5, g: 0.014 },
+           events: [ { p: 0.04, f: '_mote' } ] },    // the gallery hush
 };
 function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
 
@@ -4925,7 +5437,7 @@ function drawMallet(c, m) {
 }
 
 // ---------- themes ----------
-const THEME_ORDER = ['deco', 'mid', 'brut', 'bil', 'mem', 'sashi'];
+const THEME_ORDER = ['deco', 'mid', 'brut', 'bil', 'mem', 'sashi', 'bau', 'zel', 'swi'];
 function setTheme(id, silent) {
   if (!THEMES[id]) id = 'deco';
   THEME = THEMES[id];
