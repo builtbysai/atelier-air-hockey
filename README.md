@@ -1,96 +1,35 @@
 # Atelier Air Hockey
 
-A premium, fully self-contained web air-hockey game. Six hand-designed tables, a 240 Hz physics core, three AI rivals, local two-player, online multiplayer, a proper menu / settings / match flow, and a tuned game-feel layer — in a single HTML file with zero dependencies and zero network requests until you tap Online.
+A handcrafted browser air-hockey game with nine art-directed tables, local AI rivals, same-screen two-player play, and peer-to-peer online matches.
 
-**Play it now:** https://builtbysai.com/atelier-air-hockey/
+**Play:** https://builtbysai.com/atelier-air-hockey/
 
-![Menu](docs/screenshots/d1-menu.png)
+## Development
 
-## The tables
+`src/` is the source of truth. `src/template.html` is the page shell, with `styles.css`, `themes.js`, `scoreboards.js`, and `app.js` loaded as classic browser sources in dependency order. The root `index.html` is generated from `src/template.html` for GitHub Pages.
 
-| Table | Character |
-|---|---|
-| **Noir Deco** | Black lacquer, brass inlay, walnut rails — a 1930s club room |
-| **Palm Springs '62** | Cream laminate, walnut, brass — mid-century poolside |
-| **Beton** | Raw concrete, aluminum, safety orange — brutalist |
-| **The Billiard Room** | Mahogany, brass, snooker green — the old hall |
-| **Memphis Milano** | Warm cream laminate, primary geometry — Milan, 1981 |
-| **Wabi-Sabi Sashiko** | Indigo textile, stitch-work, pine rails — the machiya |
+```bash
+npm run build
+npm test
+```
 
-Each table has its own palette, typography, physical scoring device, sound tuning, and background room. Menu previews are painted live from the same renderers — what you see is what you play.
+CI fails when the generated root file drifts from the source template or when core stabilization invariants regress. Historical v4-v7 HTML snapshots remain in Git history; current releases should use Git tags/releases rather than duplicated production files.
 
-![Noir Deco](docs/screenshots/d4-t-deco.png)
-![Palm Springs '62](docs/screenshots/d4-t-mid.png)
-![Memphis Milano](docs/screenshots/d4-t-mem.png)
-![Wabi-Sabi Sashiko](docs/screenshots/d4-t-sashi.png)
+## Controls
 
-## Scoring devices
+- Mouse/touch: direct mallet control.
+- Keyboard: WASD for player one; arrow keys for player two.
+- Gamepads: first pad controls player one; a second pad controls player two when available.
+- P: pause/resume. M: mute/unmute. Esc: pause/resume.
 
-Every table keeps score the way its world would:
+## Online play
 
-- **Solari split-flap** — Noir Deco, Wabi-Sabi Sashiko. Analog flaps clatter through the digits with a half-flap settle.
-- **Electromechanical score reels** — Palm Springs '62, Memphis Milano. Spring-driven odometer drums with a reel-spin flicker.
-- **Mahogany cribbage peg track** — The Billiard Room. Brass pegs hop forward along a 60-hole track.
-- **5×7 incandescent bulb matrix** — Beton. Grandstand-style dots that roll upward with a filament cool-down fade.
+Online matches use Trystero/WebRTC with Nostr signaling. The host is authoritative for physics and match settings. Rooms use a six-character invite code/deep link, accept one bound rival, validate inbound input, and ignore messages from extra peers. No account is required.
 
-All devices show the **First to N** target, a match-point treatment, and solo/two-player labels.
+## Local data
 
-## Play
-
-- **Solo** — pick your rival: Rookie (a gentle start), Club Pro (the house standard), or Champion (no mercy).
-- **Two Players** — same screen, two mallets. Top half vs bottom half on desktop; split-screen drag on touch.
-- Drag the mallet to glide, flick to drive. Slow the mallet over the puck to smother and possess it; whip through it for the lively driven hit.
-
-![Goal ceremony](docs/screenshots/d8-goal-fixed.png)
-
-## Settings (saved on your device)
-
-- **Screen shake** — Off / Subtle / Full
-- **Sound** — on/off (all audio is synthesized live with WebAudio — no files)
-- **Haptics** — on/off (mobile vibration on hits and goals)
-- **First to** — 5 / 7 / 11 (scoreboards and match flow adapt)
-- **Puck pace** — Casual / Classic / Lightning (damping, rail liveliness, serve speed)
-
-![Win screen](docs/screenshots/d7-win.png)
-
-## Match flow
-
-Countdown serve, goal slow-motion with letterbox ceremony and chord, match-point ribbons ("NEXT GOAL WINS"), pause / intermission, and a full-time card with match stats: top puck speed, longest rally, match time. Rematch or change table from the win screen.
-
-## Tech
-
-- **Single file, no build step to play** — open `index.html` (or the versioned file in `releases/`) in any modern browser. No CDN, no fonts, no trackers, no requests.
-- **240 Hz fixed-timestep physics** with substeps, speed-dependent mallet restitution, and an anti-stall air jet so the puck never dies in a corner.
-- **AI** with guard / defend / engage / windup / strike / recover states, reaction latency, bank shots, pin detection with a two-beat corner escape, and a displacement-based stall backstop — verified with AI-vs-AI stall watches.
-- **Game feel** — hit-stop, trauma-based screen shake, particles, squash & stretch, puck trails, scuff marks, goal flash.
-- **Rooms** — every table sits in a place-based, pre-rendered room (Skyline Bar, Cabana, Bunker Gallery, Century Club, Loft Party, Machiya). Painted once per resize/theme; one blit per frame, zero per-frame cost.
-- **Responsive** — desktop, portrait phones (the rink rotates, your goal goes to the bottom), landscape phones, small screens. No page scroll, no card scroll, at any size.
-- **Source** — `src/` holds the real sources (`engine2.js`, `themes.js`, `themes2.js`, `scoreboards.js`, `net.js`, `template2.html`) and `build3.js` inlines them into the single-file release. All netcode is isolated in `net.js` behind a documented protocol (`st` snapshots / `in` input / `ev` events); engine hooks are minimal and marked `// ONLINE:`.
-
-## Online multiplayer
-
-## Game feel (v7)
-
-![Rally in play](docs/screenshots/d10-v7-gameplay.png)
-
-- **Stuck-puck fix** — a mallet pressing the puck into a rail pocket used to pin it forever; a 2.5-second possession clock now ejects it cleanly down the rail.
-- **Balanced rivals** — Rookie is livelier but sloppier, Club Pro is the "decent human" level, Champion trades superhuman reflexes for positioning and aim, and every rival occasionally whiffs a strike like a person would.
-- **Juice** — tiered hit feedback (tap / drive / SMASH), save celebrations, a rally counter with rising pitch, puck spin for curve shots, near-miss drama, speed lines, mallet trails, goal-post pings, theme-colored confetti that goes harder when *you* score, and rooms that react to huge hits.
-- **Effects setting** (Full / Subtle / Minimal) scales all of it without touching the physics; `prefers-reduced-motion` is respected automatically.
-
-## Online multiplayer
-
-![Online lobby](docs/screenshots/d9-online-lobby.png)
-
-Tap **Online** → **Host a table** and share the 4-letter code, or **Join with a code** to knock on a rival's table. No account, no game server.
-
-- **WebRTC data channels**, peer-to-peer, via **Trystero** (Nostr signaling) — lazy-loaded only when you tap Online, so the base game stays fully self-contained with zero network requests otherwise.
-- **Host-authoritative netcode**: the host runs the 240 Hz sim untouched; 25 Hz snapshots; your own mallet stays local (zero input latency); the puck dead-reckons between snapshots with smooth correction.
-- **Guest view flip** — the guest always plays from their own bottom side.
-- Goals, pause, rematch, and rival-left are synced events, so Solari flaps, score reels, cribbage pegs, and bulb boards animate on both sides together. The host's table and settings win.
-- TURN fallback for stubborn NATs uses a locally computed credential — nothing sensitive ships in the file.
-- **Ruled out:** Web Bluetooth phone-to-phone (browsers only implement the BLE Central role — two browsers can never link — and Safari/Firefox never shipped Web Bluetooth at all).
+Settings, records, personal bests, achievements, and table-tour progress are stored only in this browser via `localStorage`. They can be reset from the Progress screen.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+See [LICENSE](./LICENSE).

@@ -200,7 +200,7 @@ const Scoreboards = {
         peg: '#d8a93f', pegHi: '#f4dfa0', ring: '#c9a227',
       }, trim || {});
       const y = 10, bw = 400, bh = 84, bx = CX - bw / 2;
-      const N = 11, scores = [s0, s1];
+      const N = Math.max(11, target + 1), scores = [s0, s1];
       ctx.save();
       rr(ctx, bx, y, bw, bh, 8);
       const bg = ctx.createLinearGradient(bx, y, bx, y + bh);
@@ -347,7 +347,11 @@ const Scoreboards = {
           rr(ctx, cx - dw / 2 - 8, y + 12, dw + 16, dh + 8, 6); ctx.stroke();
           ctx.restore();
         }
-        digit(shown, cx - dw / 2 + cell / 2, y + 16, cell, animK, i * 17);
+        const chars = String(Math.max(0, Math.min(99, Math.round(shown))));
+        const dc = chars.length > 1 ? 6 : cell;
+        const totalW = chars.length * (5 * dc) + Math.max(0, chars.length - 1) * dc;
+        chars.split('').forEach((ch, di) =>
+          digit(+ch, cx - totalW / 2 + dc / 2 + di * 6 * dc, y + 16 + (chars.length > 1 ? 9 : 0), dc, animK, i * 17 + di));
         ctx.fillStyle = 'rgba(255,255,255,0.45)';
         ctx.font = '600 12px "Helvetica Neue", Arial, sans-serif';
         ctx.textAlign = 'center';
