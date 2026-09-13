@@ -246,7 +246,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v11</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v12</span></div>
   </div>
 </div>
 
@@ -1825,7 +1825,7 @@ function drawScoreboard(ctx) {
  *   ev  either direction, event objects {t, ...}:
  *       {t:'knock'}                      guest->host: "I'm here, start if waiting"
  *       {t:'hello', firstTo, pace, theme} host->guest: match settings (host wins)
- *       {t:'countdown', serveDir}        host->guest: begin the countdown
+ *       {t:'countdown', serveDir, svx, svy} host->guest: begin the countdown + the rolled serve
  *       {t:'goal', scorer, s0, s1, matchEnd} host->guest: ceremony sync
  *       {t:'pause'} / {t:'resume'}        either: pause state follows the sender
  *       {t:'rematch', phase}             either: 'offer' | 'accept' | 'decline'
@@ -2226,7 +2226,7 @@ Net.startHostMatch = function () {
   Net.beginMatch('host');
   Net.sendHello();
   startCount();
-  G.serveDir = Math.random() < 0.5 ? 1 : -1;
+  rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
   Net.sendCountdown();
 };
 
@@ -2251,6 +2251,11 @@ Net.onCountdown = function (ev) {
   if (Net.role !== 'guest' || !Net.active) return;
   Net.beginMatch('guest');
   if (ev && (ev.serveDir === 1 || ev.serveDir === -1)) G.serveDir = ev.serveDir;
+  if (ev && typeof ev.svx === 'number' && typeof ev.svy === 'number') {
+    G.serveVX = ev.svx; G.serveVY = ev.svy; // host's rolled serve
+  } else if (G.serveDir) {
+    rollServe(G.serveDir); // old-host fallback: roll locally
+  }
   startCount();
 };
 
@@ -2327,7 +2332,12 @@ Net.guestApply = function (rdt) {
 Net.sendHello = function () {
   Net.wire.sendEv({ t: 'hello', firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id });
 };
-Net.sendCountdown = function () { Net.wire.sendEv({ t: 'countdown', serveDir: G.serveDir }); };
+// The serve vector rides along so both machines play the identical point —
+// the host's roll is the source of truth, the guest just applies it.
+Net.sendCountdown = function () {
+  Net.wire.sendEv({ t: 'countdown', serveDir: G.serveDir,
+    svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10 });
+};
 Net.sendGoal = function (scorer) {
   Net.wire.sendEv({
     t: 'goal', scorer,
@@ -2388,7 +2398,7 @@ Net.declineRematch = function () {
 Net.restartMatchAsHost = function () {
   Net.beginMatch('host');
   startCount();
-  G.serveDir = Math.random() < 0.5 ? 1 : -1;
+  rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
   Net.sendCountdown();
 };
 
@@ -3914,7 +3924,9 @@ function startGame(mode, diff) {
   $('menu').classList.add('hidden');
   $('topbar').classList.remove('hidden');
   startCount();
-  G.serveDir = Math.random() < 0.5 ? 1 : -1;
+  // first serve: face-off decides who gets the puck (random side), then roll
+  // the serve flavor once so local and online both use the same point
+  rollServe(Math.random() < 0.5 ? 1 : -1);
   // ONLINE: the host's countdown mirrors to the guest so both start even
   if (mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
@@ -3922,6 +3934,36 @@ function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
   G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
   G.trail.length = 0;
+}
+// Serve variety: the player who was scored on (or a random side on the first
+// serve, per the face-off rule) strikes the puck from center. A real struck
+// serve isn't the same shot every time, so roll a flavor:
+//   banker  ~10%: shallow drive that kisses the side rail first
+//   dink    ~12%: a slow teasing feed
+//   wide    ~28%: driven through at a real angle, ±32°
+//   drive   ~50%: the classic straight serve with a touch of wobble
+// Rolled once per point and stored on G so host and guest play the identical
+// serve — the host rolls, the guest receives (see Net.sendCountdown).
+function rollServe(dir) {
+  const sp = paceServe(), roll = Math.random();
+  let ang, speed;
+  if (roll < 0.10) {          // banker — kiss the side rail first
+    ang = (60 + Math.random() * 16) * (Math.random() < 0.5 ? 1 : -1);
+    speed = sp * (0.92 + Math.random() * 0.16);
+  } else if (roll < 0.22) {   // dink — a slow teasing feed
+    ang = (Math.random() - 0.5) * 50;
+    speed = sp * (0.52 + Math.random() * 0.14);
+  } else if (roll < 0.50) {   // wide angle
+    ang = (Math.random() - 0.5) * 64;
+    speed = sp * (0.90 + Math.random() * 0.20);
+  } else {                    // straight drive with a little wobble
+    ang = (Math.random() - 0.5) * 16;
+    speed = sp * (0.95 + Math.random() * 0.22);
+  }
+  G.serveDir = dir;
+  const a = ang * Math.PI / 180;
+  G.serveVX = Math.cos(a) * speed * dir;
+  G.serveVY = Math.sin(a) * speed;
 }
 function updateCount(rdt) {
   G.countT += rdt;
@@ -3931,8 +3973,10 @@ function updateCount(rdt) {
   if (G.countT >= 2.0) {
     G.goPlayed = false;
     G.state = 'play';
-    // serve toward the player who was scored on — the classic face-off courtesy
-    G.puck.vx = paceServe() * G.serveDir; G.puck.vy = rnd(-160, 160);
+    // serve the rolled point — the player who was scored on gets the puck
+    // (USAA basic rules §4: "the player scored upon receives possession of
+    // the puck for the next serve")
+    G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
   }
 }
 function onGoal(scorer) {
@@ -3940,7 +3984,8 @@ function onGoal(scorer) {
     burst(G.puck.x, G.puck.y, 24, THEME.particle, 420);
     AudioSys.hit(0.8);
     resetPositions();
-    G.puck.vx = paceServe() * (Math.random() < 0.5 ? 1 : -1);
+    rollServe(Math.random() < 0.5 ? 1 : -1);
+    G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
     return;
   }
   if (G.state !== 'play') return;
@@ -4011,7 +4056,7 @@ function updateGoal(rdt) {
       showWin();
     } else {
       resetPositions();
-      G.serveDir = G.goalSide === 0 ? 1 : -1;
+      rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
       $('topbar').classList.remove('hidden');
       startCount();
       // ONLINE: the host's countdown mirrors to the guest so both start even
