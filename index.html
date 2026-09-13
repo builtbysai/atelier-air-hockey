@@ -9,8 +9,7 @@
 <meta name="color-scheme" content="dark">
 <link rel="canonical" href="https://builtbysai.com/atelier-air-hockey/">
 <link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="192x192" href="./assets/icon.svg">
-<link rel="apple-touch-icon" href="./assets/icon.svg">
+<link rel="icon" type="image/svg+xml" sizes="any" href="./assets/icon.svg">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Atelier Air Hockey">
 <meta property="og:description" content="Nine handcrafted tables. Local, two-player, and peer-to-peer online air hockey in the browser.">
@@ -29,7 +28,7 @@
   <span class="connchip hidden" id="connChip" title="Connection quality"><i class="unknown"></i><em>–ms</em></span>
   <button class="iconbtn" id="btnPause" title="Pause (P)" aria-label="Pause">&#10074;&#10074;</button>
   <button class="iconbtn" id="btnSound" title="Sound (M)" aria-label="Sound">&#9834;</button>
-  <button class="iconbtn" id="btnMenu2" title="Menu" aria-label="Menu">&equiv;</button>
+  <button class="iconbtn" id="btnMenu2" title="Pause menu" aria-label="Pause menu">&equiv;</button>
 </div>
 
 <!-- first-time hint: one line on the first local match, gone forever after the first goal -->
@@ -41,7 +40,7 @@
     <h1 class="lobby-title">The tables are waiting.</h1>
     <p class="tagline">Nine rooms. One puck. No neon in sight.</p>
 
-    <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 6</span><span id="tourCount" class="tourpill">TOUR 0/9</span></div>
+    <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 9</span><span id="tourCount" class="tourpill">TOUR 0/9</span></div>
     <div class="menugrid">
       <div class="mg-tables">
         <div class="carousel">
@@ -55,7 +54,7 @@
         <div class="seclabel">THE RIVAL</div>
         <div class="seg4">
           <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small><span class="rec" data-rec="ai0"></span></button>
-          <button class="btn primary" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small><span class="rec" data-rec="ai1"></span></button>
+          <button class="btn" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small><span class="rec" data-rec="ai1"></span></button>
           <button class="btn" data-diff="2">Champion<small>NO MERCY</small><span class="rec" data-rec="ai2"></span></button>
           <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small><span class="rec" data-rec="p2p"></span></button>
         </div>
@@ -85,7 +84,7 @@
     <h1 id="helpTitle">How to play</h1>
     <p><b>Move your mallet</b> with mouse or finger — it tracks you one-to-one. Flick it to <b>smash</b> the puck; ease it to deaden and control.</p>
     <p>Your mallet can't cross the center line. First to <b id="helpFirst">7</b> goals wins the table.</p>
-    <p><b>Two players:</b> each takes an end — mouse and touch work at once, or two fingers on mobile.</p>
+    <p><b>Two players:</b> each takes an end. Use two touches, WASD + arrow keys, or two gamepads. Mouse/touch can still control either side directly.</p>
     <p><b>Effects</b> scales the spectacle — particles, flashes, confetti, room glow — without touching the physics. Minimal also caps screen shake at Subtle.</p>
     <p><b>Keys:</b> P pause &middot; M mute &middot; Esc pause/resume. In two-player mode, use WASD and the arrow keys.</p>
     <p style="text-align:center"><button class="btn" id="helpClose" style="width:auto;padding:10px 34px;margin:14px auto 0;">Back</button></p>
@@ -95,7 +94,7 @@
 <div class="overlay hidden" id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
   <div class="card">
     <div class="kicker">TABLE RULES</div>
-    <h1>Settings</h1>
+    <h1 id="settingsTitle">Settings</h1>
     <p class="tagline">Tune the room to your liking. Saved on this device.</p>
     <div class="setrow">
       <div class="setlabel">Screen shake</div>
@@ -158,9 +157,10 @@
 <div class="overlay hidden" id="pauseov" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
   <div class="card">
     <div class="kicker">INTERMISSION</div>
-    <h1>Paused</h1>
+    <h1 id="pauseTitle">Paused</h1>
     <p class="tagline">The puck waits for no one. Except now.</p>
     <button class="btn primary" id="btnResume">Resume</button>
+    <button class="btn" id="btnPauseSettings">Settings</button>
     <button class="btn" id="btnRestart">Restart match</button>
     <button class="btn" id="btnQuit">Quit to menu</button>
   </div>
@@ -180,7 +180,7 @@
 </div>
 
 <!-- ONLINE: lobby + rival-left overlays (rendered by src/net.js) -->
-<div class="overlay hidden" id="onlineov">
+<div class="overlay hidden" id="onlineov" role="dialog" aria-modal="true" aria-labelledby="onlineTitle">
   <div class="card">
     <div class="kicker">ATELIER · ONLINE</div>
     <h1 id="onlineTitle">Play a rival</h1>
@@ -192,10 +192,10 @@
   </div>
 </div>
 
-<div class="overlay hidden" id="onlinedropov">
+<div class="overlay hidden" id="onlinedropov" role="dialog" aria-modal="true" aria-labelledby="dropTitle">
   <div class="card">
     <div class="kicker">ATELIER · ONLINE</div>
-    <h1>Rival left</h1>
+    <h1 id="dropTitle">Rival left</h1>
     <p class="tagline">They disconnected &mdash; the table is yours again.</p>
     <button class="btn primary" id="dropMenu">Back to menu</button>
   </div>
@@ -203,6 +203,8 @@
 
 <script src="./src/themes.js"></script>
 <script src="./src/scoreboards.js"></script>
-<script src="./src/app.js"></script>
+<script src="./src/net.js"></script>
+<script src="./src/game.js"></script>
+<script src="./src/ui.js"></script>
 </body>
 </html>
