@@ -2,7 +2,7 @@
 
 A premium, fully self-contained web air-hockey game. Four hand-designed tables, a 240 Hz physics core, three AI rivals, local two-player, and a proper menu / settings / match flow — in a single HTML file with zero dependencies and zero network requests.
 
-**Play it now:** https://builtbysai.github.io/atelier-air-hockey/
+**Play it now:** https://builtbysai.com/atelier-air-hockey/
 
 ![Menu](docs/screenshots/d1-menu.png)
 
