@@ -7,6 +7,7 @@
     "build": "node scripts/build.mjs",
     "check": "node scripts/check.mjs",
     "syntax": "node --check src/themes.js && node --check src/scoreboards.js && node --check src/net.js && node --check src/game.js && node --check src/ui.js",
-    "test": "npm run build && npm run check && npm run syntax"
+    "unit": "node --test tests/*.test.mjs",
+    "test": "npm run build && npm run check && npm run syntax && npm run unit"
   }
 }
