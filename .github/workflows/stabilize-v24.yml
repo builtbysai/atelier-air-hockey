@@ -4,6 +4,7 @@ on:
     branches: [stabilization-v24]
     paths:
       - scripts/stabilize_v24.py
+      - scripts/run_stabilize_v24.py
       - .github/workflows/stabilize-v24.yml
   workflow_dispatch:
 permissions:
@@ -16,11 +17,14 @@ jobs:
         with:
           ref: stabilization-v24
       - name: Apply stabilization migration
-        run: python3 scripts/stabilize_v24.py
+        run: python3 scripts/run_stabilize_v24.py
       - name: Verify generated sources
         run: |
           node scripts/build.mjs
           node scripts/check.mjs
+          node --check src/themes.js
+          node --check src/scoreboards.js
+          node --check src/app.js
       - name: Commit migration output
         run: |
           git config user.name "github-actions[bot]"
