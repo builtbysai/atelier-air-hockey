@@ -281,7 +281,7 @@
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v18</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v19</span></div>
   </div>
 </div>
 
@@ -3725,6 +3725,7 @@ function mkBrain(side, diffIdx) {
     state: 'guard', tState: 0, tickT: 0,
     aimX: 0, aimY: 0, windT: 0,
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
+    arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
     seen: { x: CX, y: CY, vx: 0, vy: 0 }, // delayed perception
     hist: [], // puck history for reaction delay
@@ -3778,6 +3779,22 @@ function aiThink(b, dt, m) {
   };
   const goHome = () => { const h = aiHome(b); setTx(h.x, h.y); };
 
+  // Own-goal guard (v19): never plow through a slow puck that sits between
+  // the mallet and your own net — that shove is the #1 measured own-goal
+  // mechanism (AI own-goal rate was ~22% before this fix). Detour around it
+  // to the goal side first. Skipped for live threats (defend handles those)
+  // and for the strike sequence itself.
+  if (b.state === 'guard' || b.state === 'defend') {
+    const dirS = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
+    const pSpd = hyp(p.vx, p.vy);
+    const towardMe = dirS * p.vx > 150;      // live dribble — defend it, don't dodge
+    const between = dirS * (p.x - m.x) > 0;  // puck sits between me and my net
+    const close = hyp(p.x - m.x, p.y - m.y) < MALLET_R + PUCK_R + 80;
+    if (!towardMe && pSpd < 450 && between && close) {
+      b.state = 'around'; b.tState = 0; b.arPhase = 0;
+    }
+  }
+
   // pin rescue: if I'm smothering the puck into my corner and it hasn't gone
   // anywhere, I'm the trap — back off and dig it out. Speed-based checks
   // fail here because a pinned puck jitters fast between mallet and rail.
@@ -3800,24 +3817,63 @@ function aiThink(b, dt, m) {
       else if (puckOnMySide && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
       break;
     }
+    case 'around': {
+      // OWN-GOAL DETOUR (v19): a slow puck sits between the mallet and my
+      // net — driving through it shoves it in. Two beats: sidestep clear
+      // (backing away can never touch it), then cross to its goal side so
+      // the next touch clears it AWAY from the net.
+      const dirS = b.side === 1 ? 1 : -1;
+      if (b.arPhase === 0) {
+        const wy = clamp(p.y + (m.y <= p.y ? -200 : 200), PY + MALLET_R, PY + PH - MALLET_R);
+        setTx(m.x - dirS * 30, wy);
+        if (Math.abs(m.y - wy) < 50 || b.tState > 0.55) { b.arPhase = 1; b.tState = 0; }
+      } else {
+        setTx(p.x + dirS * 120, p.y);
+        if (dirS * (m.x - p.x) > 60 || b.tState > 1.1) { b.state = 'engage'; b.tState = 0; }
+      }
+      // a live threat cancels the detour — go block it
+      if (threat) { b.state = 'defend'; b.tState = 0; }
+      b.tState += D.tick; break;
+    }
     case 'defend': {
       // intercept the predicted trajectory in front of goal
       const tHit = clamp(Math.abs((s.x - (b.side === 0 ? PX + 150 : PX + PW - 150)) / (s.vx || 1)), 0, 1.1);
       const pr = predictPuck(s.x, s.y, s.vx, s.vy, tHit * 0.85);
       const gx = b.side === 0 ? PX + 130 : PX + PW - 130;
-      setTx(gx + (pr.x - gx) * 0.35, pr.y);
+      // deflection steering (v19): meet the puck slightly toward the mouth
+      // CENTER from its lane, so the contact normal kicks deflections toward
+      // the walls instead of into your own mouth. Only near the mouth — far
+      // from it the lane coverage matters more than the deflection angle.
+      const nearMouth = Math.abs(pr.y - CY) < GOAL_W / 2 + 60;
+      const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
+      setTx(gx + (pr.x - gx) * 0.35, pr.y + steerY);
       if (!threat) { b.state = 'guard'; b.tState = 0; }
       // if the puck sits in reach (smothered block, loose puck), take it
       if (puckSpeed < 900 && hyp(s.x - m.x, s.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
       break;
     }
     case 'engage': {
-      // skate to the puck, then set up the strike
-      setTx(s.x, s.y);
+      // skate to the puck — always from the GOAL side. Driving straight at
+      // a puck from the far side shoves it toward your own net (the classic
+      // goalie own goal), so when the mallet isn't behind the puck yet it
+      // swings wide around it first, then commits.
+      const dirS = b.side === 1 ? 1 : -1; // +1 = toward my own goal (right)
+      // desperate block: it's coming at my net fast and I'm on the wrong
+      // side — forget the footwork, go meet it (defend steers the deflection)
+      if (threat && dirS * (m.x - s.x) < 40) { b.state = 'defend'; b.tState = 0; break; }
+      const behind = dirS * (m.x - s.x) > 50;
+      if (!behind) {
+        const wy = clamp(s.y + (m.y <= s.y ? -180 : 180), PY + MALLET_R, PY + PH - MALLET_R);
+        setTx(s.x + dirS * 70, wy);
+      } else {
+        setTx(s.x, s.y);
+      }
       const d = hyp(s.x - m.x, s.y - m.y);
       // possession clock: herding the puck at close range counts as control
       if (d < MALLET_R + PUCK_R + 44) b.possessT += D.tick; else b.possessT = Math.max(0, b.possessT - D.tick);
-      if (d < MALLET_R + PUCK_R + 26 && (puckSpeed < 700 || b.possessT > 0.35)) {
+      // windup ONLY from behind the puck — striking from the wrong side
+      // blasts it into your own net
+      if (behind && d < MALLET_R + PUCK_R + 26 && (puckSpeed < 700 || b.possessT > 0.35)) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
         // pick aim: the FAR post, not the middle — the mouth corner farthest
         // from the puck's lane forces the keeper to travel across. aimErr
@@ -3841,6 +3897,11 @@ function aiThink(b, dt, m) {
       const back = 95;
       setTx(s.x - dx / dl * back, s.y - dy / dl * back);
       if (b.windT > D.windup) {
+        // commit to the strike only if the mallet is still behind the LIVE
+        // puck — it can drift during the windup, and lunging from the wrong
+        // side blasts it into your own net
+        const dirS = b.side === 1 ? 1 : -1;
+        if (dirS * (m.x - p.x) < 30) { b.state = 'recover'; b.tState = 0; break; }
         b.state = 'strike'; b.tState = 0;
         // the whiff: a human misread, rolled per difficulty — the lunge
         // below will be offset clean past the puck
@@ -3852,6 +3913,13 @@ function aiThink(b, dt, m) {
       // drive THROUGH the puck toward the aim point — this is where
       // mallet velocity becomes puck velocity. Lead the puck slightly
       // so the lunge connects on a moving target.
+      const dirS = b.side === 1 ? 1 : -1;
+      // last-instant sanity: if the mallet somehow isn't behind the puck
+      // at strike time, abort — lunging from the wrong side blasts it
+      // into your own net
+      if (b.tState <= D.tick * 1.5 && dirS * (m.x - p.x) < 20) {
+        b.state = 'recover'; b.tState = 0; break;
+      }
       const px = s.x + s.vx * 0.1, py = s.y + s.vy * 0.1;
       let ax = b.aimX, ay = b.aimY;
       if (b.bankY !== null) { ax = s.x; ay = b.bankY; }
@@ -3889,13 +3957,22 @@ function aiThink(b, dt, m) {
       break;
     }
   }
+  // Crease caution (v19): on the wrong side of the puck while positioning,
+  // the mallet is capped to a soft speed — a fast wrong-side touch is
+  // exactly how own goals happen; a soft touch never is. aiDrive applies it.
+  // Defend/strike stay uncapped: blocks and lunges need full speed.
+  const dirS = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
+  b.careful = dirS * (m.x - p.x) < 40 &&
+    (b.state === 'engage' || b.state === 'around' || b.state === 'guard');
 }
 function aiDrive(b, dt, m) {
   aiPerceive(b, dt);
   aiThink(b, dt, m);
   // the strike param finally does something: lunges scale with the
   // difficulty's strike rating, so Rookie pokes and Champion detonates
-  driveMallet(m, dt, b.diff.maxSpeed * (b.state === 'strike' ? 1.5 * b.diff.strike : 1));
+  let cap = b.diff.maxSpeed * (b.state === 'strike' ? 1.5 * b.diff.strike : 1);
+  if (b.careful) cap *= 0.45; // wrong side of the puck: soft touches only
+  driveMallet(m, dt, cap);
 }
 
 // ---------- juice ----------
