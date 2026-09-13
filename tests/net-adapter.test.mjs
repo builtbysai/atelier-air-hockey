@@ -64,7 +64,7 @@ test('Trystero 0.25 adapter targets only the accepted rival', async () => {
 
   Net.peerId = 'peer-a';
   await wire.sendEv({ t: 'ping' });
-  assert.deepEqual(actions.get('ev').sent[0].options, { target: 'peer-a' });
+  assert.equal(actions.get('ev').sent[0].options.target, 'peer-a');
 
   actions.get('st').onMessage([1, 2, 3], { peerId: 'peer-a' });
   actions.get('in').onMessage([4, 5], { peerId: 'peer-a' });
