@@ -145,6 +145,22 @@
   .btn:disabled{ opacity:0.45; cursor:default; }
   .btn:disabled:active{ transform:none; background:transparent; }
   .winstats{ color:var(--sub); font-size:13px; letter-spacing:1px; margin:-6px 0 18px; }
+  /* online lobby — compact by design, nothing may scroll */
+  .online-code{
+    font-family:var(--display); font-size:clamp(34px,8vw,52px); font-weight:800;
+    letter-spacing:12px; text-indent:12px; margin:8px 0 2px; color:var(--title);
+  }
+  .online-input{
+    width:100%; box-sizing:border-box; padding:13px 10px; margin:8px 0;
+    font-family:var(--display); font-size:22px; letter-spacing:10px; text-indent:10px;
+    text-align:center; text-transform:uppercase; border-radius:10px;
+    border:1px solid var(--pline); background:transparent; color:var(--title);
+  }
+  .online-input:focus{ outline:none; border-color:var(--btnbg); }
+  .online-note{ color:var(--sub); font-size:13px; line-height:1.55; margin:8px 0; }
+  .online-err{ color:#e0685c; font-size:13px; min-height:18px; margin:8px 0 0; }
+  .pulse{ animation:opulse 1.6s ease-in-out infinite; }
+  @keyframes opulse{ 0%,100%{ opacity:0.45; } 50%{ opacity:1; } }
   .foot a{ color:var(--title); }
   .foot b{ color:var(--title); }
   #settings .card{ max-width:500px; text-align:left; }
@@ -214,12 +230,12 @@
           <button class="btn" data-diff="2">Champion<small>NO MERCY</small></button>
           <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small></button>
         </div>
-        <button class="btn lablight" id="btnOnline" disabled>Online<small>IN THE LAB — COMING SOON</small></button>
+        <button class="btn lablight" id="btnOnline">Online<small>PLAY A RIVAL ANYWHERE</small></button>
       </div>
     </div>
 
     <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; after the Brunswick original, 1969</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v5</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><span class="ver">v6</span></div>
   </div>
 </div>
 
@@ -302,6 +318,28 @@
   </div>
 </div>
 
+<!-- ONLINE: lobby + rival-left overlays (rendered by src/net.js) -->
+<div class="overlay hidden" id="onlineov">
+  <div class="card">
+    <div class="kicker">ATELIER · ONLINE</div>
+    <h1 id="onlineTitle">Play a rival</h1>
+    <p class="tagline" id="onlineSub">Host a table, or join one with a code.</p>
+    <div id="onlineBody"></div>
+    <p class="online-err hidden" id="onlineErr"></p>
+    <button class="btn primary" id="onlinePrimary">Host a table</button>
+    <button class="btn" id="onlineSecondary">Join with a code</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="onlinedropov">
+  <div class="card">
+    <div class="kicker">ATELIER · ONLINE</div>
+    <h1>Rival left</h1>
+    <p class="tagline">They disconnected &mdash; the table is yours again.</p>
+    <button class="btn primary" id="dropMenu">Back to menu</button>
+  </div>
+</div>
+
 <script>
 %%THEME_JS%%
 %%THEME2_JS%%
@@ -311,6 +349,7 @@ let THEME = THEMES['deco'];
 %%BOARD_JS%%
 </script>
 <script>
+%%NET_JS%%
 %%ENGINE_JS%%
 </script>
 </body>

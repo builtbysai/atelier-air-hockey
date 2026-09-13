@@ -1,5 +1,7 @@
-// Build: node build3.js -> dist/air-hockey-atelier_v5.html
+// Build: node build3.js -> dist/air-hockey-atelier_v6.html
 // One self-contained file: 6 tables, 4 scoreboard devices, pre-rendered rooms.
+// Online multiplayer ships in the same file but stays fully dormant — zero
+// network requests unless the Online button is tapped (see src/net.js).
 const fs = require('fs');
 const path = require('path');
 const src = p => fs.readFileSync(path.join(__dirname, 'src', p), 'utf8');
@@ -11,6 +13,7 @@ const rep = {
   '%%THEME_JS%%': src('themes.js'),
   '%%THEME2_JS%%': src('themes2.js'),
   '%%BOARD_JS%%': src('scoreboards.js'),
+  '%%NET_JS%%': src('net.js'),
   '%%ENGINE_JS%%': src('engine2.js'),
 };
 for (const [k, v] of Object.entries(rep)) {
@@ -19,6 +22,6 @@ for (const [k, v] of Object.entries(rep)) {
 }
 
 fs.mkdirSync(path.join(__dirname, 'dist'), { recursive: true });
-const out = path.join(__dirname, 'dist', 'air-hockey-atelier_v5.html');
+const out = path.join(__dirname, 'dist', 'air-hockey-atelier_v6.html');
 fs.writeFileSync(out, html);
-console.log('wrote air-hockey-atelier_v5.html', (html.length / 1024).toFixed(1) + 'KB');
+console.log('wrote air-hockey-atelier_v6.html', (html.length / 1024).toFixed(1) + 'KB');

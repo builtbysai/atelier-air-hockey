@@ -180,6 +180,7 @@ const G = {
   board: freshBoard(),      // scoreboard animation state
   ai: null,                 // per-ai brain state
   stats: null,              // per-match stats (top speed, rally, time)
+  onlineFlip: false,        // ONLINE: guest view is mirrored — they play from their own side
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, t0: 0 }; }
 G.stats = freshStats();
@@ -249,8 +250,28 @@ function paintRoom() {
 function screenToRink(cx, cy) {
   const { s, ox, oy, portrait } = view;
   const u = (cx - ox) / s, v = (cy - oy) / s;
-  if (!portrait) return { x: u, y: v };
-  return { x: VW - v, y: VH - u };
+  let x, y;
+  if (!portrait) { x = u; y = v; }
+  else { x = VW - v; y = VH - u; }
+  if (G.onlineFlip) x = VW - x; // ONLINE: invert the guest view mirror
+  return { x, y };
+}
+// ONLINE: scoreboard / win / ribbon labels by side (0 = left/host, 1 = right/guest)
+function onlineSideLabel(side) {
+  const amGuest = typeof Net !== 'undefined' && Net.role === 'guest';
+  if (side === 0) return amGuest ? 'RIVAL' : 'YOU';
+  return amGuest ? 'YOU' : 'RIVAL';
+}
+function rinkText(c, str, x, y) {
+  // ONLINE: rink-space text that stays upright when the guest view is mirrored.
+  // Use ONLY inside the flipped playfield block: the mirror in the current
+  // transform would flip glyphs, so this counter-flips them back. Screen-space
+  // type (countdown, GOAL! letterbox) lives outside the flip and must keep
+  // using plain fillText.
+  if (!G.onlineFlip) { c.fillText(str, x, y); return; }
+  c.save(); c.translate(x, y); c.scale(-1, 1);
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(str, 0, 0); c.restore();
 }
 function clampMallet(m) {
   const r = m.r;
@@ -284,7 +305,11 @@ function onPointerDown(e) {
   if (G.state === 'menu' || G.state === 'win') return; // buttons own the UI
   const touch = e.pointerType === 'touch';
   const r = screenToRink(e.clientX, e.clientY - (touch ? 70 : 0));
-  if (G.mode === '2p' && !pointers.has(e.pointerId)) {
+  if (G.mode === 'online' && !pointers.has(e.pointerId)) {
+    // ONLINE: exactly one local mallet — host plays m1, guest plays m2. No AI.
+    if (pointers.size > 0) return;
+    pointers.set(e.pointerId, Net.role === 'guest' ? 1 : 0);
+  } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
     const side = r.x > CX ? 1 : 0;
     const taken = [...pointers.values()];
     if (!taken.includes(side)) pointers.set(e.pointerId, side);
@@ -724,6 +749,8 @@ function startGame(mode, diff) {
   $('topbar').classList.remove('hidden');
   startCount();
   G.serveDir = Math.random() < 0.5 ? 1 : -1;
+  // ONLINE: the host's countdown mirrors to the guest so both start even
+  if (mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
 function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
@@ -751,7 +778,16 @@ function onGoal(scorer) {
     return;
   }
   if (G.state !== 'play') return;
-  G.score[scorer]++;
+  // ONLINE: the host owns the simulation; a guest never scores locally.
+  if (G.mode === 'online' && Net.role !== 'host') return;
+  G.score[scorer]++; // the single place a goal changes the score
+  beginGoalCeremony(scorer); // visuals only — never scores, never sends
+  if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
+}
+// ONLINE: start the goal ceremony visuals only — no scoring, no sending.
+// The host scores first in onGoal; the guest's scores arrive final in the
+// goal event. Splitting it this way makes double-counting impossible.
+function beginGoalCeremony(scorer) {
   boardKick(scorer);
   G.goalSide = scorer;
   if (G.stats) G.stats.rally = 0; // new rally after each goal
@@ -790,6 +826,8 @@ function updateGoal(rdt) {
       G.serveDir = G.goalSide === 0 ? 1 : -1;
       $('topbar').classList.remove('hidden');
       startCount();
+      // ONLINE: the host's countdown mirrors to the guest so both start even
+      if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
     }
   }
 }
@@ -799,6 +837,8 @@ function showWin() {
   const you = G.winSide === 0;
   $('winTitle').textContent = G.mode === '2p'
     ? (you ? 'Player One wins' : 'Player Two wins')
+    : G.mode === 'online' // ONLINE: labels by role, not by side
+    ? (onlineSideLabel(G.winSide) === 'YOU' ? 'You win' : 'Rival wins')
     : (you ? 'You win' : DIFFS[G.difficulty].name + ' wins');
   $('winSub').textContent = G.score[0] + ' — ' + G.score[1];
   // match stats: top puck speed (table-scale km/h), longest rally, duration
@@ -813,18 +853,23 @@ function showWin() {
   hideAll(); $('winov').classList.remove('hidden');
   AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
 }
-function togglePause(force) {
+function togglePause(force, silent) {
+  // ONLINE: silent=true applies a pause that arrived over the wire — it must
+  // not echo back, or the two clients would ping-pong pause events forever.
   if (G.state === 'play' || G.state === 'count') {
     G.pausedFrom = G.state; G.state = 'pause';
     hideAll(); $('pauseov').classList.remove('hidden');
     AudioSys.ui();
+    if (G.mode === 'online' && !silent) Net.sendPause(true);
   } else if (G.state === 'pause' && force !== true) {
     G.state = G.pausedFrom;
     hideAll();
     if (G.state === 'play' || G.state === 'count') $('topbar').classList.remove('hidden');
+    if (G.mode === 'online' && !silent) Net.sendPause(false);
   }
 }
 function quitToMenu() {
+  if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first — leave() resets mode
   G.state = 'menu'; G.idleT = 0; G.demo = false;
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
@@ -836,7 +881,8 @@ function quitToMenu() {
   AudioSys.ui();
 }
 function hideAll() {
-  for (const id of ['menu', 'help', 'settings', 'pauseov', 'winov']) $(id).classList.add('hidden');
+  // ONLINE: online overlays are part of the overlay stack too
+  for (const id of ['menu', 'help', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov']) $(id).classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
@@ -859,6 +905,10 @@ function playStep(rdt) {
     if (G.mode === '2p') {
       driveMallet(G.m1, sdt, PLAYER_CAP);
       driveMallet(G.m2, sdt, PLAYER_CAP);
+    } else if (G.mode === 'online') {
+      // ONLINE: host-only branch — the guest never reaches playStep (see
+      // frame). The host drives m1; m2's target arrives over the wire.
+      driveMallet(G.m1, sdt, PLAYER_CAP);
     } else {
       if (pointers.size > 0) driveMallet(G.m1, sdt, PLAYER_CAP);
       else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
@@ -879,7 +929,9 @@ function frame(t) {
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
   switch (G.state) {
     case 'menu':
-      G.idleT += rdt; G.demo = G.idleT > 5;
+      // ONLINE: no attract demo while the online lobby is up — mode is
+      // 'online' from the moment the lobby opens until the session ends.
+      G.idleT += rdt; G.demo = G.idleT > 5 && G.mode !== 'online';
       if (G.demo) {
         if (!G._demoKick) { // serve the demo so the attract screen actually rallies
           G._demoKick = true;
@@ -893,11 +945,17 @@ function frame(t) {
     case 'count':
       updateCount(rdt);
       if (G.mode === '2p') { driveMallet(G.m1, rdt, PLAYER_CAP); driveMallet(G.m2, rdt, PLAYER_CAP); }
+      // ONLINE: each side drives only their own mallet during the countdown
+      else if (G.mode === 'online') { driveMallet(Net.role === 'host' ? G.m1 : G.m2, rdt, PLAYER_CAP); }
       else { if (pointers.size > 0) driveMallet(G.m1, rdt, PLAYER_CAP); aiDrive(G.ai2, rdt, G.m2); }
       updateParts(rdt);
       break;
     case 'play':
-      playStep(rdt * G.timeScale);
+      // ONLINE: the guest does not simulate — the host owns the physics.
+      // The guest only drives their own mallet; puck and rival mallet arrive
+      // over the wire (dead-reckoned in Net.pump).
+      if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
+      else playStep(rdt * G.timeScale);
       updateParts(rdt);
       break;
     case 'goal':
@@ -909,6 +967,7 @@ function frame(t) {
       updateParts(rdt * 0.25);
       break;
   }
+  Net.pump(rdt); // ONLINE: snapshots out (host), inputs out (guest), dead reckoning
   render();
 }
 
@@ -943,6 +1002,12 @@ function render() {
     const z = 1 + 0.10 * easeOutBack(clamp(G.letterT, 0, 1));
     ctx.translate(gx, CY); ctx.scale(z, z); ctx.translate(-gx, -CY);
   }
+
+  // ONLINE: the guest plays from their own side, so the playfield mirrors —
+  // their mallet and goal sit where the host's do. Everything above the
+  // playfield (scoreboard, ceremony type, ribbon) stays unflipped.
+  ctx.save();
+  if (G.onlineFlip) { ctx.translate(VW, 0); ctx.scale(-1, 1); }
 
   // table shadow + rails + surface
   ctx.save();
@@ -1009,17 +1074,17 @@ function render() {
     ctx.restore();
   }
 
-  // floating texts
+  // floating texts (positions flip with the playfield; glyphs stay upright)
   for (const t of G.texts) {
     const a = 1 - t.t / 1.1;
     ctx.save();
     ctx.globalAlpha = clamp(a, 0, 1);
     ctx.font = '800 ' + t.size + 'px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = t.color;
-    ctx.fillText(t.str, t.x, t.y);
+    rinkText(ctx, t.str, t.x, t.y); // ONLINE: upright type in the mirrored view
     ctx.restore();
   }
+  ctx.restore(); // ONLINE flip
 
   // countdown — anticipation with a pop
   if (G.state === 'count') {
@@ -1033,7 +1098,7 @@ function render() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.ink;
     ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24;
-    ctx.fillText(label, 0, 0);
+    ctx.fillText(label, 0, 0); // screen space — never flipped
     ctx.restore();
   }
 
@@ -1051,7 +1116,7 @@ function render() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.gold || '#d8a93f';
     ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 30;
-    ctx.fillText('GOAL!', 0, -6);
+    ctx.fillText('GOAL!', 0, -6); // screen space — never flipped
     ctx.restore();
   }
 
@@ -1064,6 +1129,7 @@ function render() {
     if (m0 || m1) {
       const who = (m0 && m1) ? 'NEXT GOAL WINS'
         : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ' — MATCH POINT')
+        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' — MATCH POINT') // ONLINE
         : ((m0 ? 'YOU' : DIFFS[G.difficulty].name.toUpperCase()) + ' — MATCH POINT');
       ctx.save();
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -1309,6 +1375,9 @@ function wireUI() {
     btn.addEventListener('click', () => startGame('ai', +btn.dataset.diff));
   });
   $('btn2p').addEventListener('click', () => startGame('2p'));
+  // ONLINE: the only entry point that touches the network — the Trystero
+  // import happens inside, on the tap, never before.
+  $('btnOnline').addEventListener('click', () => Net.openLobby());
   document.querySelectorAll('[data-set]').forEach(btn => {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); setSetting(btn.dataset.set, btn.dataset.val); });
   });
@@ -1319,7 +1388,14 @@ function wireUI() {
   $('btnPause').addEventListener('click', () => togglePause());
   $('btnResume').addEventListener('click', () => togglePause());
   $('btnQuit').addEventListener('click', quitToMenu);
-  $('btnRematch').addEventListener('click', () => startGame(G.mode, G.difficulty));
+  // ONLINE: rival-left overlay — back to the menu (leave() runs inside quitToMenu)
+  $('dropMenu').addEventListener('click', quitToMenu);
+  $('btnRematch').addEventListener('click', () => {
+    AudioSys.ui();
+    // ONLINE: a rematch needs the rival's accept — the host restarts on accept
+    if (G.mode === 'online') Net.offerRematch();
+    else startGame(G.mode, G.difficulty);
+  });
   $('btnWinMenu').addEventListener('click', quitToMenu);
   $('btnMenu2').addEventListener('click', quitToMenu);
   $('btnSound').addEventListener('click', () => {
@@ -1368,6 +1444,9 @@ function boot() {
     if (q.has('play')) startGame('ai', G.difficulty);
     else if (q.has('2p')) startGame('2p');
     else if (q.has('demo')) { G.idleT = 99; }
+    // ONLINE: ?netstub forces the loopback room for headless testing — no
+    // network is touched, Trystero is never imported.
+    if (q.has('netstub')) Net.useLoopback = true;
   } catch (e) {}
   requestAnimationFrame(frame);
 }
