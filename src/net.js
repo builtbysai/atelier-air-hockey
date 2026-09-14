@@ -426,8 +426,10 @@ Net.onPeerJoin = function (id) {
   if (wasReconnecting && Net.active) {
     // Both roles resume their own retained state. Previously only the host
     // resumed here, leaving a reconnecting guest stuck on the pause overlay.
-    if (G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause') togglePause(false, true);
+    // But if the user had manually paused before the drop, keep them paused.
+    if (G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause' && !Net.wasPausedBeforeDisconnect) togglePause(false, true);
     Net.reconnectState = null;
+    Net.wasPausedBeforeDisconnect = false;
     if (Net.wire) Net.wire.sendEv({ t: 'resume' });
     return;
   }
@@ -440,6 +442,9 @@ Net.onPeerLeave = function (id) {
   if (!Net.active && !Net.waitingForRival) return;
   if (Net.waitingForRival) { Net.onRivalLeft(); return; }
   Net.reconnecting = true;
+  // Remember if the user had manually paused before the drop, so we don't
+  // auto-resume on reconnect and lose their manual pause.
+  Net.wasPausedBeforeDisconnect = (G.state === 'pause');
   Net.reconnectState = G.state === 'pause' ? G.pausedFrom : G.state;
   if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true, true);
   Net.paintConn();

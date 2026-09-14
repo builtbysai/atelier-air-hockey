@@ -742,6 +742,7 @@ function onPointerDown(e) {
   AudioSys.init(); AudioSys.resume();
   interacted = true;
   if (G.state === 'menu' || G.state === 'win') return; // buttons own the UI
+  if (G.mode === 'watch') return; // EXHIBITION: no human input — both mallets are AI-driven
   const touch = e.pointerType === 'touch';
   // Side assignment uses the raw (unshifted) touch point so the vertical
   // offset can never drag a touch across the center line in portrait 2P.
@@ -1428,7 +1429,10 @@ function clearCeremony() {
 // ---------- game flow ----------
 function startGame(mode, diff) {
   AudioSys.init(); AudioSys.resume();
-  G.mode = mode; G.difficulty = diff == null ? G.difficulty : diff;
+  G.mode = mode;
+  // EXHIBITION: diff is {a, b} — independent difficulty for left/right AI.
+  if (mode === 'watch') { G.watch = { a: diff.a, b: diff.b }; G.difficulty = diff.b; }
+  else { G.watch = null; G.difficulty = diff == null ? G.difficulty : diff; }
   G.score = [0, 0]; G.winSide = 0;
   G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
   clearCeremony();
@@ -1436,8 +1440,13 @@ function startGame(mode, diff) {
   G.board = freshBoard();
   G.scuffs.length = 0; G.texts.length = 0;
   resetPositions();
-  G.ai2 = mkBrain(1, G.difficulty);
-  G.ai1 = (mode === '2p') ? null : mkBrain(0, G.difficulty); // demo brain, unused in 1p
+  if (mode === 'watch') {
+    G.ai1 = mkBrain(0, G.watch.a);
+    G.ai2 = mkBrain(1, G.watch.b);
+  } else {
+    G.ai2 = mkBrain(1, G.difficulty);
+    G.ai1 = (mode === '2p') ? null : mkBrain(0, G.difficulty); // demo brain, unused in 1p
+  }
   G.stats = freshStats(); G.stats.t0 = performance.now();
   pointers.clear();
   hideAll();
@@ -1641,6 +1650,8 @@ function showWin() {
     ? (you ? 'Player One wins' : 'Player Two wins')
     : G.mode === 'online' // ONLINE: labels by role, not by side
     ? (onlineSideLabel(G.winSide) === 'YOU' ? 'You win' : 'Rival wins')
+    : G.mode === 'watch' // EXHIBITION: name the winning AI
+    ? DIFFS[G.watch[G.winSide === 0 ? 'a' : 'b']].name + ' wins'
     : (you ? 'You win' : DIFFS[G.difficulty].name + ' wins');
   $('winSub').textContent = G.score[0] + ' — ' + G.score[1];
   // match stats: top puck speed (table-scale km/h), longest rally, saves
@@ -1737,11 +1748,13 @@ function restartMatch() {
     else if (Net.wire) Net.wire.sendEv({ t: 'restart-req' });
     return;
   }
-  startGame(G.mode, G.difficulty);
+  if (G.mode === 'watch') startGame('watch', G.watch); // EXHIBITION: preserve the AI matchup
+  else startGame(G.mode, G.difficulty);
 }
 function quitToMenu() {
   if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first — leave() resets mode
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
+  G.watch = null; // EXHIBITION: clear the AI matchup on quit
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
@@ -1783,6 +1796,10 @@ function playStep(rdt) {
       // ONLINE: host-only branch — the guest never reaches playStep (see
       // frame). The host drives m1; m2's target arrives over the wire.
       driveMallet(G.m1, sdt, PLAYER_CAP);
+    } else if (G.mode === 'watch') {
+      // EXHIBITION: both mallets are AI-driven.
+      aiDrive(G.ai1, sdt, G.m1);
+      aiDrive(G.ai2, sdt, G.m2);
     } else {
       if (pointers.size > 0) driveMallet(G.m1, sdt, PLAYER_CAP);
       else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
@@ -1829,6 +1846,8 @@ function frame(t) {
       if (G.mode === '2p') { driveMallet(G.m1, rdt, PLAYER_CAP); driveMallet(G.m2, rdt, PLAYER_CAP); }
       // ONLINE: each side drives only their own mallet during the countdown
       else if (G.mode === 'online') { driveMallet(Net.role === 'host' ? G.m1 : G.m2, rdt, PLAYER_CAP); }
+      // EXHIBITION: both mallets are AI-driven, no human input
+      else if (G.mode === 'watch') { aiDrive(G.ai1, rdt, G.m1); aiDrive(G.ai2, rdt, G.m2); }
       else { if (pointers.size > 0) driveMallet(G.m1, rdt, PLAYER_CAP); aiDrive(G.ai2, rdt, G.m2); }
       updateParts(rdt);
       break;
