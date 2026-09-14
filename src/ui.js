@@ -74,6 +74,9 @@ function paintThumbnails() {
 
 // ---------- settings ----------
 function setSetting(key, val) {
+  // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
+  // Lock them during an online match so peers can't desynchronize.
+  if ((key === 'firstTo' || key === 'pace' || key === 'goalW') && G.mode === 'online' && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) return;
   if (key === 'sound' || key === 'haptics') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
   Settings[key] = val; saveSettings(); applySettingsToUI();
@@ -140,16 +143,25 @@ const keyDrive = new Set();
 let keyLast = performance.now();
 function keyboardGamepadDrive(now) {
   const dt = Math.min(0.04, Math.max(0, (now - keyLast) / 1000)); keyLast = now;
-  if ((G.state === 'play' || G.state === 'count') && !G.demo) {
+  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch') {
     const speed = 920;
+    // Screen-space input -> rink-space: portrait rotates the rink 90°, onlineFlip mirrors x.
+    // (Matches the inverse of the render transform in screenToRink.)
+    const toRink = (sx, sy) => {
+      let dx, dy;
+      if (typeof view !== 'undefined' && view.portrait) { dx = -sy; dy = -sx; }
+      else { dx = sx; dy = sy; }
+      if (G.onlineFlip) dx = -dx;
+      return [dx, dy];
+    };
     const move = (m, left, right, up, down, lo, hi) => {
-      let dx = (keyDrive.has(right) ? 1 : 0) - (keyDrive.has(left) ? 1 : 0);
-      let dy = (keyDrive.has(down) ? 1 : 0) - (keyDrive.has(up) ? 1 : 0);
-      if (dx || dy) {
-        const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
-        m.tx = clamp(m.tx + dx * speed * dt, lo, hi);
-        m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
-      }
+      const sx = (keyDrive.has(right) ? 1 : 0) - (keyDrive.has(left) ? 1 : 0);
+      const sy = (keyDrive.has(down) ? 1 : 0) - (keyDrive.has(up) ? 1 : 0);
+      if (!sx && !sy) return;
+      let [dx, dy] = toRink(sx, sy);
+      const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
+      m.tx = clamp(m.tx + dx * speed * dt, lo, hi);
+      m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
     };
     const guestOwnsRight = G.mode === 'online' && Net.role === 'guest';
     const p1 = guestOwnsRight ? G.m2 : G.m1;
@@ -163,7 +175,10 @@ function keyboardGamepadDrive(now) {
         if (!pad) return;
         const ax = Math.abs(pad.axes[0] || 0) > .18 ? pad.axes[0] : 0;
         const ay = Math.abs(pad.axes[1] || 0) > .18 ? pad.axes[1] : 0;
-        if (ax || ay) { m.tx = clamp(m.tx + ax * speed * dt, lo, hi); m.ty = clamp(m.ty + ay * speed * dt, PY + MALLET_R, PY + PH - MALLET_R); }
+        if (ax || ay) {
+          let [dx, dy] = toRink(ax, ay);
+          m.tx = clamp(m.tx + dx * speed * dt, lo, hi); m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
+        }
       };
       applyPad(pads[0], p1, p1Lo, p1Hi);
       if (G.mode === '2p' && pads[1]) applyPad(pads[1], G.m2, CX + MALLET_R, PX + PW - MALLET_R);
@@ -254,7 +269,7 @@ function carSync(id) {
 // ---------- menu selection (v21) ----------
 // rival buttons select the matchup; the START MATCH button launches it.
 // Online keeps its own lobby flow.
-const MenuSel = { mode: 'ai', diff: 1 };
+const MenuSel = { mode: 'ai', diff: 1, watch: { a: 1, b: 2 } };
 function selectRival(mode, diff) {
   MenuSel.mode = mode;
   if (diff != null) MenuSel.diff = diff;
@@ -265,11 +280,29 @@ function selectRival(mode, diff) {
   });
   $('btn2p').classList.toggle('selected', mode === '2p');
   $('btn2p').setAttribute('aria-pressed', mode === '2p' ? 'true' : 'false');
+  $('btnWatch').classList.toggle('selected', mode === 'watch');
+  $('btnWatch').setAttribute('aria-pressed', mode === 'watch' ? 'true' : 'false');
+  $('watchSel').classList.toggle('hidden', mode !== 'watch');
+  updateStartLabel();
+}
+function selectWatch(side, idx) {
+  MenuSel.watch[side] = idx;
+  document.querySelectorAll(`[data-side="${side}"]`).forEach(b => {
+    const selected = +b.dataset.watch === idx;
+    b.classList.toggle('selected', selected);
+    b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
   updateStartLabel();
 }
 function updateStartLabel() {
   const s = $('startSub'); if (!s) return;
-  const rival = MenuSel.mode === '2p' ? 'TWO PLAYERS' : ['ROOKIE', 'CLUB PRO', 'CHAMPION'][MenuSel.diff];
+  let rival;
+  if (MenuSel.mode === '2p') rival = 'TWO PLAYERS';
+  else if (MenuSel.mode === 'watch') {
+    const names = ['ROOKIE', 'CLUB PRO', 'CHAMPION'];
+    rival = names[MenuSel.watch.a] + ' vs ' + names[MenuSel.watch.b];
+  }
+  else rival = ['ROOKIE', 'CLUB PRO', 'CHAMPION'][MenuSel.diff];
   s.textContent = rival + ' · FIRST TO ' + Settings.firstTo;
 }
 
@@ -311,7 +344,17 @@ function wireUI() {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('ai', +btn.dataset.diff); });
   });
   $('btn2p').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('2p'); });
-  $('btnStart').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); startGame(MenuSel.mode, MenuSel.diff); });
+  $('btnWatch').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('watch'); });
+  document.querySelectorAll('[data-watch]').forEach(btn => {
+    btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectWatch(btn.dataset.side, +btn.dataset.watch); });
+  });
+  // Initialize watch selector UI to defaults (Club Pro vs Champion)
+  selectWatch('a', MenuSel.watch.a); selectWatch('b', MenuSel.watch.b);
+  $('btnStart').addEventListener('click', () => {
+    AudioSys.init(); AudioSys.ui();
+    if (MenuSel.mode === 'watch') startGame('watch', MenuSel.watch);
+    else startGame(MenuSel.mode, MenuSel.diff);
+  });
   // ONLINE: the only entry point that touches the network — the Trystero
   // import happens inside, on the tap, never before.
   $('btnOnline').addEventListener('click', () => Net.openLobby());
@@ -347,6 +390,7 @@ function wireUI() {
     AudioSys.ui();
     // ONLINE: a rematch needs the rival's accept — the host restarts on accept
     if (G.mode === 'online') Net.offerRematch();
+    else if (G.mode === 'watch') startGame('watch', G.watch); // EXHIBITION: preserve the AI matchup
     else startGame(G.mode, G.difficulty);
   });
   $('btnWinMenu').addEventListener('click', quitToMenu);
@@ -383,8 +427,9 @@ function wireUI() {
   }, { passive: false });
   window.addEventListener('keyup', e => keyDrive.delete(e.code));
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) togglePause(true);
+    if (document.hidden) { keyDrive.clear(); if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true); }
   });
+  window.addEventListener('blur', () => keyDrive.clear());
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   window.addEventListener('pointerup', onPointerUp);
@@ -429,7 +474,7 @@ function boot() {
   try {
     const q = new URLSearchParams(location.search);
     if (q.get('table') && THEMES[q.get('table')]) setTheme(q.get('table'), true);
-    if (q.get('join')) { Net.openLobby(); Net.join(q.get('join')); }
+    if (q.get('join')) { Net.openLobby(); Net.join(q.get('join')); try { const u = new URL(location.href); u.searchParams.delete('join'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {} }
     else if (q.has('play')) startGame('ai', G.difficulty);
     else if (q.has('2p')) startGame('2p');
     else if (q.has('demo')) { G.idleT = 99; }

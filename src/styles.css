@@ -108,6 +108,10 @@
   .cdots i.sel{ opacity:1; transform:scale(1.35); background:var(--btnbg); }
 
   .seg4{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .seg3{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .seg3 .btn{ padding:8px 4px; font-size:12px; }
+  .watchsel{ margin-top:10px; }
+  .watchsel .seclabel{ margin-top:8px; }
   .btn.lablight{ border-style:dashed; opacity:0.75; margin-top:10px; }
   /* v21: the explicit start button — the one primary action on the menu */
   .btn.bigstart{ margin-top:12px; padding:16px 16px; font-size:18px; font-weight:800; letter-spacing:1px; }
