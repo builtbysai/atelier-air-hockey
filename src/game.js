@@ -1079,6 +1079,14 @@ function mkBrain(side, diffIdx) {
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
     arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
+    // commitment hysteresis (v24): sticky latches with deadbands so the AI
+    // can't dither between strike/defend/reposition when the puck sits on a
+    // decision boundary — the feint-loop fix. behindH: mallet truly behind
+    // the puck on LIVE geometry (not delayed perception). sideH: puck
+    // possession latched across the center line. threatH: threat on/off
+    // band. abortCd: cooldown after a cancelled windup before it may wind
+    // up again.
+    behindH: false, sideH: false, threatH: false, abortCd: 0,
     seen: { x: CX, y: CY, vx: 0, vy: 0 }, // delayed perception
     hist: [], // puck history for reaction delay
   };
@@ -1116,6 +1124,7 @@ function aiHome(b) {
 function aiThink(b, dt, m) {
   const D = b.diff;
   b.tState += dt; b.tickT += dt;
+  if (b.abortCd > 0) b.abortCd -= dt;
   if (b.tickT < D.tick) return; // decisions at 7–16 Hz, like a human
   b.tickT = 0;
   const s = b.seen, p = G.puck;
@@ -1123,7 +1132,25 @@ function aiThink(b, dt, m) {
   const foeGoalX = b.side === 0 ? PX + PW : PX;
   const puckOnMySide = b.side === 0 ? s.x < CX : s.x > CX;
   const puckSpeed = hyp(s.vx, s.vy);
-  const threat = (b.side === 0 ? s.vx < -500 : s.vx > 500) && puckOnMySide;
+  // HYSTERESIS LATCHES (v24) — see mkBrain. The raw signals flicker when
+  // the puck sits on a boundary (center line, threat speed, behind margin);
+  // a latch only flips once the puck is clearly across its band, so the
+  // brain can't shuttle guard<->engage<->defend every few ticks.
+  const dirS0 = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
+  // threat: on at 500 u/s inbound, off at 350 or once it leaves my side
+  if (!b.threatH && (b.side === 0 ? s.vx < -500 : s.vx > 500) && puckOnMySide) b.threatH = true;
+  else if (b.threatH && ((b.side === 0 ? s.vx > -350 : s.vx < 350) || !puckOnMySide)) b.threatH = false;
+  const threat = b.threatH;
+  // side possession: latch across the center line with a 40u deadband — the
+  // puck jittering on the line can't bounce guard<->engage anymore
+  if (b.side === 0 ? s.x < CX - 40 : s.x > CX + 40) b.sideH = true;
+  else if (b.side === 0 ? s.x > CX + 40 : s.x < CX - 40) b.sideH = false;
+  // behind: sticky on LIVE geometry, not delayed perception — committing to
+  // a strike on a ghost puck is exactly the feint loop (windup on stale
+  // `seen`, abort on live `p`, repeat). Latch at >50, release at <0.
+  const liveBehind = dirS0 * (m.x - p.x);
+  if (!b.behindH && liveBehind > 50) b.behindH = true;
+  else if (b.behindH && liveBehind < 0) b.behindH = false;
 
   const setTx = (x, y) => {
     m.tx = b.side === 0 ? clamp(x, PX + MALLET_R, CX - 8) : clamp(x, CX + 8, PX + PW - MALLET_R);
@@ -1166,7 +1193,7 @@ function aiThink(b, dt, m) {
     case 'guard': {
       goHome();
       if (threat) { b.state = 'defend'; b.tState = 0; }
-      else if (puckOnMySide && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
+      else if (b.sideH && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
       break;
     }
     case 'around': {
@@ -1185,7 +1212,7 @@ function aiThink(b, dt, m) {
       }
       // a live threat cancels the detour — go block it
       if (threat) { b.state = 'defend'; b.tState = 0; }
-      b.tState += D.tick; break;
+      break;
     }
     case 'defend': {
       // intercept the predicted trajectory in front of goal
@@ -1201,7 +1228,7 @@ function aiThink(b, dt, m) {
       setTx(gx + (pr.x - gx) * 0.35, pr.y + steerY);
       if (!threat) { b.state = 'guard'; b.tState = 0; }
       // if the puck sits in reach (smothered block, loose puck), take it
-      if (puckSpeed < 900 && hyp(s.x - m.x, s.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
+      if (puckSpeed < 900 && hyp(p.x - m.x, p.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
       break;
     }
     case 'engage': {
@@ -1213,19 +1240,26 @@ function aiThink(b, dt, m) {
       // desperate block: it's coming at my net fast and I'm on the wrong
       // side — forget the footwork, go meet it (defend steers the deflection)
       if (threat && dirS * (m.x - s.x) < 40) { b.state = 'defend'; b.tState = 0; break; }
-      const behind = dirS * (m.x - s.x) > 50;
-      if (!behind) {
+      // b.behindH is the sticky live-geometry latch from the top of aiThink:
+      // swing wide until truly behind the puck, then drive at it. The
+      // deadband stops the sidestep<->drive target shuttle that read as
+      // dithering from the stands.
+      if (!b.behindH) {
         const wy = clamp(s.y + (m.y <= s.y ? -180 : 180), PY + MALLET_R, PY + PH - MALLET_R);
         setTx(s.x + dirS * 70, wy);
       } else {
         setTx(s.x, s.y);
       }
-      const d = hyp(s.x - m.x, s.y - m.y);
+      const liveD = hyp(p.x - m.x, p.y - m.y);
+      const liveSpd = hyp(p.vx, p.vy);
       // possession clock: herding the puck at close range counts as control
-      if (d < MALLET_R + PUCK_R + 44) b.possessT += D.tick; else b.possessT = Math.max(0, b.possessT - D.tick);
-      // windup ONLY from behind the puck — striking from the wrong side
-      // blasts it into your own net
-      if (behind && d < MALLET_R + PUCK_R + 26 && (puckSpeed < 700 || b.possessT > 0.35)) {
+      if (liveD < MALLET_R + PUCK_R + 44) b.possessT += D.tick; else b.possessT = Math.max(0, b.possessT - D.tick);
+      // windup ONLY from behind the puck on LIVE geometry. The old code
+      // committed on delayed perception and the live-puck own-goal guard
+      // then cancelled the strike: pull back, retreat, repeat — the visible
+      // feint loop. abortCd spaces out attempts after a cancelled windup so
+      // one bad read can't strobe the telegraph.
+      if (b.abortCd <= 0 && b.behindH && liveD < MALLET_R + PUCK_R + 26 && (liveSpd < 700 || b.possessT > 0.35)) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
         // pick aim: the FAR post, not the middle — the mouth corner farthest
         // from the puck's lane forces the keeper to travel across. aimErr
@@ -1237,7 +1271,9 @@ function aiThink(b, dt, m) {
         b.aimX = foeGoalX;
         b.aimY = CY + farSide * (goalW() / 2 - 12) + rnd(-1, 1) * D.aimErr;
       }
-      if (!puckOnMySide || puckSpeed > 1700) { b.state = 'guard'; b.tState = 0; b.possessT = 0; }
+      // give up the chase only once the puck is clearly gone: the latched
+      // side plus a higher speed bar than the engage-entry bar (hysteresis)
+      if (!b.sideH || puckSpeed > 1900) { b.state = 'guard'; b.tState = 0; b.possessT = 0; }
       break;
     }
     case 'windup': {
@@ -1253,7 +1289,7 @@ function aiThink(b, dt, m) {
         // puck — it can drift during the windup, and lunging from the wrong
         // side blasts it into your own net
         const dirS = b.side === 1 ? 1 : -1;
-        if (dirS * (m.x - p.x) < 30) { b.state = 'recover'; b.tState = 0; break; }
+        if (dirS * (m.x - p.x) < 30) { b.state = 'recover'; b.tState = 0; b.abortCd = 0.6; break; }
         b.state = 'strike'; b.tState = 0;
         // the whiff: a human misread, rolled per difficulty — the lunge
         // below will be offset clean past the puck
@@ -1270,7 +1306,7 @@ function aiThink(b, dt, m) {
       // at strike time, abort — lunging from the wrong side blasts it
       // into your own net
       if (b.tState <= D.tick * 1.5 && dirS * (m.x - p.x) < 20) {
-        b.state = 'recover'; b.tState = 0; break;
+        b.state = 'recover'; b.tState = 0; b.abortCd = 0.6; break;
       }
       const px = s.x + s.vx * 0.1, py = s.y + s.vy * 0.1;
       let ax = b.aimX, ay = b.aimY;
