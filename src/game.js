@@ -216,6 +216,7 @@ const STRIKE_XFER = 1.45;            // mallet->puck velocity transfer
 const SMACK_BONUS = 0.55;            // extra punch on fast flicks
 const SUB_HZ = 240;                  // physics substeps (anti-tunnel)
 const STALL_V = 130, STALL_T = 1.4;  // anti-dead-puck trigger
+const GLUE_HARD_CUTOFF = 1.2;        // corner-pin release timing (see collideMallet); was 2.5
 
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -820,10 +821,45 @@ function collideWalls(p) {
 // Possession clock (stuck-puck fix): a mallet pressing the puck into a rail
 // pocket defeats both anti-stall systems — constant contact keeps resetting
 // G.stallT, and the displacement nudge gets smothered. So each mallet tracks
-// glueT: sustained gentle contact time. Hard hits reset it; 2.5s of pressing
-// (legit contact is ~0.18s) forcibly releases the puck. Rail pins squirt
-// along the rail; open-ice presses pop off the mallet face. The pressing
-// mallet goes ghost for 0.30s so it can't instantly re-trap.
+// glueT: sustained gentle contact time. Hard hits reset it; past
+// GLUE_HARD_CUTOFF (1.2s — legit contact is ~0.18s, so this never touches
+// normal play; lowered from the original 2.5s) an unconditional release
+// fires. Rail pins squirt along the rail; open-ice presses pop off the
+// mallet face. The pressing mallet goes ghost for 0.30s so it can't
+// instantly re-trap.
+//
+// A gentler progressive nudge (easing the puck out over the whole glue
+// window rather than one release at the end) was tried and measured here
+// and didn't hold up: once the mallet and puck velocities both settle near
+// zero the two are just resting in contact, not colliding, so nothing in
+// the per-substep collision response ever runs to apply a nudge to — the
+// puck is asleep, not being repeatedly struck. Fixing that properly needs
+// a position-based (not impulse-based) escape, which is a bigger change
+// than this pass — the hard cutoff alone still cuts the worst case from
+// 2.5s to 1.2s, and the separate contactActive fix below removes the
+// hundreds-of-events-per-second effects spam that made the wait feel far
+// worse than the raw duration.
+// shared escape-direction logic for a puck pinned in a rail/corner pocket —
+// used by both the progressive relief nudge and the hard release below, so
+// they always agree on which way is "out." A true double-corner (near two
+// rails at once) can't just zero both blocked axes — that leaves a zero
+// vector — so once anything is railed we commit to a single clean axis:
+// along the top/bottom rail toward whichever side exit is nearer.
+function glueEscapeDir(p, nx, ny) {
+  const nearT = p.y < PY + 70, nearB = p.y > PY + PH - 70;
+  const nearL = p.x < PX + 70, nearR = p.x > PX + PW - 70;
+  const inMouthY = Math.abs(p.y - CY) < goalW() / 2;
+  let rx = nx, ry = ny, railed = false;
+  if (nearT && ry < 0) { ry = 0; railed = true; }
+  if (nearB && ry > 0) { ry = 0; railed = true; }
+  if (nearL && rx < 0 && !inMouthY) { rx = 0; railed = true; }
+  if (nearR && rx > 0 && !inMouthY) { rx = 0; railed = true; }
+  if (railed) {
+    if (nearT || nearB) { rx = (p.x - PX) < (PX + PW - p.x) ? 1 : -1; ry = 0; }
+    else { rx = 0; ry = (p.y - PY) < (PY + PH - p.y) ? 1 : -1; }
+  }
+  return { rx, ry, railed, nearT, nearB };
+}
 function collideMallet(p, m, dt) {
   const dx = p.x - m.x, dy = p.y - m.y;
   const minD = p.r + m.r;
@@ -837,15 +873,9 @@ function collideMallet(p, m, dt) {
   const mvn0 = m.vx * nx + m.vy * ny;
   if (-vn0 + Math.max(0, mvn0) > 650) m.glueT = 0;
   else m.glueT += dt;
-  if (m.glueT > 2.5) {
-    const nearT = p.y < PY + 70, nearB = p.y > PY + PH - 70;
-    const nearL = p.x < PX + 70, nearR = p.x > PX + PW - 70;
-    const inMouthY = Math.abs(p.y - CY) < goalW() / 2;
-    let rx = nx, ry = ny, railed = false;
-    if (nearT && ry < 0) { ry = 0; railed = true; }
-    if (nearB && ry > 0) { ry = 0; railed = true; }
-    if (nearL && rx < 0 && !inMouthY) { rx = 0; railed = true; }
-    if (nearR && rx > 0 && !inMouthY) { rx = 0; railed = true; }
+  if (m.glueT > GLUE_HARD_CUTOFF) {
+    const { rx: rx0, ry: ry0, railed, nearT, nearB } = glueEscapeDir(p, nx, ny);
+    let rx = rx0, ry = ry0;
     if (!railed) {
       p.x = m.x + nx * minD; p.y = m.y + ny * minD;
       p.vx = nx * 560; p.vy = ny * 560;
