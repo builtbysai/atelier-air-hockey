@@ -680,6 +680,19 @@ function onlineSideLabel(side) {
   if (side === 0) return amGuest ? 'RIVAL' : 'YOU';
   return amGuest ? 'YOU' : 'RIVAL';
 }
+// Scoreboard + match-point ribbon side labels, by mode. Exhibition (watch)
+// names both AIs — the left board is never "YOU" when no human is playing.
+function sideLabel(side) {
+  // While the lobby overlay sits over a paused match, openLobby flips G.mode
+  // to 'online' (to keep the attract demo off). The scoreboard behind the
+  // overlay must keep showing the paused match's real labels, so use the
+  // mode recorded at pause time instead of the flipped one.
+  const mode = (G._lobbyPaused && G._lobbyPausedMode) ? G._lobbyPausedMode : G.mode;
+  if (mode === '2p') return side === 0 ? 'P1' : 'P2';
+  if (mode === 'online') return onlineSideLabel(side);
+  if (mode === 'watch' && G.watch) return DIFFS[G.watch[side === 0 ? 'a' : 'b']].name.toUpperCase();
+  return side === 0 ? 'YOU' : DIFFS[G.difficulty].name.toUpperCase();
+}
 function rinkText(c, str, x, y) {
   // ONLINE: rink-space text that stays upright when the guest view is mirrored.
   // Use ONLY inside the flipped playfield block: the mirror in the current
@@ -2185,15 +2198,27 @@ function render() {
 
   drawScoreboard(ctx);
 
-  // rally counter: consecutive hits without a goal — shown once it matters,
-  // tucked under the match-point ribbon's slot so the two never collide
+  // rally counter: consecutive hits without a goal — shown once it matters.
+  // It lives in the top-left margin as its own pill chip, OUTSIDE the
+  // scoreboard band: every scoreboard device is centered (~CX±200) and draws
+  // labels/plates at its own y, so the old fixed (CX, 108) slot collided with
+  // them (seen on reels/deco once rally >= 4). The margin slot can never
+  // collide on any theme, device, orientation, or rally count — the pill
+  // sizes itself to the text.
   if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4) {
+    const label = 'RALLY ×' + G.stats.rally;
     ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.font = '600 13px ' + THEME.font.body;
-    ctx.globalAlpha = 0.85;
+    const tw = ctx.measureText(label).width;
+    const pw = tw + 28, ph = 26, px = 150 - pw / 2, py = 70 - ph / 2;
+    ctx.globalAlpha = 0.92;
+    rr(ctx, px, py, pw, ph, 13);
+    ctx.fillStyle = 'rgba(10,8,5,0.78)'; ctx.fill();
+    ctx.strokeStyle = THEME.gold || '#c9a227'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.gold || '#e9d9a6';
-    ctx.fillText('RALLY ×' + G.stats.rally, CX, 108);
+    ctx.fillText(label, 150, 71);
     ctx.restore();
   }
 
@@ -2205,7 +2230,7 @@ function render() {
       const who = (m0 && m1) ? 'NEXT GOAL WINS'
         : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ' — MATCH POINT')
         : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' — MATCH POINT') // ONLINE
-        : ((m0 ? 'YOU' : DIFFS[G.difficulty].name.toUpperCase()) + ' — MATCH POINT');
+        : (sideLabel(m0 ? 0 : 1) + ' — MATCH POINT'); // ai + watch (exhibition names the AI)
       ctx.save();
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = '600 12px ' + THEME.font.body;

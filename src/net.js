@@ -317,6 +317,18 @@ Net.uiError = function (msg) {
 };
 Net.openLobby = function () {
   AudioSys.init();
+  // A live match must not keep running behind the lobby overlay. Pause it
+  // first: local matches (ai/2p/watch) pause directly; a live online match
+  // reuses the net-synced pause (the same event the pause button sends), so
+  // both sides stay in agreement. The lobby overlay replaces the pause card
+  // below; closeLobby hands the player back to the resumed match.
+  const live = G.state === 'play' || G.state === 'count' || G.state === 'goal';
+  const local = G.mode === 'ai' || G.mode === '2p' || G.mode === 'watch';
+  if (live && (local || (G.mode === 'online' && Net.active))) {
+    G._lobbyPaused = true;
+    G._lobbyPausedMode = G.mode; // pre-flip mode, so labels stay stable behind the overlay
+    togglePause(true); // force-pause; NOT silent — online peers must see it
+  }
   Net.lobbyOpen = true;
   if (G.mode !== 'online') { G._prevMode = G.mode; G.mode = 'online'; } // ONLINE: lobby open -> no attract demo
   G.idleT = 0;
@@ -326,8 +338,30 @@ Net.openLobby = function () {
 };
 Net.closeLobby = function () {
   Net.lobbyOpen = false;
-  hideAll(); $('menu').classList.remove('hidden');
+  const resume = G._lobbyPaused && G.state === 'pause';
+  G._lobbyPaused = false;
+  G._lobbyPausedMode = null;
+  hideAll();
   if (G.mode === 'online' && !Net.active) G.mode = G._prevMode || 'ai';
+  if (resume) {
+    // The lobby paused a live match and no online game started: return to
+    // the match, resumed. Mode is local here (no net traffic), or the still-
+    // active online match — togglePause then re-sends resume to the peer.
+    togglePause();
+    return;
+  }
+  if (Net.active && G.mode === 'online') {
+    // An online match is still live behind the lobby (e.g. the peer paused
+    // before the lobby opened, so it recorded no pause of its own): hand
+    // back to the match — never strand it behind the menu.
+    if (G.state === 'pause') $('pauseov').classList.remove('hidden');
+    else {
+      if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
+      if (G.hintLive) $('hint').classList.remove('hidden');
+    }
+    return;
+  }
+  $('menu').classList.remove('hidden');
 };
 
 Net.create = async function () {
@@ -381,7 +415,10 @@ Net.join = async function (rawCode) {
 Net.cancelLobby = function () {
   Net.opToken++;
   clearTimeout(Net.joinTimer);
-  Net.dropRoom();
+  // Never tear down a live match from the lobby: the lobby can sit over a
+  // paused online match (openLobby), and cancelling must hand back to that
+  // match via closeLobby's resume — not leave its room out from under it.
+  if (!Net.active) Net.dropRoom();
   Net.code = null;
   Net.closeLobby();
   AudioSys.ui();
@@ -571,6 +608,8 @@ Net.beginMatch = function (role) {
   Net.waitingForRival = false;
   Net.offerSent = false;
   Net.lobbyOpen = false;
+  G._lobbyPaused = false; // an online match starting abandons any paused local match
+  G._lobbyPausedMode = null;
   G.mode = 'online';
   G.onlineFlip = (role === 'guest'); // ONLINE: guest plays from their own side
   G.score = [0, 0]; G.winSide = 0;
