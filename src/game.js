@@ -36,6 +36,7 @@ const Settings = {
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
   effects: 'full',     // 'full' | 'subtle' | 'minimal' — spectacle scaler, never touches physics
   goalW: 'standard',   // 'narrow' | 'standard' | 'wide' — goal-mouth width (v20)
+  orientation: 'landscape', // 'landscape' | 'portrait' — board presentation (v24.2)
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
@@ -51,6 +52,7 @@ function loadSettings() {
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
+  if (!['landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'landscape';
 }
 // Effects scalers — one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -569,23 +571,23 @@ const ROOM_AMB = {
 // across sessions, not a shuffle. Shares AudioSys' context and master bus,
 // so the global Sound toggle silences music too.
 const MUSIC = {
-  deco:  { seed: 1929, root: 45, mode: [0, 2, 3, 5, 7, 9, 10], bpm: 56, padCut: 800,  melWave: 'triangle', melDens: 0.30, bassDens: 0.55, pulse: false, drum: false, shimmer: false, level: 0.055,
+  deco:  { seed: 1929, root: 45, mode: [0, 2, 3, 5, 7, 9, 10], bpm: 56, padCut: 800,  melWave: 'triangle', melDens: 0.30, bassDens: 0.55, pulse: false, drum: false, shimmer: false, level: 1.100,
            chords: [[0, 3, 7, 14], [5, 8, 12, 17], [8, 12, 16, 23], [7, 11, 14, 17]] },   // speakeasy noir: Am9 colours, walking-distance bass
-  mid:   { seed: 1962, root: 41, mode: [0, 2, 4, 6, 7, 9, 11], bpm: 72, padCut: 1400, melWave: 'sine',     melDens: 0.40, bassDens: 0.45, pulse: false, drum: false, shimmer: false, level: 0.050,
+  mid:   { seed: 1962, root: 41, mode: [0, 2, 4, 6, 7, 9, 11], bpm: 72, padCut: 1400, melWave: 'sine',     melDens: 0.40, bassDens: 0.45, pulse: false, drum: false, shimmer: false, level: 1.000,
            chords: [[0, 4, 7, 11], [7, 11, 14, 18], [5, 9, 12, 16], [2, 5, 9, 14]] },     // palm-springs exotica: lydian lift, vibes-like plucks
-  brut:  { seed: 1972, root: 38, mode: [0, 1, 5, 7, 8],         bpm: 48, padCut: 320,  melWave: 'square',   melDens: 0.12, bassDens: 0.65, pulse: false, drum: false, shimmer: false, level: 0.060, drone: true,
+  brut:  { seed: 1972, root: 38, mode: [0, 1, 5, 7, 8],         bpm: 48, padCut: 320,  melWave: 'square',   melDens: 0.12, bassDens: 0.65, pulse: false, drum: false, shimmer: false, level: 1.200, drone: true,
            chords: [[0, 1, 7], [0, 5, 7], [1, 8, 13]] },                                            // bunker: phrygian drone, rare metallic partials
-  bil:   { seed: 1911, root: 48, mode: [0, 2, 4, 5, 7, 9, 11],  bpm: 60, padCut: 700,  melWave: 'triangle', melDens: 0.28, bassDens: 0.60, pulse: false, drum: false, shimmer: false, level: 0.052,
+  bil:   { seed: 1911, root: 48, mode: [0, 2, 4, 5, 7, 9, 11],  bpm: 60, padCut: 700,  melWave: 'triangle', melDens: 0.28, bassDens: 0.60, pulse: false, drum: false, shimmer: false, level: 1.040,
            chords: [[0, 4, 7, 12], [5, 9, 12, 16], [7, 11, 14, 19], [9, 12, 16, 21]] },   // members' club: stately major, cello-weight bass
-  mem:   { seed: 1981, root: 48, mode: [0, 2, 4, 7, 9],         bpm: 104, padCut: 1600, melWave: 'square',   melDens: 0.50, bassDens: 0.80, pulse: true,  drum: false, shimmer: false, level: 0.048,
+  mem:   { seed: 1981, root: 48, mode: [0, 2, 4, 7, 9],         bpm: 104, padCut: 1600, melWave: 'square',   melDens: 0.50, bassDens: 0.80, pulse: true,  drum: false, shimmer: false, level: 0.960,
            chords: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [9, 12, 16]] },                   // loft party '81: major-pentatonic synth-pop, bouncy
-  sashi: { seed: 1603, root: 50, mode: [0, 2, 3, 7, 8],         bpm: 50, padCut: 1100, melWave: 'triangle', melDens: 0.16, bassDens: 0.35, pulse: false, drum: false, shimmer: false, level: 0.050,
+  sashi: { seed: 1603, root: 50, mode: [0, 2, 3, 7, 8],         bpm: 50, padCut: 1100, melWave: 'triangle', melDens: 0.16, bassDens: 0.35, pulse: false, drum: false, shimmer: false, level: 1.000,
            chords: [[0, 7, 12], [3, 10, 15], [5, 12, 17]] },                                 // machiya: hirajoshi koto plucks, lots of ma
-  bau:   { seed: 1923, root: 40, mode: [0, 3, 5, 7, 10],        bpm: 96, padCut: 1000, melWave: 'triangle', melDens: 0.34, bassDens: 0.60, pulse: true,  drum: false, shimmer: false, level: 0.050,
+  bau:   { seed: 1923, root: 40, mode: [0, 3, 5, 7, 10],        bpm: 96, padCut: 1000, melWave: 'triangle', melDens: 0.34, bassDens: 0.60, pulse: true,  drum: false, shimmer: false, level: 1.000,
            chords: [[0, 3, 7, 12], [3, 7, 10, 15], [5, 8, 12, 17]] },                     // workshop: minor-pentatonic motorik, geometric
-  zel:   { seed: 1550, root: 52, mode: [0, 1, 4, 5, 7, 8, 10],  bpm: 84, padCut: 1200, melWave: 'sawtooth', melDens: 0.36, bassDens: 0.55, pulse: false, drum: true,  shimmer: false, level: 0.050,
+  zel:   { seed: 1550, root: 52, mode: [0, 1, 4, 5, 7, 8, 10],  bpm: 84, padCut: 1200, melWave: 'sawtooth', melDens: 0.36, bassDens: 0.55, pulse: false, drum: true,  shimmer: false, level: 1.000,
            chords: [[0, 4, 7], [1, 5, 8], [5, 8, 12]] },                                     // riad: hijaz, oud-like plucks, frame-drum lilt
-  swi:   { seed: 1957, root: 55, mode: [0, 7, 12, 19],          bpm: 44, padCut: 2200, melWave: 'sine',     melDens: 0.08, bassDens: 0.25, pulse: false, drum: false, shimmer: true,  level: 0.045,
+  swi:   { seed: 1957, root: 55, mode: [0, 7, 12, 19],          bpm: 44, padCut: 2200, melWave: 'sine',     melDens: 0.08, bassDens: 0.25, pulse: false, drum: false, shimmer: true,  level: 0.900,
            chords: [[0, 12, 19], [7, 19, 26]] },                                            // gallery: fifths and octaves, near-silence
 };
 const MusicSys = {
@@ -829,6 +831,7 @@ const G = {
   pausedFrom: 'play',
   scuffs: [], parts: [], trail: [], texts: [], pulses: [],
   puckSq: 1, puckSqA: 0,    // squash amount / angle
+  puckSqV: 0,              // squash spring velocity (damped-spring recovery)
   letterT: 0, flashA: 0,
   hitFlash: 0, hitFlashX: 0, hitFlashY: 0, // SMASH-tier impact flash
   roomPulse: 0,             // room reactivity: decays, feeds the lamp-glow overlay
@@ -872,7 +875,17 @@ function resetPositions() {
   G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R, w: 0, ang: 0 };
   G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
   G.stallX = CX; G.stallY = CY; G.anchorT = 0;
-  G.puckSq = 1;
+  G.puckSq = 1; G.puckSqV = 0;
+  // v24.2: park the AI brains in guard with latches cleared, so a point never
+  // starts with a stale windup/strike/threat carried over from the last one
+  for (const b of [G.ai1, G.ai2]) {
+    if (!b) continue;
+    b.state = 'guard'; b.tState = 0; b.tickT = 0;
+    b.behindH = false; b.sideH = false; b.threatH = false; b.abortCd = 0;
+    b.possessT = 0; b.pinT = 0; b.whiff = false;
+    b.hist.length = 0;
+    b.seen.x = CX; b.seen.y = CY; b.seen.vx = 0; b.seen.vy = 0;
+  }
 }
 G.m1 = mkMallet(0); G.m2 = mkMallet(1);
 
@@ -889,7 +902,12 @@ function resize() {
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   view.w = w; view.h = h;
-  view.portrait = h > w * 1.05;
+  // v24.2: board orientation is a persisted setting. 'portrait' forces the
+  // rotated presentation on any screen; 'landscape' (default) keeps the
+  // classic behavior — unrotated on wide screens, rotated to fit on narrow
+  // ones. The game space itself stays landscape; physics and AI never see
+  // the rotation (screenToRink inverts it for input).
+  view.portrait = Settings.orientation === 'portrait' || h > w * 1.05;
   if (!view.portrait) {
     view.s = Math.min(w / VW, h / VH);
     view.ox = (w - VW * view.s) / 2; view.oy = (h - VH * view.s) / 2;
@@ -1058,14 +1076,14 @@ function collideWalls(p) {
     if (p.vy < 0) {
       const imp = -p.vy;
       p.vy = -p.vy * paceWall(); p.vx *= 0.995;
-      onRailHit(p.x, PY, imp);
+      onRailHit(p.x, PY, imp, false, 0, 1);
     }
   } else if (p.y > PY + PH - r) {
     p.y = PY + PH - r;
     if (p.vy > 0) {
       const imp = p.vy;
       p.vy = -p.vy * paceWall(); p.vx *= 0.995;
-      onRailHit(p.x, PY + PH, imp);
+      onRailHit(p.x, PY + PH, imp, false, 0, -1);
     }
   }
   // end walls with goal mouths
@@ -1074,10 +1092,10 @@ function collideWalls(p) {
   const nearPost = !inMouth && Math.abs(p.y - CY) < goalW() / 2 + 42;
   if (p.x < PX + r && !inMouth) {
     p.x = PX + r;
-    if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp, nearPost); }
+    if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp, nearPost, 1, 0); }
   } else if (p.x > PX + PW - r && !inMouth) {
     p.x = PX + PW - r;
-    if (p.vx > 0) { const imp = p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX + PW, p.y, imp, nearPost); }
+    if (p.vx > 0) { const imp = p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX + PW, p.y, imp, nearPost, -1, 0); }
   }
 }
 
@@ -1296,8 +1314,12 @@ function stepPhysics(dt) {
   // trail
   G.trail.push({ x: p.x, y: p.y });
   if (G.trail.length > Math.round(16 * fxTrail())) G.trail.shift();
-  // squash recovery
-  G.puckSq += (1 - G.puckSq) * Math.min(1, dt * 9);
+  // squash recovery: a damped spring, not an exponential fade — the puck
+  // pops back with a faint overshoot, the way real rubber does. k=200/d=16
+  // recovers in ~0.15s with a ~2% overshoot, settled by ~0.4s: snappy and
+  // physical, never cartoonish.
+  G.puckSqV += (-(G.puckSq - 1) * 200 - G.puckSqV * 16) * dt;
+  G.puckSq += G.puckSqV * dt;
 }
 
 // Anti-stall: air jets. A dead puck never sits — shared by live play and the
@@ -1403,9 +1425,15 @@ function aiThink(b, dt, m) {
   // a latch only flips once the puck is clearly across its band, so the
   // brain can't shuttle guard<->engage<->defend every few ticks.
   const dirS0 = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
-  // threat: on at 500 u/s inbound, off at 350 or once it leaves my side
+  // threat: on at 500 u/s inbound (delayed perception — a human needs a beat
+  // to notice), off at 350 or once it leaves my side. v24.2: the OFF edge
+  // reads the LIVE puck, not the delayed ghost. The old code kept defend
+  // latched on a stale inbound read after the puck bounced off the rail or
+  // was deflected away — the AI would then lunge at a puck that was moving
+  // away from its net, meet it from the wrong side, and shank it home.
+  // That stale-threat lunge was the #1 measured own-goal mechanism.
   if (!b.threatH && (b.side === 0 ? s.vx < -500 : s.vx > 500) && puckOnMySide) b.threatH = true;
-  else if (b.threatH && ((b.side === 0 ? s.vx > -350 : s.vx < 350) || !puckOnMySide)) b.threatH = false;
+  else if (b.threatH && ((b.side === 0 ? p.vx > -350 : p.vx < 350) || !puckOnMySide)) b.threatH = false;
   const threat = b.threatH;
   // side possession: latch across the center line with a 40u deadband — the
   // puck jittering on the line can't bounce guard<->engage anymore
@@ -1428,7 +1456,8 @@ function aiThink(b, dt, m) {
   // the mallet and your own net — that shove is the #1 measured own-goal
   // mechanism (AI own-goal rate was ~22% before this fix). Detour around it
   // to the goal side first. Skipped for live threats (defend handles those)
-  // and for the strike sequence itself.
+  // and for the strike sequence itself. Capped at 450 u/s: chasing a fast
+  // puck with a sidestep causes its own wrong-side collisions (measured).
   if (b.state === 'guard' || b.state === 'defend') {
     const dirS = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
     const pSpd = hyp(p.vx, p.vy);
@@ -1457,7 +1486,27 @@ function aiThink(b, dt, m) {
 
   switch (b.state) {
     case 'guard': {
-      goHome();
+      // v24.2: don't skate home through a live puck. If the puck blocks the
+      // path and isn't coming at my net, hold until it clears — driving
+      // through from the wrong side shoves it home (measured own-goal
+      // mechanism; the stale-threat defend fix funnels these here). Slow
+      // pucks are handled by the 'around' detour above; this is for ones
+      // moving too fast to detour around.
+      const h = aiHome(b);
+      const dirSg = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
+      const towardMe = dirSg * p.vx > 150;
+      const pSpd = hyp(p.vx, p.vy);
+      let blocked = false;
+      if (!towardMe && pSpd > 120) {
+        const dxh = h.x - m.x, dyh = h.y - m.y;
+        const segLen2 = dxh * dxh + dyh * dyh;
+        if (segLen2 > 1) {
+          const t = clamp(((p.x - m.x) * dxh + (p.y - m.y) * dyh) / segLen2, 0, 1);
+          blocked = hyp(p.x - (m.x + dxh * t), p.y - (m.y + dyh * t)) < MALLET_R + PUCK_R + 30;
+        }
+      }
+      if (blocked) setTx(m.x, m.y); // hold — the puck will clear
+      else goHome();
       if (threat) { b.state = 'defend'; b.tState = 0; }
       else if (b.sideH && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
       break;
@@ -1492,9 +1541,14 @@ function aiThink(b, dt, m) {
       const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
       const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
       setTx(gx + (pr.x - gx) * 0.35, pr.y + steerY);
-      if (!threat) { b.state = 'guard'; b.tState = 0; }
-      // if the puck sits in reach (smothered block, loose puck), take it
-      if (puckSpeed < 900 && hyp(p.x - m.x, p.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
+      // if the puck sits in reach (smothered block, loose puck), take it.
+      // v24.2: this reads LIVE geometry and is checked BEFORE the guard
+      // fallback. The old order fell through to guard on the delayed `seen`
+      // read, so after a block the AI would skate home for a beat and then
+      // come back — the visible "backing away from a hittable puck".
+      const liveSpd = hyp(p.vx, p.vy);
+      if (liveSpd < 900 && hyp(p.x - m.x, p.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
+      else if (!threat) { b.state = 'guard'; b.tState = 0; }
       break;
     }
     case 'engage': {
@@ -1512,7 +1566,23 @@ function aiThink(b, dt, m) {
       // dithering from the stands.
       if (!b.behindH) {
         const wy = clamp(s.y + (m.y <= s.y ? -180 : 180), PY + MALLET_R, PY + PH - MALLET_R);
-        setTx(s.x + dirS * 70, wy);
+        const wx = s.x + dirS * 70;
+        // v24.2: swing wide WITHOUT crossing the puck. Driving straight at
+        // (wx, wy) can cut through a puck sitting between the mallet and the
+        // waypoint — a wrong-side touch that shoves it toward your own net
+        // (measured own-goal mechanism). If the live puck blocks the straight
+        // path, hold x and clear laterally first; the x-approach runs once
+        // we're on the wide line, 180u off the puck's lane.
+        const clearR = MALLET_R + PUCK_R + 24;
+        const dxw = wx - m.x, dyw = wy - m.y;
+        const segLen2 = dxw * dxw + dyw * dyw;
+        let blocked = false;
+        if (segLen2 > 1) {
+          const t = clamp(((p.x - m.x) * dxw + (p.y - m.y) * dyw) / segLen2, 0, 1);
+          blocked = hyp(p.x - (m.x + dxw * t), p.y - (m.y + dyw * t)) < clearR;
+        }
+        if (blocked) setTx(m.x, wy);
+        else setTx(wx, wy);
       } else {
         setTx(s.x, s.y);
       }
@@ -1740,9 +1810,11 @@ function onMalletHit(x, y, impact, nx, ny) {
     if (fxRoom()) G.roomPulse = 1;
     buzz([15, 30, 25]);
   }
-  // puck squash along the impact normal, 10–20%
+  // puck squash along the impact normal, 10–20%. Restarts the recovery
+  // spring from rest at the deformed shape.
   G.puckSq = 1 - (0.10 + v * 0.10);
   G.puckSqA = Math.atan2(ny, nx);
+  G.puckSqV = 0;
   burst(x, y, Math.max(1, Math.round((5 + v * 12) * fxp)), THEME.particle, 200 + v * 480);
   if (tier === 2) burst(x, y, Math.max(1, Math.round(10 * fxp)), '#ffffff', 500 + v * 500, 3);
   // permanence: hard hits leave a fading scuff on the cloth
@@ -1752,8 +1824,16 @@ function onMalletHit(x, y, impact, nx, ny) {
   AudioSys.hit(v, 1 + Math.min(rallyN, 12) * 0.03);
   if (v > 0.55) buzz(12);
 }
-function onRailHit(x, y, impact, isPost) {
+function onRailHit(x, y, impact, isPost, nx, ny) {
   const v = clamp(impact / 2200, 0, 1);
+  // puck squash on rails and the goal frame, 8–20% along the impact normal —
+  // shared with the mallet-hit squash. Keeps the deeper of overlapping
+  // deformations and restarts the spring from the new shape.
+  if (nx !== undefined) {
+    G.puckSq = Math.min(G.puckSq, 1 - (0.08 + v * 0.12));
+    G.puckSqA = Math.atan2(ny, nx);
+    G.puckSqV = 0;
+  }
   if (impact > 1100) { G.freezeT = Math.max(G.freezeT, 0.012); addTrauma(0.12 + v * 0.2); }
   if (impact > 300) burst(x, y, Math.max(1, Math.round((3 + v * 6) * fxParticles())), THEME.particle, 140 + v * 260, 2.5);
   if (isPost && impact > 900) {
@@ -2204,9 +2284,12 @@ function frame(t) {
       if (G.mode === '2p') { driveMallet(G.m1, rdt, PLAYER_CAP); driveMallet(G.m2, rdt, PLAYER_CAP); }
       // ONLINE: each side drives only their own mallet during the countdown
       else if (G.mode === 'online') { driveMallet(Net.role === 'host' ? G.m1 : G.m2, rdt, PLAYER_CAP); }
-      // EXHIBITION: both mallets are AI-driven, no human input
-      else if (G.mode === 'watch') { aiDrive(G.ai1, rdt, G.m1); aiDrive(G.ai2, rdt, G.m2); }
-      else { if (pointers.size > 0) driveMallet(G.m1, rdt, PLAYER_CAP); aiDrive(G.ai2, rdt, G.m2); }
+      // EXHIBITION / SINGLE-PLAYER: AI mallets hold their reset spots during
+      // the countdown — no perceiving, no thinking, no skating. (v24.2: the
+      // old code ran aiDrive here, so the AI would drift, pre-aim, and even
+      // start its attack decision before the puck was live.)
+      else if (G.mode === 'watch') { /* both AI mallets hold */ }
+      else { if (pointers.size > 0) driveMallet(G.m1, rdt, PLAYER_CAP); }
       updateParts(rdt);
       break;
     case 'play':
@@ -2583,16 +2666,18 @@ function drawPuck(c) {
     c.fillStyle = sg;
     c.beginPath(); c.arc(0, 0, PUCK_R * 2.2, 0, TAU); c.fill();
   }
-  // velocity stretch above 1500: elongate along travel — but only once the
-  // impact squash has recovered, so the two deformations never fight
+  // velocity stretch: continuous from cruise (~600 u/s), proportional to
+  // speed — subtle at a glide, pronounced on a real shot. Elongates along
+  // the travel vector with a volume-preserving pinch across it. Pauses while
+  // an impact squash is still springing back, so the two never fight.
   const psp = hyp(p.vx, p.vy);
-  if (psp > 1500 && G.puckSq > 0.96) {
-    const va = Math.atan2(p.vy, p.vx), st = clamp((psp - 1500) / 2800, 0, 1) * 0.30;
-    c.rotate(va); c.scale(1 + st, 1 - 0.45 * st); c.rotate(-va);
+  if (psp > 600 && G.puckSq > 0.96) {
+    const va = Math.atan2(p.vy, p.vx), st = clamp((psp - 600) / 3200, 0, 1) * 0.22;
+    c.rotate(va); c.scale(1 + st, 1 / (1 + st)); c.rotate(-va);
   }
   c.rotate(G.puckSqA);
   const sq = G.puckSq;
-  c.scale(sq, 1 + (1 - sq) * 0.7); // squash along the impact normal
+  c.scale(sq, 1 / sq); // volume-preserving: the bulge matches the squash
   const g = c.createRadialGradient(-5, -6, 2, 0, 0, PUCK_R);
   g.addColorStop(0, S.hi); g.addColorStop(0.55, S.body); g.addColorStop(1, S.edge);
   c.fillStyle = g;
