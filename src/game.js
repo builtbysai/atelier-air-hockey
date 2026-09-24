@@ -2313,8 +2313,11 @@ function playStep(rdt) {
       driveMallet(G.m2, sdt, PLAYER_CAP);
     } else if (G.mode === 'online') {
       // ONLINE: host-only branch — the guest never reaches playStep (see
-      // frame). The host drives m1; m2's target arrives over the wire.
+      // frame). The host drives m1; m2 follows the guest's input target over
+      // the wire — without this the remote mallet is a statue on the
+      // authoritative sim and the guest can never touch the puck.
       driveMallet(G.m1, sdt, PLAYER_CAP);
+      Net.driveRemoteMallet(sdt);
     } else if (G.mode === 'watch') {
       // EXHIBITION: both mallets are AI-driven.
       aiDrive(G.ai1, sdt, G.m1);
@@ -2367,8 +2370,13 @@ function frame(t) {
     case 'count':
       updateCount(rdt);
       if (G.mode === '2p') { driveMallet(G.m1, rdt, PLAYER_CAP); driveMallet(G.m2, rdt, PLAYER_CAP); }
-      // ONLINE: each side drives only their own mallet during the countdown
-      else if (G.mode === 'online') { driveMallet(Net.role === 'host' ? G.m1 : G.m2, rdt, PLAYER_CAP); }
+      // ONLINE: each side drives only their own mallet during the countdown;
+      // the host also folds the guest's input target into m2 so it never
+      // snaps when the serve goes live
+      else if (G.mode === 'online') {
+        if (Net.role === 'host') { driveMallet(G.m1, rdt, PLAYER_CAP); Net.driveRemoteMallet(rdt); }
+        else driveMallet(G.m2, rdt, PLAYER_CAP);
+      }
       // EXHIBITION / SINGLE-PLAYER: AI mallets hold their reset spots during
       // the countdown — no perceiving, no thinking, no skating. (v24.2: the
       // old code ran aiDrive here, so the AI would drift, pre-aim, and even
