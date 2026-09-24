@@ -175,10 +175,21 @@
     <div class="kicker">INTERMISSION</div>
     <h1 id="pauseTitle">Paused</h1>
     <p class="tagline">The puck waits for no one. Except now.</p>
+    <p class="notice warn hidden" id="pauseNotice" role="status">Connection lost. Waiting for your rival to rejoin.</p>
     <button class="btn primary" id="btnResume">Resume</button>
     <button class="btn" id="btnPauseSettings">Settings</button>
     <button class="btn" id="btnRestart">Restart match</button>
     <button class="btn" id="btnQuit">Quit to menu</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="confirmov" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="card">
+    <div class="kicker">ARE YOU SURE</div>
+    <h1 id="confirmTitle">Confirm</h1>
+    <p class="confirm-msg" id="confirmMsg"></p>
+    <button class="btn primary" id="confirmOk">Confirm</button>
+    <button class="btn" id="confirmCancel">Cancel</button>
   </div>
 </div>
 

@@ -1820,7 +1820,7 @@ function quitToMenu() {
 }
 function hideAll() {
   // ONLINE: online overlays are part of the overlay stack too
-  for (const id of ['menu', 'progress', 'help', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'hint']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'progress', 'help', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint']) $(id).classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
@@ -1939,6 +1939,33 @@ function rr(c, x, y, w, h, r) {
   c.closePath();
 }
 function easeOutBack(t) { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
+
+/* ---------- the house plaque ----------
+ * One visual language for every canvas announcement: a dark warm pill with a
+ * gold hairline and letterspaced small caps. Theme-agnostic by design, so it
+ * reads identically on all nine rooms, light or dark. Match-point and the
+ * rally counter share one slot through this renderer — only one ever draws. */
+function drawPlaque(ctx, cx, y, text, opts) {
+  opts = opts || {};
+  const size = opts.size || 12;
+  const track = opts.track == null ? 2 : opts.track;
+  const ph = opts.h || 26;
+  ctx.save();
+  ctx.font = '600 ' + size + 'px ' + THEME.font.body;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = track + 'px';
+  const tw = ctx.measureText(text).width + (('letterSpacing' in ctx) ? 0 : track * text.length * 0.6);
+  const pw = tw + 34;
+  const px = cx - pw / 2, py = y - ph / 2;
+  ctx.globalAlpha = opts.alpha || 0.94;
+  rr(ctx, px, py, pw, ph, ph / 2);
+  ctx.fillStyle = 'rgba(12,9,6,0.86)'; ctx.fill();
+  ctx.strokeStyle = THEME.gold || '#c9a227'; ctx.lineWidth = 1.25; ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = opts.ink || THEME.gold || '#e9d9a6';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, cx + track / 2, y + 1);
+  ctx.restore();
+}
 
 function render() {
   const dpr = view.dpr || 1, w = view.w, h = view.h, s = view.s;
@@ -2137,14 +2164,20 @@ function render() {
     ctx.restore();
   }
 
-  // floating texts (positions flip with the playfield; glyphs stay upright)
+  // floating texts (positions flip with the playfield; glyphs stay upright).
+  // Two passes: a dark blurred backing for separation on the lightest rooms,
+  // then the crisp color face on top — the gold stays gold, no muddy outline.
   for (const t of G.texts) {
     const a = 1 - t.t / 1.1;
     ctx.save();
     ctx.globalAlpha = clamp(a, 0, 1);
     ctx.font = '800 ' + t.size + 'px ' + THEME.font.display;
-    ctx.fillStyle = t.color;
+    ctx.fillStyle = 'rgba(15,10,5,0.85)';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 12;
     rinkText(ctx, t.str, t.x, t.y); // ONLINE: upright type in the mirrored view
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = t.color;
+    rinkText(ctx, t.str, t.x, t.y);
     ctx.restore();
   }
   ctx.restore(); // ONLINE flip
@@ -2165,39 +2198,32 @@ function render() {
     ctx.restore();
   }
 
-  // letterbox + GOAL! — the reserved channel (stable screen space, above the zoom)
+  // letterbox + GOAL! — the reserved channel (stable screen space, above the zoom).
+  // Under reduced motion the banner arrives without the spring (bars fade in
+  // instead of sliding, GOAL! appears at rest size).
   ctx.restore();
   if (G.letterT > 0) {
-    const bh = 120 * easeOutBack(clamp(G.letterT, 0, 1));
+    const be = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT, 0, 1));
+    const bh = 120 * be;
     ctx.save();
     ctx.fillStyle = 'rgba(0,0,0,0.88)';
     ctx.fillRect(0, 0, VW, bh); ctx.fillRect(0, VH - bh, VW, bh);
     ctx.globalAlpha = clamp((G.letterT - 0.25) * 2.4, 0, 1);
-    const zp = easeOutBack(clamp((G.letterT - 0.2) * 1.6, 0, 1));
+    const zp = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.2) * 1.6, 0, 1));
     ctx.translate(CX, CY); ctx.scale(zp, zp);
     ctx.font = '800 92px ' + THEME.font.display;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.gold || '#d8a93f';
     ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 30;
-    ctx.fillText('GOAL!', 0, -6); // screen space — never flipped
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '6px';
+    ctx.fillText('GOAL!', 3, -6); // screen space — never flipped (+3 recenters the tracked type)
     ctx.restore();
   }
 
   drawScoreboard(ctx);
 
-  // rally counter: consecutive hits without a goal — shown once it matters,
-  // tucked under the match-point ribbon's slot so the two never collide
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4) {
-    ctx.save();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '600 13px ' + THEME.font.body;
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = THEME.gold || '#e9d9a6';
-    ctx.fillText('RALLY ×' + G.stats.rally, CX, 108);
-    ctx.restore();
-  }
-
-  // match-point ribbon — theme-agnostic, sits under the scoreboard
+  // announcement slot: one plaque at a time — match point outranks the
+  // rally counter, so the two can never collide (or collide with a scoreboard)
   if ((G.state === 'play' || G.state === 'count') && !G.demo) {
     const t = Settings.firstTo;
     const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
@@ -2206,19 +2232,10 @@ function render() {
         : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ' — MATCH POINT')
         : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' — MATCH POINT') // ONLINE
         : ((m0 ? 'YOU' : DIFFS[G.difficulty].name.toUpperCase()) + ' — MATCH POINT');
-      ctx.save();
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = '600 12px ' + THEME.font.body;
-      const tw = ctx.measureText(who).width;
-      const pw = tw + 30, ph = 24, px = CX - pw / 2, py = 66;
-      ctx.globalAlpha = 0.92;
-      rr(ctx, px, py, pw, ph, 12);
-      ctx.fillStyle = 'rgba(10,8,5,0.78)'; ctx.fill();
-      ctx.strokeStyle = THEME.gold || '#c9a227'; ctx.lineWidth = 1.5; ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = THEME.gold || '#e9d9a6';
-      ctx.fillText(who, CX, py + ph / 2 + 1);
-      ctx.restore();
+      drawPlaque(ctx, CX, 78, who);
+    } else if (G.stats && G.stats.rally >= 4) {
+      // rally counter: consecutive hits without a goal — shown once it matters
+      drawPlaque(ctx, CX, 78, 'RALLY ×' + G.stats.rally);
     }
   }
 

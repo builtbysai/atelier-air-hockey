@@ -404,6 +404,7 @@ Net.initRoom = function (room, role) {
 Net.dropRoom = function () {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
   Net.reconnecting = false; Net.reconnectState = null;
+  Net.setPauseNotice(false);
   try { if (Net.room) Net.room.leave(); } catch (e) {}
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.active = false; Net.waitingForRival = false;
@@ -427,6 +428,7 @@ Net.onPeerJoin = function (id) {
     // Both roles resume their own retained state. Previously only the host
     // resumed here, leaving a reconnecting guest stuck on the pause overlay.
     // But if the user had manually paused before the drop, keep them paused.
+    Net.setPauseNotice(false);
     if (G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause' && !Net.wasPausedBeforeDisconnect) togglePause(false, true);
     Net.reconnectState = null;
     Net.wasPausedBeforeDisconnect = false;
@@ -435,6 +437,13 @@ Net.onPeerJoin = function (id) {
   }
   if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
   else if (Net.role === 'guest' && !Net.active && Net.wire) Net.wire.sendEv({ t: 'knock' });
+};
+// pause-card reconnect notice: visible only while the match waits on a
+// dropped rival; hidden the moment play resumes or the room goes away.
+// Uses the shared $() helper so headless unit tests (no DOM) stay green.
+Net.setPauseNotice = function (on) {
+  const el = (typeof $ === 'function') ? $('pauseNotice') : null;
+  if (el) el.classList.toggle('hidden', !on);
 };
 Net.onPeerLeave = function (id) {
   if (id !== Net.peerId) return;
@@ -447,6 +456,7 @@ Net.onPeerLeave = function (id) {
   Net.wasPausedBeforeDisconnect = (G.state === 'pause');
   Net.reconnectState = G.state === 'pause' ? G.pausedFrom : G.state;
   if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true, true);
+  Net.setPauseNotice(true);
   Net.paintConn();
   clearTimeout(Net.disconnectTimer);
   Net.disconnectTimer = setTimeout(() => {
@@ -819,6 +829,7 @@ Net.onRivalLeft = function () {
   }
   Net.rsnap = null; Net.gview = null;
   hideAll();
+  Net.setPauseNotice(false);
   $('onlinedropov').classList.remove('hidden');
   Net.paintConn(); // active is false now — the chip hides itself
   AudioSys.ui();
