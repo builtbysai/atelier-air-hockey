@@ -80,7 +80,10 @@ function setSetting(key, val) {
   if ((key === 'firstTo' || key === 'pace' || key === 'goalW') && G.mode === 'online' && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) return;
   if (key === 'sound' || key === 'haptics' || key === 'music') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
+  if (key === 'musicVolume') val = clamp(Math.round(Number(val) || 0), 0, 100);
   Settings[key] = val; saveSettings(); applySettingsToUI();
+  // music volume re-aims the live bus — no restart, no re-prime
+  if (key === 'musicVolume') MusicSys.applyVolume();
   // the menu's table thumbnails draw the goal mouth — repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
@@ -114,6 +117,10 @@ function applySettingsToUI() {
   updateStartLabel(); // v21: the START MATCH sub-line carries the current first-to
   const hf = $('helpFirst');
   if (hf) hf.textContent = Settings.firstTo;
+  // music volume slider follows the persisted setting (and the live value)
+  const mv = $('musicVol'), mvv = $('musicVolVal');
+  if (mv && document.activeElement !== mv) mv.value = Settings.musicVolume;
+  if (mvv) mvv.textContent = Settings.musicVolume;
 }
 
 
@@ -148,6 +155,7 @@ const keyDrive = new Set();
 let keyLast = performance.now();
 function keyboardGamepadDrive(now) {
   const dt = Math.min(0.04, Math.max(0, (now - keyLast) / 1000)); keyLast = now;
+  if (G.focusLost) { requestAnimationFrame(keyboardGamepadDrive); return; } // frozen: loop lives, nothing drives
   if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch') {
     const speed = 920;
     // Screen-space input -> rink-space: portrait rotates the rink 90°, onlineFlip mirrors x.
@@ -398,6 +406,14 @@ function wireUI() {
   $('btnSettings').addEventListener('click', () => openSettings('menu'));
   $('btnPauseSettings').addEventListener('click', () => openSettings('pause'));
   $('settingsClose').addEventListener('click', closeSettings);
+  // music volume slider: live gain change on every tick of the drag
+  const mv = $('musicVol');
+  if (mv) mv.addEventListener('input', () => {
+    AudioSys.init(); // the drag is a gesture — start audio so the change is heard at once
+    setSetting('musicVolume', mv.value);
+  });
+  // focus-loss veil: any tap is the resume gesture (autoplay policy)
+  $('focusov').addEventListener('click', () => { AudioSys.init(); resumeFromFocusLoss(); });
   $('btnHelp').addEventListener('click', () => { AudioSys.ui(); applySettingsToUI(); hideAll(); $('help').classList.remove('hidden'); });
   $('btnProgress').addEventListener('click', () => { AudioSys.ui(); renderProgress(); hideAll(); $('progress').classList.remove('hidden'); });
   $('progressClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
@@ -460,6 +476,11 @@ function wireUI() {
     setSetting('sound', String(!Settings.sound)); // persists; button UI syncs via applySettingsToUI
   });
   window.addEventListener('keydown', e => {
+    // the focus-loss veil owns the keyboard: only Escape dismisses it
+    if (G.focusLost) {
+      if (e.key === 'Escape') { AudioSys.init(); resumeFromFocusLoss(); }
+      return;
+    }
     const interactive = e.target && e.target.closest && e.target.closest('input, textarea, select, button, a, [role="option"], [contenteditable="true"]');
     if (interactive && e.key !== 'Escape') return;
     if (e.key === 'p' || e.key === 'P') togglePause();
@@ -479,13 +500,18 @@ function wireUI() {
     }
   });
   window.addEventListener('keydown', e => {
+    if (G.focusLost) return; // veiled: no input accumulates behind the overlay
     if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code) && (G.state === 'play' || G.state === 'count')) { keyDrive.add(e.code); e.preventDefault(); }
   }, { passive: false });
   window.addEventListener('keyup', e => keyDrive.delete(e.code));
+  // focus loss pauses everything: sim, net, and audio freeze; the veil (or
+  // the pause card) then waits for a tap. Never auto-resumes — the resume
+  // must be a user gesture or the AudioContext stays suspended (policy).
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { keyDrive.clear(); if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true); }
+    keyDrive.clear();
+    if (document.hidden) pauseForFocusLoss();
   });
-  window.addEventListener('blur', () => keyDrive.clear());
+  window.addEventListener('blur', () => { keyDrive.clear(); pauseForFocusLoss(); });
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   window.addEventListener('pointerup', onPointerUp);

@@ -143,6 +143,13 @@
       </div>
     </div>
     <div class="setrow">
+      <div class="setlabel">Music volume</div>
+      <div class="seg musvol">
+        <input type="range" id="musicVol" min="0" max="100" step="1" value="70" aria-label="Music volume">
+        <output id="musicVolVal" for="musicVol">70</output>
+      </div>
+    </div>
+    <div class="setrow">
       <div class="setlabel">Haptics</div>
       <div class="seg">
         <button data-set="haptics" data-val="true">On</button>
@@ -239,6 +246,19 @@
     <h1 id="dropTitle">Rival left</h1>
     <p class="tagline">They disconnected &mdash; the table is yours again.</p>
     <button class="btn primary" id="dropMenu">Back to menu</button>
+  </div>
+</div>
+
+<!-- FOCUS LOSS: tap-to-resume veil. Shown on visibilitychange->hidden and
+     window blur; sits above every other overlay (last in DOM) and never
+     disturbs the state underneath. Dismissed only by a user gesture, which
+     is what the autoplay policy needs to restart the AudioContext. -->
+<div class="overlay hidden" id="focusov" role="dialog" aria-modal="true" aria-labelledby="focusTitle">
+  <div class="card">
+    <div class="kicker">PAUSED</div>
+    <h1 id="focusTitle">Paused</h1>
+    <p class="tagline">The table is holding its breath.</p>
+    <button class="btn primary" id="btnFocusResume">Tap to resume</button>
   </div>
 </div>
 

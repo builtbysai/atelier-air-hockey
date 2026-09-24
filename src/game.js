@@ -31,6 +31,7 @@ const Settings = {
   shake: 'full',      // 'off' | 'subtle' | 'full'
   sound: true,
   music: true,        // generative per-table music (MusicSys) — separate from SFX
+  musicVolume: 70,    // 0-100 — music bus level; 70 is the calibrated unity point
   haptics: true,
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
@@ -53,6 +54,9 @@ function loadSettings() {
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'landscape';
+  // music volume: persisted 0-100, 70 = unity. Clamp strays, fall back on garbage.
+  if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
+  else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
 }
 // Effects scalers — one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -253,7 +257,12 @@ const AudioSys = {
   // starts the pending room's bed once a ctx exists (autoplay-safe: only
   // called from init(), which only runs on real user input)
   _ensureAmbience() { if (this.ctx && this.ambKey) this.ambience(this.ambKey); },
-  resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
+  // suspend()/resume() back the focus-loss pause: every voice routes through
+  // this context, so suspending it silences music, SFX, and ambience at once.
+  // Promises are caught — resume() without a user gesture stays suspended
+  // (browser policy) instead of throwing an unhandled rejection.
+  suspend() { try { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
+  resume() { try { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
   toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; return this.muted; },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
   // pitchMul climbs ~3% per rally hit so long rallies audibly tighten.
@@ -597,6 +606,20 @@ const MusicSys = {
   mf(m) { return 440 * Math.pow(2, (m - 69) / 12); }, // midi -> hz
   cfg() { return MUSIC[this.key] || MUSIC.deco; },
   ac() { return AudioSys.ctx; },
+  // --- user volume (Settings.musicVolume 0-100, default 70) ---
+  // Perceptual-ish curve with unity at the 70 default: 100 gives a +4.6 dB
+  // lift, 0 is fully silent. Applied as a multiplier on the per-room bus
+  // target, so it composes with table levels, the goal duck, and intensity.
+  volGain() {
+    const v = clamp(Settings.musicVolume, 0, 100) / 70;
+    return v <= 0 ? 0 : Math.min(2, Math.pow(v, 1.5));
+  },
+  targetLevel() { return this.cfg().level * this.volGain() * (this.intensity ? 1.3 : 1); },
+  applyVolume() { // slider path: re-aim the live bus, no restart needed
+    const n = this.nodes, ac = this.ac();
+    if (!n || !ac) return;
+    n.musicG.gain.setTargetAtTime(Math.max(0.0001, this.targetLevel()), ac.currentTime, 0.15);
+  },
   // --- lifecycle ---
   prime() { // first-user-gesture path, via AudioSys.init()
     if (!Settings.music || !this.ac()) return;
@@ -618,8 +641,7 @@ const MusicSys = {
     setTimeout(() => {
       if (token !== self.xfade || !self.timer || !self.nodes) return;
       self.key = id; self.reseed();
-      self.nodes.musicG.gain.setTargetAtTime(
-        self.cfg().level * (self.intensity ? 1.3 : 1), self.ac().currentTime, 0.8);
+      self.nodes.musicG.gain.setTargetAtTime(self.targetLevel(), self.ac().currentTime, 0.8);
     }, 750);
   },
   reseed() {
@@ -639,7 +661,7 @@ const MusicSys = {
     const t = ac.currentTime;
     this.nextT = t + 0.2;
     this.nodes.musicG.gain.setValueAtTime(0.0001, t);
-    this.nodes.musicG.gain.setTargetAtTime(this.cfg().level, t + 0.1, 1.4);
+    this.nodes.musicG.gain.setTargetAtTime(this.targetLevel(), t + 0.1, 1.4);
     this.timer = setInterval(() => this.tick(), 150);
   },
   stop() { // full stop: timer cleared, bus fades out, nodes disconnected late
@@ -690,12 +712,12 @@ const MusicSys = {
       this.chordIdx = (this.chordIdx + steps[Math.floor(this.rng() * steps.length)] + c.chords.length * 2) % c.chords.length;
       this.curChord = c.chords[this.chordIdx];
       this.padChord(this.curChord.map(s => this.mf(c.root + s)), t, spb * phrase);
-      if (c.drone) this.tone({ f: this.mf(c.root - 12), t, a: 2.5, d: spb * phrase, vol: 0.035, wave: 'sine', cut: 200 });
+      if (c.drone) this.tone({ f: this.mf(c.root - 12), t, a: 2.5, d: spb * phrase, vol: 0.105, wave: 'sine', cut: 200 });
     }
     if (pn === 0 || (pn === 8 && this.rng() < c.bassDens)) { // bass punctuation
       const deg = (this.curChord || c.chords[0])[0];
       const f = this.mf(c.root - 12 + (this.rng() < 0.3 ? 7 : deg));
-      this.tone({ f, t, a: 0.02, d: 1.6, vol: 0.075, wave: 'sine', cut: 500 });
+      this.tone({ f, t, a: 0.02, d: 1.6, vol: 0.225, wave: 'sine', cut: 500 });
     }
     const melP = c.melDens * (this.intensity ? 1.7 : 1);
     if (this.rng() < melP) { // seeded walk over the room's mode — can't play a wrong note
@@ -706,14 +728,14 @@ const MusicSys = {
       const deg = c.mode[this.melIdx % c.mode.length] + 12 * Math.floor(this.melIdx / c.mode.length);
       const sq = c.melWave === 'square';
       this.tone({ f: this.mf(c.root + 12 + deg), t: t + (this.rng() < 0.25 ? spb / 2 : 0),
-                  a: 0.008, d: sq ? 0.5 : 1.1, vol: sq ? 0.020 : 0.034,
+                  a: 0.008, d: sq ? 0.5 : 1.1, vol: sq ? 0.060 : 0.102,
                   wave: c.melWave, cut: sq ? 1800 : 2600, send: 0.5 });
     }
     if (this.intensity && c.pulse && pn % 2 === 0) this.pulseTok(t); // match-point motorik
     if (c.drum && (pn === 0 || pn === 5 || pn === 8 || pn === 13)) this.drumTap(t);
     if (c.shimmer && this.rng() < 0.10)
       this.tone({ f: this.mf(c.root + 24 + [0, 7, 12][Math.floor(this.rng() * 3)]),
-                  t, a: 0.6, d: 3.6, vol: 0.016, wave: 'sine', cut: 4000, send: 0.7 });
+                  t, a: 0.6, d: 3.6, vol: 0.048, wave: 'sine', cut: 4000, send: 0.7 });
   },
   // --- voices (all cheap: an osc or two, a filter, an envelope) ---
   tone(o) { // { f, t, a, d, vol, wave, cut, send }
@@ -738,7 +760,7 @@ const MusicSys = {
     lp.frequency.value = c.padCut * (this.intensity ? 1.2 : 1);
     const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.setTargetAtTime(0.030, t + 0.05, Math.min(2.5, dur / 6)); // slow bloom
+    g.gain.setTargetAtTime(0.090, t + 0.05, Math.min(2.5, dur / 6)); // slow bloom
     g.gain.setTargetAtTime(0.0001, t + dur * 0.8, 1.0);              // melt out before the next chord
     lp.connect(g); g.connect(n.musicG);
     freqs.forEach((f, i) => {
@@ -757,7 +779,7 @@ const MusicSys = {
     o.frequency.setValueAtTime(210, t);
     o.frequency.exponentialRampToValueAtTime(105, t + 0.05);
     const g = ac.createGain();
-    g.gain.setValueAtTime(0.030, t);
+    g.gain.setValueAtTime(0.090, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
     o.connect(g); g.connect(n.musicG);
     o.start(t); o.stop(t + 0.1);
@@ -769,7 +791,7 @@ const MusicSys = {
     const src = ac.createBufferSource(); src.buffer = AudioSys._noiseBuf();
     const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 1.2;
     const g = ac.createGain();
-    g.gain.setValueAtTime(0.05, t);
+    g.gain.setValueAtTime(0.15, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
     src.connect(bp); bp.connect(g); g.connect(n.musicG);
     src.start(t, 0.3); src.stop(t + 0.15);
@@ -788,7 +810,7 @@ const MusicSys = {
     bp.frequency.exponentialRampToValueAtTime(2600, t + 0.9);
     const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.045, t + 0.55);
+    g.gain.exponentialRampToValueAtTime(0.135, t + 0.55);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
     src.connect(bp); bp.connect(g); g.connect(n.musicG);
     src.start(t); src.stop(t + 1.6);
@@ -800,7 +822,7 @@ const MusicSys = {
     if (i === this.intensity) return;
     this.intensity = i;
     const n = this.nodes, ac = this.ac();
-    if (n && ac) n.musicG.gain.setTargetAtTime(this.cfg().level * (i ? 1.3 : 1), ac.currentTime, 0.8);
+    if (n && ac) n.musicG.gain.setTargetAtTime(this.targetLevel(), ac.currentTime, 0.8);
   },
   // --- structural introspection (headless verification) ---
   state() { return { key: this.key, pendingKey: this.pendingKey, intensity: this.intensity, running: !!this.timer }; },
@@ -829,6 +851,7 @@ const G = {
   idleT: 0, demo: false, gwNet: 0, // gwNet: online guest's match-scoped goal-width override (v20)
   serveDir: 1,
   pausedFrom: 'play',
+  focusLost: false,     // focus-loss freeze: sim+net hold, audio suspended, veil up
   scuffs: [], parts: [], trail: [], texts: [], pulses: [],
   puckSq: 1, puckSqA: 0,    // squash amount / angle
   puckSqV: 0,              // squash spring velocity (damped-spring recovery)
@@ -902,12 +925,13 @@ function resize() {
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   view.w = w; view.h = h;
-  // v24.2: board orientation is a persisted setting. 'portrait' forces the
-  // rotated presentation on any screen; 'landscape' (default) keeps the
-  // classic behavior — unrotated on wide screens, rotated to fit on narrow
-  // ones. The game space itself stays landscape; physics and AI never see
-  // the rotation (screenToRink inverts it for input).
-  view.portrait = Settings.orientation === 'portrait' || h > w * 1.05;
+  // Board orientation is a persisted setting and the single source of truth:
+  // 'portrait' forces the rotated presentation on any screen, 'landscape'
+  // (default) keeps the rink unrotated on any screen. No auto-override by
+  // screen shape — the toggle must do what it says on every device. The game
+  // space itself stays landscape; physics and AI never see the rotation
+  // (screenToRink inverts it for input).
+  view.portrait = Settings.orientation === 'portrait';
   if (!view.portrait) {
     view.s = Math.min(w / VW, h / VH);
     view.ox = (w - VW * view.s) / 2; view.oy = (h - VH * view.s) / 2;
@@ -2169,8 +2193,43 @@ function togglePause(force, silent) {
     hideAll();
     if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
     if (G.hintLive) $('hint').classList.remove('hidden'); // hint survives pause/resume
+    if (!silent) {
+      // a local resume is always a user gesture, so the context may restart
+      AudioSys.resume();
+      G.focusLost = false;
+    } else if (G.focusLost) {
+      // the rival resumed while our tab is still away: stay frozen behind
+      // the tap-to-resume veil instead of silently coming back to life
+      $('focusov').classList.remove('hidden');
+    }
     if (G.mode === 'online' && !silent) Net.sendPause(false);
   }
+}
+// ---------- focus-loss pause ----------
+// visibilitychange -> hidden and window blur both land here (wired in ui.js).
+// Everything freezes: the sim, the attract demo, particles, and the net pump
+// all hold via the frame() guard; the AudioContext suspends so music, SFX,
+// and ambience stop at once. Mid-match this also takes the regular pause path
+// (pause card + pause event to the rival, so an online rival pauses too
+// instead of drifting on a stale sim). Anywhere else a lightweight
+// tap-to-resume veil covers the screen without disturbing the state below.
+// Audio never auto-resumes: the veil (or the pause card's Resume button)
+// only clears on a real user gesture, which is what the autoplay policy
+// needs for ctx.resume() to take effect.
+function pauseForFocusLoss() {
+  if (G.focusLost) return;
+  G.focusLost = true;
+  AudioSys.suspend();
+  if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true);
+  // the pause card is already a tap-to-resume surface; only veil when it
+  // isn't up (menus, win card, an already-manual pause, confirm dialogs)
+  if ($('pauseov').classList.contains('hidden')) $('focusov').classList.remove('hidden');
+}
+function resumeFromFocusLoss() { // the veil's tap handler — a user gesture
+  if (!G.focusLost) return;
+  AudioSys.resume();
+  G.focusLost = false;
+  $('focusov').classList.add('hidden');
 }
 // Restart the current match from the pause menu.
 // LOCAL (ai/2p): immediate — startGame resets score, board, stats, and counts
@@ -2253,6 +2312,10 @@ function frame(t) {
   requestAnimationFrame(frame);
   const rdt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
   lastT = t;
+  // focus-loss freeze: sim, demo, particles, and the net pump all hold; the
+  // frozen frame keeps rendering under the veil. lastT keeps updating so
+  // resume can't time-jump.
+  if (G.focusLost) { render(); return; }
   if (G.freezeT > 0) { G.freezeT -= rdt; render(); return; } // hit-stop
   G.trauma = Math.max(0, G.trauma - rdt * 1.7);
   // juice timers decay every frame, whatever the state

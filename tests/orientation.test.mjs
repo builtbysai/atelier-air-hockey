@@ -45,7 +45,7 @@ async function loadGame() {
     requestAnimationFrame() {}, setTimeout() {}, clearTimeout() {},
     performance: { now: () => 0 },
   });
-  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, resize, loadSettings, Settings, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; } };`,
+  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, resize, loadSettings, Settings, win: window, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; } };`,
     context, { filename: 'src/game.js' });
   return context.__t;
 }
@@ -112,4 +112,52 @@ test('settings UI offers the board orientation control', async () => {
   assert.match(template, /data-set="orientation" data-val="portrait"/, 'portrait button missing');
   const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
   assert.match(ui, /key === 'orientation'/, 'setSetting must re-fit the view on orientation change');
+});
+
+// The orientation setting is authoritative on every screen shape: portrait
+// forces the rotated presentation anywhere, landscape keeps the rink
+// unrotated anywhere. (Sam: the setting must actually work on all devices.)
+const SHAPES = [
+  ['desktop wide', 1280, 800],
+  ['phone portrait', 390, 844],
+  ['phone landscape', 844, 390],
+  ['tablet portrait', 1024, 1366],
+  ['square-ish', 800, 800],
+];
+
+for (const want of ['landscape', 'portrait']) {
+  for (const [label, w, h] of SHAPES) {
+    test(`orientation='${want}' ${want === 'portrait' ? 'rotates' : 'stays unrotated'} on ${label} ${w}x${h}`, async () => {
+      const t = await loadGame();
+      t.win.innerWidth = w; t.win.innerHeight = h;
+      t.Settings.orientation = want;
+      t.resize();
+      assert.equal(t.view.portrait, want === 'portrait',
+        `${label}: orientation='${want}' must give view.portrait=${want === 'portrait'}`);
+    });
+  }
+}
+
+test('a tall phone screen can no longer force rotation when landscape is chosen', async () => {
+  const t = await loadGame();
+  t.win.innerWidth = 390; t.win.innerHeight = 844;
+  t.Settings.orientation = 'landscape';
+  t.resize();
+  assert.equal(t.view.portrait, false);
+  // touch mapping still round-trips through the unrotated fit
+  const v = t.view, s = Math.min(390 / t.VW, 844 / t.VH);
+  t.view = { w: 390, h: 844, s, ox: (390 - t.VW * s) / 2, oy: (844 - t.VH * s) / 2, portrait: false, dpr: 1 };
+  for (const [x, y] of [[100, 100], [720, 520], [1340, 710]]) {
+    const sc = rinkToScreen(t, x, y, false);
+    const back = t.screenToRink(sc.x, sc.y);
+    assert.ok(Math.abs(back.x - x) < 1e-6 && Math.abs(back.y - y) < 1e-6, 'unrotated round-trip');
+  }
+});
+
+test('a wide desktop screen can no longer undo a forced portrait', async () => {
+  const t = await loadGame();
+  t.win.innerWidth = 1920; t.win.innerHeight = 1080;
+  t.Settings.orientation = 'portrait';
+  t.resize();
+  assert.equal(t.view.portrait, true);
 });
