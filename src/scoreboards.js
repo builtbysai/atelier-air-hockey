@@ -383,10 +383,8 @@ function tickBoard(rdt) {
   }
 }
 function drawScoreboard(ctx) {
-  // ONLINE: labels by role — the local player is always "YOU"
-  const labels = G.mode === '2p' ? ['P1', 'P2']
-    : G.mode === 'online' ? [onlineSideLabel(0), onlineSideLabel(1)]
-    : ['YOU', DIFFS[G.difficulty].name.toUpperCase()];
+  // Labels by mode — the local player is always "YOU"; exhibition names both AIs.
+  const labels = [sideLabel(0), sideLabel(1)];
   const dev = Scoreboards[THEME.scoreboard] || Scoreboards.solari;
   dev.draw(ctx, G.score[0], G.score[1], Settings.firstTo, THEME.board, G.board, labels);
 }
