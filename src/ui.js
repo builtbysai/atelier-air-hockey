@@ -84,6 +84,9 @@ function setSetting(key, val) {
   // the menu's table thumbnails draw the goal mouth — repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
+  // board orientation re-fits the view immediately (visual only — physics,
+  // AI, and net sync are untouched, so it's safe mid-match)
+  if (key === 'orientation') { try { resize(); } catch (e) {} }
 }
 function applySettingsToUI() {
   document.querySelectorAll('[data-set]').forEach(btn => {

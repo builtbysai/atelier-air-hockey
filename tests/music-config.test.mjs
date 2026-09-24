@@ -35,7 +35,10 @@ for (const id of order) {
   seeds.add(seed);
   assert.ok(root >= 20 && root <= 80, `${id}: root midi ${root} out of range`);
   assert.ok(bpm >= 40 && bpm <= 120, `${id}: bpm ${bpm} out of range`);
-  assert.ok(level > 0 && level <= 0.1, `${id}: level ${level} out of range (keep the bed under SFX)`);
+  // v24.2: the bed was inaudible at <=0.1 (measured -52 dBFS at the master
+  // vs -11 dBFS SFX peaks on 2026-09-24). Levels ~1.0 put the bed at
+  // ~-26 dBFS: clearly audible, still ~15 dB under the SFX.
+  assert.ok(level >= 0.5 && level <= 1.5, `${id}: level ${level} out of range (bed must be audible but under SFX)`);
   const modeM = entry.match(/mode:\s*\[([\d,\s]+)\]/);
   assert.ok(modeM, `${id}: mode missing`);
   const mode = modeM[1].split(',').map(s => parseInt(s.trim(), 10));
