@@ -51,10 +51,12 @@ async function loadGame() {
 }
 
 // forward map: rink -> screen, mirroring the canvas transform in render()
+// the documented render transform: portrait is a TRUE 90° rotation
+// (ctx.transform(0,-s,s,0,ox,oy+s*VW)), never a reflection
 function rinkToScreen(t, x, y, portrait) {
   const v = t.view;
   if (!portrait) return { x: v.ox + v.s * x, y: v.oy + v.s * y };
-  return { x: v.ox + v.s * (t.VH - y), y: v.oy + v.s * (t.VW - x) };
+  return { x: v.ox + v.s * y, y: v.oy + v.s * (t.VW - x) };
 }
 
 test('orientation setting defaults to landscape and validates', async () => {
