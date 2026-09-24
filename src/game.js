@@ -606,6 +606,7 @@ function mkMallet(side) {
     whooshT: 0, saveCd: 0,    // juice cooldowns
     trail: [],                // recent positions on fast flicks
     hitSq: 1, hitSqA: 0,      // impact squash amount / angle (mirrors G.puckSq)
+    contactActive: false,     // hit-effects edge latch — see collideMallet
   };
 }
 function resetPositions() {
@@ -613,7 +614,7 @@ function resetPositions() {
   m1.x = m1.tx = PX + 170; m1.y = m1.ty = CY;
   m2.x = m2.tx = PX + PW - 170; m2.y = m2.ty = CY;
   m1.vx = m1.vy = m2.vx = m2.vy = 0;
-  for (const m of [m1, m2]) { m.glueT = 0; m.ghostT = 0; m.touching = false; m.trail.length = 0; m.hitSq = 1; m.hitSqA = 0; }
+  for (const m of [m1, m2]) { m.glueT = 0; m.ghostT = 0; m.touching = false; m.trail.length = 0; m.hitSq = 1; m.hitSqA = 0; m.contactActive = false; }
   G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R, w: 0, ang: 0 };
   G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
   G.stallX = CX; G.stallY = CY; G.anchorT = 0;
@@ -827,8 +828,8 @@ function collideMallet(p, m, dt) {
   const dx = p.x - m.x, dy = p.y - m.y;
   const minD = p.r + m.r;
   const d2 = dx * dx + dy * dy;
-  if (m.ghostT > 0) { m.glueT = 0; return; } // ghostT ticks in stepPhysics
-  if (d2 >= minD * minD || d2 === 0) return;
+  if (m.ghostT > 0) { m.glueT = 0; m.contactActive = false; return; } // ghostT ticks in stepPhysics
+  if (d2 >= minD * minD || d2 === 0) { m.contactActive = false; return; }
   const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
   m.touching = true;
   // --- possession clock ---
@@ -865,14 +866,14 @@ function collideMallet(p, m, dt) {
       m.hitSq = 0.72; m.hitSqA = Math.atan2(ry, rx);
       onMalletHit(p.x, p.y, 750, rx, ry);
     }
-    m.glueT = 0; G.lastTouch = m.side;
+    m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
     return;
   }
   // --- normal contact ---
   p.x = m.x + nx * minD; p.y = m.y + ny * minD;
   const rvx = p.vx - m.vx, rvy = p.vy - m.vy;
   const vn = rvx * nx + rvy * ny;
-  if (vn >= 0) return; // separating
+  if (vn >= 0) { m.contactActive = false; return; } // separating
   // Speed-dependent restitution: a still/slow mallet SMOTHERS the puck
   // (real goalie play — the puck drops dead for possession), a driven
   // mallet bounces it lively. This is what makes traps, dribbles and
@@ -900,27 +901,39 @@ function collideMallet(p, m, dt) {
   p.w = clamp((p.w || 0) + tang / 260, -12, 12);
   G.lastTouch = m.side;
   G.stallT = 0;
-  const impact = -vn + Math.max(0, mvn);
-  // SAVE: a fast lateral block of a puck bound for your own goal gets the
-  // soft treatment — thud, ring pulse, brief puck glow. High drama, low noise.
-  if (m.saveCd <= 0 && impact > 220 && (m.side === 0 ? pvx0 < -450 : pvx0 > 450) && msp0 > 650) {
-    m.saveCd = 0.9;
-    G.saveT = 0.55;
-    G.pulses.push({ x: p.x, y: p.y, t: 0 });
-    AudioSys.thud();
-    // match stat: bank a save for the defender's side (real play only — never demo)
-    if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
+  // hit-effects cascade (sound, particles, shake, save/whoosh, mallet recoil):
+  // only on the leading edge of a contact episode. Continuous smothering
+  // contact re-enters this branch every substep (up to 240/sec) while the
+  // puck is pinned against the mallet — without this gate that's hundreds
+  // of hit-sounds + camera shakes + particle bursts a second for a puck
+  // that isn't going anywhere (the "stuck buzzing" / rapid-fire feel).
+  // A genuinely separate touch (vn>=0 above, or losing contact entirely)
+  // always clears the latch first, so a real fast dribble still gets a
+  // distinct hit registered for each bounce.
+  if (!m.contactActive) {
+    const impact = -vn + Math.max(0, mvn);
+    // SAVE: a fast lateral block of a puck bound for your own goal gets the
+    // soft treatment — thud, ring pulse, brief puck glow. High drama, low noise.
+    if (m.saveCd <= 0 && impact > 220 && (m.side === 0 ? pvx0 < -450 : pvx0 > 450) && msp0 > 650) {
+      m.saveCd = 0.9;
+      G.saveT = 0.55;
+      G.pulses.push({ x: p.x, y: p.y, t: 0 });
+      AudioSys.thud();
+      // match stat: bank a save for the defender's side (real play only — never demo)
+      if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
+    }
+    // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
+    if (msp0 > 1300 && m.whooshT <= 0) {
+      m.whooshT = 0.3;
+      AudioSys.whoosh(msp0 / 3000);
+    }
+    // the mallet takes a bit of the recoil too — a driven strike compresses
+    // it along the contact normal for a couple frames before it springs back
+    m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
+    m.hitSqA = Math.atan2(ny, nx);
+    onMalletHit(p.x, p.y, impact, nx, ny);
   }
-  // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
-  if (msp0 > 1300 && m.whooshT <= 0) {
-    m.whooshT = 0.3;
-    AudioSys.whoosh(msp0 / 3000);
-  }
-  // the mallet takes a bit of the recoil too — a driven strike compresses
-  // it along the contact normal for a couple frames before it springs back
-  m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
-  m.hitSqA = Math.atan2(ny, nx);
-  onMalletHit(p.x, p.y, impact, nx, ny);
+  m.contactActive = true;
 }
 
 function stepPhysics(dt) {
