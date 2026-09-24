@@ -84,9 +84,10 @@ async function loadGame() {
 }
 
 const sig = (c) => [
-  c.root % 12, c.bpm, c.melWave, c.bassWave || 'sine',
-  c.mode.join(','), c.padCut,
-  [c.pulse, c.drum, c.shimmer, c.drone].map(Boolean).join(''),
+  c.root % 12, c.bpm, c.melWave, (c.bass && c.bass.wave) || 'sine',
+  c.mode.join(','), c.padCut, c.swing,
+  c.prog.map(ch => ch.r + ':' + ch.t.join(',')).join(';'),
+  [c.pulse, !!c.drums, c.shimmer, c.drone].map(Boolean).join(''),
 ].join('|');
 
 test('every table has a music room and an ambience bed', async () => {
@@ -94,7 +95,7 @@ test('every table has a music room and an ambience bed', async () => {
   for (const id of TABLES) {
     assert.ok(t.MUSIC[id], `MUSIC room missing for table ${id}`);
     assert.ok(t.ROOM_AMB[id], `ROOM_AMB bed missing for table ${id}`);
-    assert.ok(Array.isArray(t.MUSIC[id].chords) && t.MUSIC[id].chords.length > 0, `${id} needs chords`);
+    assert.ok(Array.isArray(t.MUSIC[id].prog) && t.MUSIC[id].prog.length >= 4, `${id} needs a composed progression`);
   }
 });
 

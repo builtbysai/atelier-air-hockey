@@ -1,5 +1,5 @@
 /* ============================================================
-   ATELIER AIR HOCKEY — engine v2
+   ATELIER AIR HOCKEY - engine v2
    Rebuilt from research: Brunswick 1969 roots, near-zero-friction
    puck glide, velocity-transfer striking, human-like AI, and the
    full juice canon (hit-stop, trauma shake + rotation, particles,
@@ -14,10 +14,10 @@ const PX = 200, PY = 200, PW = 1040, PH = 640;  // playfield
 const CX = PX + PW / 2, CY = PY + PH / 2;
 const PUCK_R = 26, MALLET_R = 46, RAIL = 26;
 // Goal-mouth presets (v20): adjustable in Settings → Goal mouth. Standard is
-// the new default — narrower than the old fixed 230 (36% of the wall was
+// the new default - narrower than the old fixed 230 (36% of the wall was
 // swallowing deflections). The host's choice rides the countdown event
 // online; guests apply it as a match-scoped override (G.gwNet).
-const GOAL_W = 230; // the Wide preset; legacy fixed width — use goalW() below
+const GOAL_W = 230; // the Wide preset; legacy fixed width - use goalW() below
 const GOAL_PRESETS = { narrow: 170, standard: 200, wide: 230 };
 function goalW() {
   if (G.gwNet > 0) return G.gwNet; // online guest: the host's width for this match
@@ -30,14 +30,15 @@ const TAU = Math.PI * 2;
 const Settings = {
   shake: 'full',      // 'off' | 'subtle' | 'full'
   sound: true,
-  music: true,        // generative per-table music (MusicSys) — separate from SFX
-  musicVolume: 70,    // 0-100 — music bus level; 70 is the calibrated unity point
+  masterMuted: false, // HUD audio icon: mutes BOTH buses at once; Settings keeps separate Sound/Music toggles
+  music: true,        // generative per-table music (MusicSys) - separate from SFX
+  musicVolume: 70,    // 0-100 - music bus level; 70 is the calibrated unity point
   haptics: true,
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
-  effects: 'full',     // 'full' | 'subtle' | 'minimal' — spectacle scaler, never touches physics
-  goalW: 'standard',   // 'narrow' | 'standard' | 'wide' — goal-mouth width (v20)
-  orientation: 'landscape', // 'landscape' | 'portrait' — board presentation (v24.2)
+  effects: 'full',     // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics
+  goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
+  orientation: 'landscape', // 'landscape' | 'portrait' - board presentation (v24.2)
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
@@ -58,7 +59,7 @@ function loadSettings() {
   if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
   else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
 }
-// Effects scalers — one place to look up how much spectacle is allowed.
+// Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
 const fxParticles = () => Settings.effects === 'minimal' ? 0.35 : Settings.effects === 'subtle' ? 0.65 : 1;
 const fxTrail = () => Settings.effects === 'minimal' ? 0.5 : Settings.effects === 'subtle' ? 0.75 : 1;
@@ -101,7 +102,7 @@ function recordLine2p() {
   if (!a && !b) return '';
   return 'P1 ' + (a || '0W–0L') + ' · P2 ' + (b || '0W–0L');
 }
-// repaint every menu record line — call after results are stored and whenever
+// repaint every menu record line - call after results are stored and whenever
 // the menu is shown (Record.line returns '' so unplayed rivals stay clean)
 function refreshRecordLines() {
   document.querySelectorAll('[data-rec]').forEach(el => {
@@ -112,7 +113,7 @@ function refreshRecordLines() {
 // ---------- personal bests ----------
 // Per matchup ('ai0' | 'ai1' | 'ai2' | 'p2p'): fastest win, top puck speed,
 // longest rally, biggest margin. Checked in showWin(); beaten records earn a
-// ★ line on the win card. Same local-only rule as Record — online matches
+// ★ line on the win card. Same local-only rule as Record - online matches
 // are session-only, netcode never touches this module.
 const Best = {
   key: 'atelier-ah-best',
@@ -195,7 +196,7 @@ const Tour = {
   won(id) { return (this.data[id] || 0) > 0; },
   count() { return THEME_ORDER.filter(id => this.won(id)).length; },
 };
-// repaint the tour counter + conquered pips — call on boot and whenever the
+// repaint the tour counter + conquered pips - call on boot and whenever the
 // menu is shown (Tour data only changes at match end)
 function refreshTour() {
   document.querySelectorAll('.tslide').forEach(el =>
@@ -214,7 +215,7 @@ const paceWall = () => PACES[Settings.pace].wall;
 const paceServe = () => PACES[Settings.pace].serve;
 
 // ---------- physics tuning (from research) ----------
-// Real tables: puck floats on air jets — near-zero friction. A good shove
+// Real tables: puck floats on air jets - near-zero friction. A good shove
 // crosses an 8ft table several times. Damping here is exponential /s.
 const PUCK_DAMP = 0.09;              // default damping; pace setting overrides at runtime
 const WALL_REST = 0.95;              // default rail restitution; pace setting overrides at runtime
@@ -230,7 +231,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const rnd = (a = 1, b) => b === undefined ? Math.random() * a : a + Math.random() * (b - a);
 const rand = (a, b) => a + Math.random() * (b - a); // themes.js uses rand(a,b)
 const hyp = Math.hypot;
-// '#rrggbb' + alpha -> 'rgba(...)' — theme hexes need alpha for glow overlays
+// '#rrggbb' + alpha -> 'rgba(...)' - theme hexes need alpha for glow overlays
 function hexA(hex, a) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
   if (!m) return 'rgba(216,169,63,' + a + ')';
@@ -247,15 +248,20 @@ const AudioSys = {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
-      // Two independent buses: SFX/UI voices ride sfxBus (the Sound toggle),
-      // generative music + room ambience ride musicBus (the Music toggle).
-      // Sound off never silences music and Music off never silences SFX.
+      // Three gain stages: sfxBus (the Sound toggle), musicBus (the Music
+      // toggle), and masterBus (the HUD icon) in front of both. Sound off
+      // never silences music, Music off never silences SFX, and the HUD
+      // icon's master mute silences everything at once without disturbing
+      // either toggle's own setting underneath.
       this.sfxBus = this.ctx.createGain();
-      this.sfxBus.connect(this.ctx.destination);
       this.musicBus = this.ctx.createGain();
-      this.musicBus.connect(this.ctx.destination);
+      this.masterBus = this.ctx.createGain();
+      this.sfxBus.connect(this.masterBus);
+      this.musicBus.connect(this.masterBus);
+      this.masterBus.connect(this.ctx.destination);
       this.syncMute(); // honor the persisted sound setting (boot w/ sound off)
       this.syncMusic(); // and the persisted music setting (boot w/ music off)
+      this.syncMaster(); // and the persisted master mute (boot w/ all muted)
     } catch (e) { /* silent */ }
     this._ensureAmbience();
     MusicSys.prime(); // generative music also waits for the first user gesture
@@ -265,7 +271,7 @@ const AudioSys = {
   _ensureAmbience() { if (this.ctx && this.ambKey) this.ambience(this.ambKey); },
   // suspend()/resume() back the focus-loss pause: every voice routes through
   // this context, so suspending it silences music, SFX, and ambience at once.
-  // Promises are caught — resume() without a user gesture stays suspended
+  // Promises are caught - resume() without a user gesture stays suspended
   // (browser policy) instead of throwing an unhandled rejection.
   suspend() { try { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
   resume() { try { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
@@ -311,7 +317,7 @@ const AudioSys = {
     src.connect(bp); bp.connect(g); g.connect(this.sfxBus);
     src.start(t);
   },
-  // save thud: a soft low knock for goal-line blocks — felt, not announced
+  // save thud: a soft low knock for goal-line blocks - felt, not announced
   thud() {
     if (!this.ctx || this.muted) return;
     const t = this.ctx.currentTime;
@@ -337,7 +343,7 @@ const AudioSys = {
       o.start(t); o.stop(t + 0.24);
     });
   },
-  // goal-frame clank: a heavier metallic knock than the post ping — the
+  // goal-frame clank: a heavier metallic knock than the post ping - the
   // whole frame takes the hit, so it answers low and long instead of bright
   clank(power) {
     if (!this.ctx || this.muted) return;
@@ -413,7 +419,7 @@ const AudioSys = {
   // jazz-room bass plucks, poolside laps, a concrete-hall wash, felt hush,
   // loft murmur swells with the odd glass clink, machiya rain and wood
   // creaks. Levels sit well under SFX. The bed rides the music bus, so it
-  // follows the Music toggle — Sound off leaves it playing. The bed only
+  // follows the Music toggle - Sound off leaves it playing. The bed only
   // ever exists after init(), which runs solely on real user input
   // (autoplay-safe). Switching rooms crossfades the bed instead of clicking.
   ambKey: null, amb: null, ambTimer: null,
@@ -422,8 +428,10 @@ const AudioSys = {
     this.ambKey = id;
     if (this.ctx && (!this.amb || this.amb.key !== id)) this._startAmbience();
   },
-  syncMute() { if (this.sfxBus) this.sfxBus.gain.value = this.muted ? 0 : 0.5; }, // SFX/UI only — the music bus is untouched
+  syncMute() { if (this.sfxBus) this.sfxBus.gain.value = this.muted ? 0 : 0.5; }, // SFX/UI only - the music bus is untouched
   syncMusic() { if (this.musicBus) this.musicBus.gain.value = Settings.music ? 1 : 0; }, // hard gate: Music off silences the whole music bus, never SFX
+  syncMaster() { if (this.masterBus) this.masterBus.gain.value = Settings.masterMuted ? 0 : 1; }, // HUD icon: both buses at once, toggles underneath untouched
+  setMasterMuted(m) { Settings.masterMuted = !!m; try { saveSettings(); } catch (e) {} this.syncMaster(); return Settings.masterMuted; },
   _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
     if (this._nb) return this._nb;
     const len = Math.floor(this.ctx.sampleRate * 2);
@@ -574,47 +582,165 @@ const ROOM_AMB = {
 };
 
 // ---------- generative music ----------
-// MusicSys: a seeded generative ambient engine — one musical identity per
+// MusicSys: a seeded generative ambient engine - one musical identity per
 // table, 100% synthesized (no assets, so the PWA offline story stays
 // intact). Layers follow the shipped-game hybrid pattern:
 //   * vertical: a pad bed always; at match point a pulse layer joins plus
 //     denser melody and a slightly lifted bed; goals get a soft swell while
 //     the bed ducks under the goal ceremony.
 //   * horizontal: table changes crossfade to the new room's music.
-//   * stingers: none — the goal ceremony owns that moment; music stays back.
+//   * stingers: none - the goal ceremony owns that moment; music stays back.
 // Scheduling: a 150ms interval schedules against audioContext.currentTime
 // with 0.4s lookahead; musical time is an accumulated ideal clock, never
 // the timer's own firing time, so tab jank can't drift the beat. The RNG is
 // seeded per table (mulberry32), so each room's music is a stable identity
-// across sessions, not a shuffle. Music rides AudioSys.musicBus — the Sound
+// across sessions, not a shuffle. Music rides AudioSys.musicBus - the Sound
 // toggle (sfxBus) never touches it, and Music off never touches SFX.
+// Euclidean onset pattern: k hits spread as evenly as possible over n steps,
+// rotated by rot. Bjorklund's algorithm, the same math behind the tresillo
+// E(3,8) = [x..x..x.] and the cinquillo E(5,8). Used for bass lines and percussion.
+function euclid(k, n, rot) {
+  const seq = [];
+  if (k <= 0 || n <= 0) return new Array(Math.max(0, n)).fill(false);
+  if (k >= n) return new Array(n).fill(true);
+  const counts = [], remainders = [];
+  let divisor = n - k, level = 0;
+  remainders.push(k);
+  for (;;) {
+    counts.push(Math.floor(divisor / remainders[level]));
+    remainders.push(divisor % remainders[level]);
+    divisor = remainders[level];
+    level++;
+    if (remainders[level] <= 1) break;
+  }
+  counts.push(divisor);
+  (function build(l) {
+    if (l === -1) seq.push(false);
+    else if (l === -2) seq.push(true);
+    else {
+      for (let i = 0; i < counts[l]; i++) build(l - 1);
+      if (remainders[l] !== 0) build(l - 2);
+    }
+  })(level);
+  // start on a hit, then apply the rotation
+  const first = seq.indexOf(true);
+  const lined = first > 0 ? seq.slice(first).concat(seq.slice(0, first)) : seq;
+  const r = ((rot || 0) % n + n) % n;
+  return r ? lined.map((_, i) => lined[(i - r + n) % n]) : lined;
+}
+// Generative music, composed: every table gets its own harmonic progression,
+// its own motivic material, and its own rhythmic grammar. The engine walks
+// each progression in composed order (not random), develops a short motif
+// through repetition, sequence, inversion and fragmentation, and arranges
+// itself across 2-phrase sections (enter, settle, full, break) so the room
+// breathes. Percussion uses Euclidean onset patterns with velocity accents,
+// restrained swing and ghost notes; rooms that should be still get none.
+// Fields per room:
+//   seed/root/mode/bpm: identity. padCut: lowpass on the pad. melWave: motif voice.
+//   prog: the progression, one chord per 4-bar phrase. Each chord is {r, t}:
+//     r = root offset in semitones from the table root, t = chord tones voiced
+//     compactly above that root (common tones shared with neighbors wherever
+//     the harmony allows, so the pad glides instead of jumping).
+//   bridge: alternate chords for every 4th cycle (a turnaround keeps long
+//     matches from looping identically forever).
+//   bass: Euclidean pattern over a 16-step bar; k hits, n steps, rot offset;
+//     alt = interval (semitones) the pattern alternates to on odd hits.
+//   motif: q = the question phrase, a = the answer phrase, as [mode-degree, beats].
+//     Degrees wrap octaves diatonically, so sequences and inversions stay in key.
+//   drums: null where the room should be still; otherwise per-layer Euclidean
+//     patterns {k, n, rot, vol}. swing = off-8th delay as a fraction of a
+//     16th; ghost = probability of a barely-there extra 16th.
+//   form: per-section voice densities [enter, settle, full, break]; match point
+//     forces the full section.
 const MUSIC = {
-  deco:  { seed: 1929, root: 45, mode: [0, 2, 3, 5, 7, 9, 10], bpm: 56, padCut: 800,  melWave: 'triangle', melDens: 0.30, bassDens: 0.55, pulse: false, drum: false, shimmer: false, level: 1.100,
-           chords: [[0, 3, 7, 14], [5, 8, 12, 17], [8, 12, 16, 23], [7, 11, 14, 17]] },   // speakeasy noir: Am9 colours, walking-distance bass
-  mid:   { seed: 1962, root: 41, mode: [0, 2, 4, 6, 7, 9, 11], bpm: 72, padCut: 1400, melWave: 'sine',     melDens: 0.40, bassDens: 0.45, pulse: false, drum: false, shimmer: false, level: 1.000,
-           chords: [[0, 4, 7, 11], [7, 11, 14, 18], [5, 9, 12, 16], [2, 5, 9, 14]] },     // palm-springs exotica: lydian lift, vibes-like plucks
-  brut:  { seed: 1972, root: 38, mode: [0, 1, 5, 7, 8],         bpm: 48, padCut: 320,  melWave: 'square',   melDens: 0.12, bassDens: 0.65, bassWave: 'square', pulse: false, drum: false, shimmer: false, level: 1.200, drone: true,
-           chords: [[0, 1, 7], [0, 5, 7], [1, 8, 13]] },                                            // bunker: phrygian drone, rare metallic partials
-  bil:   { seed: 1911, root: 48, mode: [0, 2, 4, 5, 7, 9, 11],  bpm: 60, padCut: 700,  melWave: 'triangle', melDens: 0.28, bassDens: 0.60, bassWave: 'triangle', pulse: false, drum: false, shimmer: false, level: 1.040,
-           chords: [[0, 4, 7, 12], [5, 9, 12, 16], [7, 11, 14, 19], [9, 12, 16, 21]] },   // members' club: stately major, cello-weight bass
-  mem:   { seed: 1981, root: 48, mode: [0, 2, 4, 7, 9],         bpm: 104, padCut: 1600, melWave: 'square',   melDens: 0.50, bassDens: 0.80, bassWave: 'triangle', pulse: true,  drum: false, shimmer: false, level: 0.960,
-           chords: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [9, 12, 16]] },                   // loft party '81: major-pentatonic synth-pop, bouncy
-  sashi: { seed: 1603, root: 50, mode: [0, 2, 3, 7, 8],         bpm: 50, padCut: 1100, melWave: 'triangle', melDens: 0.16, bassDens: 0.35, pulse: false, drum: false, shimmer: false, level: 1.000,
-           chords: [[0, 7, 12], [3, 10, 15], [5, 12, 17]] },                                 // machiya: hirajoshi koto plucks, lots of ma
-  bau:   { seed: 1923, root: 40, mode: [0, 3, 5, 7, 10],        bpm: 96, padCut: 1000, melWave: 'triangle', melDens: 0.34, bassDens: 0.60, bassWave: 'square', pulse: true,  drum: false, shimmer: false, level: 1.000,
-           chords: [[0, 3, 7, 12], [3, 7, 10, 15], [5, 8, 12, 17]] },                     // workshop: minor-pentatonic motorik, geometric
-  zel:   { seed: 1550, root: 52, mode: [0, 1, 4, 5, 7, 8, 10],  bpm: 84, padCut: 1200, melWave: 'sawtooth', melDens: 0.36, bassDens: 0.55, bassWave: 'sawtooth', pulse: false, drum: true,  shimmer: false, level: 1.000,
-           chords: [[0, 4, 7], [1, 5, 8], [5, 8, 12]] },                                     // riad: hijaz, oud-like plucks, frame-drum lilt
-  swi:   { seed: 1957, root: 55, mode: [0, 7, 12, 19],          bpm: 44, padCut: 2200, melWave: 'sine',     melDens: 0.08, bassDens: 0.25, pulse: false, drum: false, shimmer: true,  level: 0.900,
-           chords: [[0, 12, 19], [7, 19, 26]] },                                            // gallery: fifths and octaves, near-silence
-  neon:  { seed: 1983, root: 33, mode: [0, 2, 3, 5, 7, 8, 10],  bpm: 118, padCut: 900,  melWave: 'sawtooth', melDens: 0.42, bassDens: 0.90, bassWave: 'sawtooth', pulse: true,  drum: true,  shimmer: false, level: 1.000,
-           chords: [[0, 3, 7, 12], [3, 7, 10, 14], [5, 8, 12, 16], [7, 10, 14, 17]] },        // midnight drive: A-minor synthwave, i-III-iv-v, driving saw bass
+  deco:  { seed: 1929, root: 45, mode: [0, 2, 3, 5, 7, 9, 10], bpm: 56, padCut: 800,  melWave: 'triangle', swing: 0.12, level: 1.100,
+           prog: [ {r:0,t:[0,3,7,10,14]}, {r:8,t:[8,12,15,19,22]}, {r:5,t:[5,8,12,17,19]}, {r:7,t:[7,11,14,17]} ],
+           bridge: [ {r:5,t:[5,8,12,17,19]}, {r:7,t:[7,11,14,17]} ],
+           bass: { k:2, n:16, rot:0, vol: 0.225, wave: 'sine', cut: 500, alt: 7 },
+           motif: { q: [[4,1],[5,1],[6,2]], a: [[5,1],[4,1],[3,1],[2,2]] },
+           drums: null,
+           form: [ {bass:0,mel:.5,drums:0}, {bass:.6,mel:.7,drums:0}, {bass:1,mel:1,drums:0}, {bass:.3,mel:.4,drums:0} ],
+           pulse: false, drone: false, shimmer: false },   // noir lounge: A melodic-minor ballad, Am9 Fmaj9 Dm9 E7, motif in thirds
+  mid:   { seed: 1977, root: 43, mode: [0, 2, 3, 5, 7, 8, 10], bpm: 96, padCut: 1400, melWave: 'sawtooth', swing: 0.04, level: 1.000,
+           prog: [ {r:0,t:[0,3,7,14]}, {r:8,t:[8,12,15,19]}, {r:3,t:[3,7,10,14]}, {r:10,t:[10,14,17,21]} ],
+           bridge: [ {r:8,t:[8,12,15,19]}, {r:7,t:[7,11,14,17]} ],
+           bass: { k:4, n:16, rot:0, vol: 0.250, wave: 'sawtooth', cut: 700, alt: 12 },
+           motif: { q: [[4,1],[5,1],[4,1],[2,1]], a: [[5,2],[4,1],[3,1]] },
+           drums: { kick: {k:4,n:16,rot:0,vol:.32}, snare: {k:2,n:16,rot:4,vol:.28}, hat: {k:8,n:16,rot:0,vol:.10}, ghost: 0 },
+           form: [ {bass:.5,mel:.5,drums:.5}, {bass:.8,mel:.7,drums:.8}, {bass:1,mel:1,drums:1}, {bass:.4,mel:.5,drums:0} ],
+           pulse: true, drone: false, shimmer: true },     // synthwave: four-on-the-floor, driving octave bass, neon motif
+  brut:  { seed: 1963, root: 41, mode: [0, 1, 3, 5, 7, 8, 10], bpm: 66, padCut: 500,  melWave: 'sine',     swing: 0,    level: 1.100,
+           prog: [ {r:0,t:[0,3,7,12]}, {r:8,t:[8,12,15]}, {r:0,t:[0,3,7]}, {r:7,t:[7,11,14]} ],
+           bridge: [ {r:8,t:[8,12,15]}, {r:7,t:[7,11,14]} ],
+           bass: { k:1, n:16, rot:0, vol: 0.300, wave: 'sine', cut: 300, alt: 0 },
+           motif: { q: [[0,2],[1,2]], a: [[0,4]] },
+           drums: null,
+           form: [ {bass:.5,mel:.5,drums:0}, {bass:1,mel:.7,drums:0}, {bass:1,mel:1,drums:0}, {bass:.5,mel:.5,drums:0} ],
+           pulse: false, drone: true, shimmer: false },     // brutalist drone: phrygian concrete, one massive bass hit per bar
+  bil:   { seed: 1955, root: 48, mode: [0, 2, 3, 5, 7, 9, 10], bpm: 72, padCut: 1100, melWave: 'triangle', swing: 0.30, level: 1.100,
+           prog: [ {r:0,t:[0,3,7,10,14]}, {r:5,t:[5,9,12,15,19]}, {r:0,t:[0,3,7,10]}, {r:7,t:[7,11,14,17]} ],
+           bridge: [ {r:5,t:[5,9,12,15,19]}, {r:7,t:[7,11,14,17]} ],
+           bass: { k:3, n:16, rot:2, vol: 0.220, wave: 'sine', cut: 600, alt: 7 },
+           motif: { q: [[4,1],[3,1],[2,2]], a: [[2,1],[1,1],[0,2]] },
+           drums: null,
+           form: [ {bass:.5,mel:.6,drums:0}, {bass:.8,mel:.8,drums:0}, {bass:1,mel:1,drums:0}, {bass:.4,mel:.5,drums:0} ],
+           pulse: false, drone: false, shimmer: false },    // billiard room: C dorian jazz, Cm9 F9 G7, heavy swing, blue-note descent
+  mem:   { seed: 1968, root: 45, mode: [0, 2, 4, 5, 7, 9, 10], bpm: 112, padCut: 1600, melWave: 'square', swing: 0.08, level: 1.000,
+           prog: [ {r:0,t:[0,4,7,10]}, {r:5,t:[5,9,12,15]}, {r:0,t:[0,4,7,10]}, {r:7,t:[7,11,14,17]} ],
+           bridge: [ {r:5,t:[5,9,12,15]}, {r:7,t:[7,11,14,17]} ],
+           bass: { k:4, n:16, rot:0, vol: 0.260, wave: 'triangle', cut: 800, alt: 12 },
+           motif: { q: [[0,1],[2,1],[4,1],[5,1]], a: [[4,1],[2,1],[0,2]] },
+           drums: { kick: {k:2,n:16,rot:0,vol:.32}, snare: {k:2,n:16,rot:4,vol:.28}, hat: {k:8,n:16,rot:2,vol:.11}, ghost: .6 },
+           form: [ {bass:.6,mel:.6,drums:.6}, {bass:.8,mel:.8,drums:.8}, {bass:1,mel:1,drums:1}, {bass:.5,mel:.6,drums:.4} ],
+           pulse: true, drone: false, shimmer: false },     // memphis juke joint: mixolydian I7 IV7 V7, offbeat hats, walking fire
+  sashi: { seed: 1988, root: 50, mode: [0, 2, 5, 7, 8],       bpm: 60, padCut: 2400, melWave: 'sine',     swing: 0,    level: 0.900,
+           prog: [ {r:0,t:[0,5,7,12]}, {r:5,t:[5,8,12]}, {r:0,t:[0,5,7]}, {r:7,t:[7,12,14]} ],
+           bridge: [ {r:5,t:[5,8,12]}, {r:7,t:[7,12,14]} ],
+           bass: { k:1, n:16, rot:8, vol: 0.200, wave: 'sine', cut: 500, alt: 0 },
+           motif: { q: [[3,2],[2,2]], a: [[2,3],[1,1]] },
+           drums: null,
+           form: [ {bass:.5,mel:.5,drums:0}, {bass:.7,mel:.7,drums:0}, {bass:1,mel:1,drums:0}, {bass:.3,mel:.4,drums:0} ],
+           pulse: false, drone: false, shimmer: true },      // kaiseki: hirajoshi stillness, two-note motifs, space as an instrument
+  bau:   { seed: 1972, root: 40, mode: [0, 2, 3, 5, 7, 8, 10], bpm: 120, padCut: 2000, melWave: 'sawtooth', swing: 0,   level: 1.000,
+           prog: [ {r:0,t:[0,3,7,12]}, {r:8,t:[8,12,15]}, {r:3,t:[3,7,10]}, {r:10,t:[10,14,17]} ],
+           bridge: [ {r:8,t:[8,12,15]}, {r:11,t:[11,15,18]} ],
+           bass: { k:8, n:16, rot:0, vol: 0.240, wave: 'sawtooth', cut: 900, alt: 12 },
+           motif: { q: [[4,1],[4,1],[5,1],[4,1]], a: [[3,1],[2,1],[1,1],[0,1]] },
+           drums: { kick: {k:4,n:16,rot:0,vol:.30}, snare: {k:2,n:16,rot:4,vol:.26}, hat: {k:16,n:16,rot:0,vol:.09}, ghost: .3 },
+           form: [ {bass:.7,mel:.5,drums:.6}, {bass:1,mel:.7,drums:.8}, {bass:1,mel:1,drums:1}, {bass:.6,mel:.5,drums:.5} ],
+           pulse: true, drone: false, shimmer: false },     // bauhaus motorik: 16th hats, root-octave bass engine, relentless
+  zel:   { seed: 1994, root: 40, mode: [0, 1, 4, 5, 7, 8, 10], bpm: 104, padCut: 1200, melWave: 'sawtooth', swing: 0.06, level: 1.000,
+           prog: [ {r:0,t:[0,4,7,12]}, {r:1,t:[1,5,8]}, {r:0,t:[0,4,7]}, {r:10,t:[10,14,17]} ],
+           bridge: [ {r:1,t:[1,5,8]}, {r:0,t:[0,4,7]} ],
+           bass: { k:6, n:16, rot:0, vol: 0.270, wave: 'sawtooth', cut: 800, alt: 0 },
+           motif: { q: [[0,1],[1,1],[0,1],[3,1]], a: [[3,1],[2,1],[1,1],[0,1]] },
+           drums: { kick: {k:3,n:16,rot:0,vol:.32}, snare: {k:1,n:16,rot:8,vol:.26}, hat: {k:6,n:16,rot:0,vol:.10}, ghost: .5 },
+           form: [ {bass:.6,mel:.6,drums:.6}, {bass:.8,mel:.8,drums:.8}, {bass:1,mel:1,drums:1}, {bass:.5,mel:.5,drums:.4} ],
+           pulse: false, drone: false, shimmer: false },    // zellige: phrygian-dominant gnawa trance, tresillo kick, pedal bass
+  swi:   { seed: 1957, root: 41, mode: [0, 2, 4, 5, 7, 9, 11], bpm: 76, padCut: 2200, melWave: 'sine',     swing: 0.10, level: 0.900,
+           prog: [ {r:0,t:[0,4,7,12]}, {r:5,t:[5,9,12]}, {r:0,t:[0,4,7]}, {r:7,t:[7,11,14,17]} ],
+           bridge: [ {r:5,t:[5,9,12]}, {r:7,t:[7,11,14,17]} ],
+           bass: { k:2, n:16, rot:4, vol: 0.200, wave: 'sine', cut: 500, alt: 7 },
+           motif: { q: [[4,1],[5,1],[7,2]], a: [[5,1],[4,1],[2,2]] },
+           drums: null,
+           form: [ {bass:.5,mel:.5,drums:0}, {bass:.7,mel:.7,drums:0}, {bass:1,mel:1,drums:0}, {bass:.4,mel:.5,drums:0} ],
+           pulse: false, drone: false, shimmer: true },     // alpine music box: F major I IV V, gentle ascent, snow-light
+  neon:  { seed: 1983, root: 33, mode: [0, 2, 3, 5, 7, 8, 10], bpm: 118, padCut: 900,  melWave: 'sawtooth', swing: 0.05, level: 1.000,
+           prog: [ {r:0,t:[0,3,7,12]}, {r:3,t:[3,7,10,14]}, {r:5,t:[5,8,12,16]}, {r:7,t:[7,10,14,17]} ],
+           bridge: [ {r:3,t:[3,7,10,14]}, {r:7,t:[7,10,14,17]} ],
+           bass: { k:8, n:16, rot:0, vol: 0.260, wave: 'sawtooth', cut: 1000, alt: 12 },
+           motif: { q: [[4,1],[2,1],[0,1],[2,1]], a: [[3,1],[2,1],[0,2]] },
+           drums: { kick: {k:4,n:16,rot:0,vol:.32}, snare: {k:2,n:16,rot:4,vol:.28}, hat: {k:16,n:16,rot:0,vol:.09}, ghost: .4 },
+           form: [ {bass:.6,mel:.5,drums:.6}, {bass:.8,mel:.7,drums:.8}, {bass:1,mel:1,drums:1}, {bass:.5,mel:.5,drums:.5} ],
+           pulse: true, drone: false, shimmer: false },      // neon midnight: i III iv v synthwave, 16th hats, night-drive
 };
+
 const MusicSys = {
   key: 'deco', pendingKey: 'deco', intensity: 0,
   timer: 0, nodes: null, nextT: 0, beat: 0,
-  rng: null, chordIdx: 0, melIdx: 3, curChord: null, xfade: 0,
-  voices: [], // live voice gains — killed on room switch so the old room's long pad tail can't bleed into the new room
+  rng: null, progIdx: 0, curChord: null, xfade: 0, sessionSeed: 0,
+  bassHit: 0, bassPat: null, kickPat: null, snarePat: null, hatPat: null, prevPad: null,
+  voices: [], // live voice gains - killed on room switch so the old room's long pad tail can't bleed into the new room
   mf(m) { return 440 * Math.pow(2, (m - 69) / 12); }, // midi -> hz
   cfg() { return MUSIC[this.key] || MUSIC.deco; },
   ac() { return AudioSys.ctx; },
@@ -665,10 +791,35 @@ const MusicSys = {
   },
   reseed() {
     const c = this.cfg();
-    this.rng = mulberry32(c.seed);
-    this.chordIdx = 0; this.curChord = c.chords[0];
-    this.melIdx = 2 + Math.floor(this.rng() * 3);
+    // The session seed lets two online peers derive the same generative
+    // sequence (see the Net hello handshake); offline it is 0 and each room
+    // uses its composed seed. Either way the music is deterministic.
+    this.rng = mulberry32((c.seed ^ (this.sessionSeed | 0)) >>> 0);
+    this.progIdx = 0; this.curChord = c.prog[0];
+    this.beat = 0; this.bassHit = 0; this.prevPad = null;
+    this.bassPat = c.bass ? euclid(c.bass.k, 16, c.bass.rot || 0) : null;
+    if (c.drums) {
+      this.kickPat = euclid(c.drums.kick.k, 16, c.drums.kick.rot || 0);
+      this.snarePat = euclid(c.drums.snare.k, 16, c.drums.snare.rot || 0);
+      this.hatPat = euclid(c.drums.hat.k, 16, c.drums.hat.rot || 0);
+    } else this.kickPat = this.snarePat = this.hatPat = null;
+  },
+  // Online sync: the host deals one session seed in the hello handshake so
+  // both peers seed the same generative sequence. Sample-phase alignment
+  // is NOT guaranteed (separate AudioContexts, separate clocks); the shared
+  // seed only guarantees the same notes in the same order.
+  setSessionSeed(s) {
+    this.sessionSeed = s | 0;
+    if (this.timer) this.reseed(); // already playing: restart the sequence on the new seed
+  },
+  // Countdown start: restart the phrase on the shared downbeat. Host and
+  // guest each anchor to their own countdown, so network jitter keeps them
+  // from being sample-aligned - but both start the same phrase of the same
+  // sequence at the same musical moment.
+  alignBeat() {
+    if (!this.timer || !this.ac()) return;
     this.beat = 0;
+    this.nextT = this.ac().currentTime + 0.15;
   },
   start() {
     const ac = this.ac();
@@ -704,7 +855,7 @@ const MusicSys = {
     const ac = this.ac();
     const musicG = ac.createGain(); musicG.gain.value = 0.0001; // per-room level
     const duckG = ac.createGain(); duckG.gain.value = 1;         // goal-ceremony dip
-    musicG.connect(duckG); duckG.connect(AudioSys.musicBus);      // music rides its own bus — the Sound toggle never touches it
+    musicG.connect(duckG); duckG.connect(AudioSys.musicBus);      // music rides its own bus - the Sound toggle never touches it
     // one shared feedback delay as cheap space for plucks and shimmer
     const dly = ac.createDelay(1); dly.delayTime.value = 0.34;
     const fb = ac.createGain(); fb.gain.value = 0.32;
@@ -725,37 +876,154 @@ const MusicSys = {
       this.nextT += spb; this.beat++;
     }
   },
+  // One beat of composed music. Harmony turns over every 16-beat phrase;
+  // bass and drums live on a 16-step grid inside each bar; the motif is laid
+  // down whole-phrase at the phrase start so it always lands intact.
   scheduleBeat(t, n, spb) {
-    const c = this.cfg(), phrase = 16, pn = n % phrase;
-    if (pn === 0) { // phrase start: walk the chord progression, bloom a pad
-      const steps = [-1, 1, 1, 2];
-      this.chordIdx = (this.chordIdx + steps[Math.floor(this.rng() * steps.length)] + c.chords.length * 2) % c.chords.length;
-      this.curChord = c.chords[this.chordIdx];
-      this.padChord(this.curChord.map(s => this.mf(c.root + s)), t, spb * phrase);
-      if (c.drone) this.tone({ f: this.mf(c.root - 12), t, a: 2.5, d: spb * phrase, vol: 0.105, wave: 'sine', cut: 200 });
-    }
-    if (pn === 0 || (pn === 8 && this.rng() < c.bassDens)) { // bass punctuation
-      const deg = (this.curChord || c.chords[0])[0];
-      const f = this.mf(c.root - 12 + (this.rng() < 0.3 ? 7 : deg));
-      this.tone({ f, t, a: 0.02, d: 1.6, vol: 0.225, wave: c.bassWave || 'sine', cut: 500 });
-    }
-    const melP = c.melDens * (this.intensity ? 1.7 : 1);
-    if (this.rng() < melP) { // seeded walk over the room's mode — can't play a wrong note
-      const steps = [-2, -1, -1, 1, 1, 2];
-      this.melIdx += steps[Math.floor(this.rng() * steps.length)];
-      if (this.melIdx < 0) this.melIdx = 1;
-      if (this.melIdx >= c.mode.length + 2) this.melIdx = c.mode.length;
-      const deg = c.mode[this.melIdx % c.mode.length] + 12 * Math.floor(this.melIdx / c.mode.length);
-      const sq = c.melWave === 'square';
-      this.tone({ f: this.mf(c.root + 12 + deg), t: t + (this.rng() < 0.25 ? spb / 2 : 0),
-                  a: 0.008, d: sq ? 0.5 : 1.1, vol: sq ? 0.060 : 0.102,
-                  wave: c.melWave, cut: sq ? 1800 : 2600, send: 0.5 });
-    }
+    const c = this.cfg(), pn = n % 16;
+    const phraseN = (n - pn) / 16;
+    const form = c.form[Math.floor(phraseN / 2) % 4]; // 2-phrase sections: enter, settle, full, break
+    const dens = this.intensity ? { bass: 1, mel: 1, drums: 1 } : form; // match point: the room goes full
+    if (pn === 0) this.startPhrase(t, spb, phraseN);
+    if (c.bass) this.bass16(t, n, spb, dens.bass);
+    if (c.drums && dens.drums > 0) this.drums16(t, n, spb, dens);
     if (this.intensity && c.pulse && pn % 2 === 0) this.pulseTok(t); // match-point motorik
-    if (c.drum && (pn === 0 || pn === 5 || pn === 8 || pn === 13)) this.drumTap(t);
-    if (c.shimmer && this.rng() < 0.10)
-      this.tone({ f: this.mf(c.root + 24 + [0, 7, 12][Math.floor(this.rng() * 3)]),
-                  t, a: 0.6, d: 3.6, vol: 0.048, wave: 'sine', cut: 4000, send: 0.7 });
+    if (c.shimmer && this.rng() < 0.10 * dens.mel) this.shimmerTone(t);
+  },
+  // Phrase start: advance the composed progression (the bridge chords every
+  // 4th cycle), bloom the pad, lay the drone, and develop the motif.
+  startPhrase(t, spb, phraseN) {
+    const c = this.cfg();
+    const cyc = Math.floor(this.progIdx / c.prog.length);
+    const chord = (c.bridge && cyc % 4 === 3)
+      ? c.bridge[this.progIdx % c.bridge.length]
+      : c.prog[this.progIdx % c.prog.length];
+    this.progIdx++;
+    this.curChord = chord;
+    this.padChord(chord.t.map(s => this.mf(c.root + s)), t, spb * 16);
+    if (c.drone) this.tone({ f: this.mf(c.root - 12), t, a: 2.5, d: spb * 16, vol: 0.105, wave: 'sine', cut: 200 });
+    this.scheduleMotif(t, spb, phraseN);
+  },
+  // Motivic development across the 8-phrase form cycle. The motif is stated
+  // twice before anything develops it (no development without identity),
+  // then moves through diatonic sequence, fragmentation with the answer
+  // phrase, inversion, and a closing echo. Degrees wrap octaves diatonically,
+  // so development can never play a wrong note.
+  scheduleMotif(t, spb, phraseN) {
+    const c = this.cfg(), m = c.motif;
+    if (!m) return;
+    const pc = phraseN % 8;
+    const seq = (notes, steps) => notes.map(nb => [nb[0] + steps, nb[1]]);
+    const inv = (notes) => { const p = notes[0][0]; return notes.map(nb => [2 * p - nb[0], nb[1]]); };
+    const frag = (notes) => notes.slice(0, Math.max(1, Math.ceil(notes.length / 2)));
+    let line;
+    if (pc === 0 || pc === 1) line = m.q;
+    else if (pc === 2) line = seq(m.q, 1);
+    else if (pc === 3) line = frag(m.q).concat(m.a);
+    else if (pc === 4) line = m.q;
+    else if (pc === 5) line = inv(m.q);
+    else if (pc === 6) line = seq(m.q, -1);
+    else line = m.a.concat(frag(m.q));
+    const form = c.form[Math.floor(phraseN / 2) % 4];
+    const gate = (pc === 0 || pc === 1) ? 1 : (this.intensity ? 1 : form.mel);
+    let bt = 0;
+    const sq = c.melWave === 'square';
+    for (const nb of line) {
+      if (bt >= 16) break;
+      if (this.rng() < gate)
+        this.tone({ f: this.mf(c.root + 12 + this.degToSemi(c.mode, nb[0])), t: t + bt * spb,
+                    a: 0.008, d: Math.min(nb[1] * spb * 0.92, 2.4), vol: sq ? 0.060 : 0.102,
+                    wave: c.melWave, cut: sq ? 1800 : 2600, send: 0.5 });
+      bt += nb[1];
+    }
+  },
+  degToSemi(mode, deg) {
+    const L = mode.length, o = Math.floor(deg / L);
+    return mode[((deg % L) + L) % L] + 12 * o;
+  },
+  // Bass on the 16-step grid: the room's Euclidean pattern, roots from the
+  // current chord, alternate hits stepping up to `alt` for line movement.
+  bass16(t, n, spb, density) {
+    const c = this.cfg(), b = c.bass, s16 = spb / 4;
+    const step0 = (n % 4) * 4;
+    for (let s = 0; s < 4; s++) {
+      if (!this.bassPat[(step0 + s) % 16]) continue;
+      if (this.rng() > density) continue;
+      const alt = b.alt && ((this.bassHit++ % 2) === 1);
+      const f = this.mf(c.root - 12 + this.curChord.r + (alt ? b.alt : 0));
+      this.tone({ f, t: t + s * s16, a: 0.02, d: 1.6, vol: b.vol, wave: b.wave || 'sine', cut: b.cut || 500 });
+    }
+  },
+  // Drums on the 16-step grid: Euclidean layers, velocity accents by grid
+  // position (downbeat strongest), a couple ms of human lateness, restrained
+  // swing on the off-8ths, and barely-there ghost 16ths.
+  drums16(t, n, spb, dens) {
+    const c = this.cfg(), d = c.drums, s16 = spb / 4;
+    const step0 = (n % 4) * 4;
+    const layers = [
+      [this.kickPat, d.kick, (tt, v) => this.kickHit(tt, v)],
+      [this.snarePat, d.snare, (tt, v) => this.snareHit(tt, v)],
+      [this.hatPat, d.hat, (tt, v, st) => this.hatHit(tt, v, st)],
+    ];
+    for (const layer of layers) {
+      const pat = layer[0], cfg = layer[1], play = layer[2];
+      for (let s = 0; s < 4; s++) {
+        const step = (step0 + s) % 16;
+        if (!pat[step]) continue;
+        if (step !== 0 && this.rng() > dens.drums) continue; // the downbeat anchor never drops
+        const accent = step % 4 === 0 ? 1 : (step % 2 === 0 ? 0.8 : 0.55);
+        const v = Math.max(0.012, cfg.vol * accent * (0.85 + this.rng() * 0.3));
+        let tt = t + s * s16;
+        if (c.swing && step % 4 === 2) tt += c.swing * spb / 6; // the swung off-8th sits late
+        tt += 0.0015 + this.rng() * 0.003; // human: a couple ms late, never early
+        play(tt, v, step);
+      }
+    }
+    if (d.ghost && this.rng() < d.ghost * dens.drums)
+      this.hatHit(t + (1 + 2 * Math.floor(this.rng() * 2)) * s16, 0.16 * d.hat.vol, -1);
+  },
+  kickHit(t, v) { // synthesized kick: 120 Hz dropping to 45, short and round
+    const ac = this.ac(), n = this.nodes;
+    if (!n) return;
+    const osc = ac.createOscillator(); osc.type = 'sine';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(45, t + 0.10);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(v, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    osc.connect(g); g.connect(n.musicG);
+    osc.start(t); osc.stop(t + 0.2);
+    this.voices.push(g);
+  },
+  snareHit(t, v) { // noise burst through a bandpass plus body
+    const ac = this.ac(), n = this.nodes;
+    if (!n) return;
+    const src = ac.createBufferSource(); src.buffer = AudioSys._noiseBuf();
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.8;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(v, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    src.connect(bp); bp.connect(g); g.connect(n.musicG);
+    src.start(t); src.stop(t + 0.16);
+    this.voices.push(g);
+  },
+  hatHit(t, v, step) { // highpassed noise tick; ghosts get the shortest tail
+    const ac = this.ac(), n = this.nodes;
+    if (!n) return;
+    const src = ac.createBufferSource(); src.buffer = AudioSys._noiseBuf();
+    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 8000;
+    const g = ac.createGain();
+    const dur = step === -1 ? 0.03 : 0.045;
+    g.gain.setValueAtTime(v, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(hp); hp.connect(g); g.connect(n.musicG);
+    src.start(t); src.stop(t + dur + 0.02);
+    this.voices.push(g);
+  },
+  shimmerTone(t) {
+    const c = this.cfg();
+    this.tone({ f: this.mf(c.root + 24 + [0, 7, 12][Math.floor(this.rng() * 3)]),
+                t, a: 0.6, d: 3.6, vol: 0.048, wave: 'sine', cut: 4000, send: 0.7 });
   },
   // --- voices (all cheap: an osc or two, a filter, an envelope) ---
   tone(o) { // { f, t, a, d, vol, wave, cut, send }
@@ -807,20 +1075,8 @@ const MusicSys = {
     o.start(t); o.stop(t + 0.1);
     o.onended = () => { try { o.disconnect(); g.disconnect(); } catch (e) {} };
   },
-  drumTap(t) { // frame-drum-ish tap for the riad
-    const ac = this.ac(), n = this.nodes;
-    if (!n) return;
-    const src = ac.createBufferSource(); src.buffer = AudioSys._noiseBuf();
-    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 1.2;
-    const g = ac.createGain();
-    g.gain.setValueAtTime(0.15, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    src.connect(bp); bp.connect(g); g.connect(n.musicG);
-    src.start(t, 0.3); src.stop(t + 0.15);
-    src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) {} };
-  },
   // --- adaptive events ---
-  goalSwell() { // soft lift under the goal ceremony — never a jingle
+  goalSwell() { // soft lift under the goal ceremony - never a jingle
     if (!this.timer || !this.ac() || !this.nodes) return;
     const ac = this.ac(), n = this.nodes, t = ac.currentTime, c = this.cfg();
     n.duckG.gain.cancelScheduledValues(t);
@@ -837,7 +1093,7 @@ const MusicSys = {
     src.connect(bp); bp.connect(g); g.connect(n.musicG);
     src.start(t); src.stop(t + 1.6);
     src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) {} };
-    this.padChord((this.curChord || c.chords[0]).map(s => this.mf(c.root + s)), t + 0.05, 2.4);
+    this.padChord((this.curChord ? this.curChord.t : c.prog[0].t).map(s => this.mf(c.root + s)), t + 0.05, 2.4);
   },
   setIntensity(i) {
     i = i ? 1 : 0;
@@ -853,13 +1109,13 @@ function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibra
 
 // ---------- game state ----------
 // whiff: per-strike chance the AI swings clean through (a human error, never a
-// superhuman stat — it only ever makes rivals weaker). windup: telegraph time.
+// superhuman stat - it only ever makes rivals weaker). windup: telegraph time.
 const DIFFS = [
   { name: 'Rookie',   maxSpeed: 780,  react: 0.30, aimErr: 100, strike: 0.62, aggro: 0.50, tick: 0.14, whiff: 0.12, windup: 0.11 },
   { name: 'Club Pro', maxSpeed: 1180, react: 0.13, aimErr: 45,  strike: 1.00, aggro: 0.70, tick: 0.09, whiff: 0.03, windup: 0.11 },
   { name: 'Champion', maxSpeed: 1520, react: 0.10, aimErr: 34,  strike: 1.25, aggro: 0.95, tick: 0.06, whiff: 0.01, windup: 0.14 },
 ];
-const PLAYER_CAP = 4200; // mallet tracking cap — 1:1 feel, no teleporting
+const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
 
 const G = {
   state: 'menu',            // menu | count | play | goal | win | pause
@@ -889,9 +1145,9 @@ const G = {
   board: freshBoard(),      // scoreboard animation state
   ai: null,                 // per-ai brain state
   stats: null,              // per-match stats (top speed, rally, time)
-  onlineFlip: false,        // ONLINE: guest view is mirrored — they play from their own side
+  onlineFlip: false,        // ONLINE: guest view is mirrored - they play from their own side
   hintLive: false,          // first-time hint currently showing on the table
-  themeId: 'deco',          // current table id (setTheme) — feeds the tour tracker
+  themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
 G.stats = freshStats();
@@ -908,7 +1164,7 @@ function mkMallet(side) {
     whooshT: 0, saveCd: 0,    // juice cooldowns
     trail: [],                // recent positions on fast flicks
     hitSq: 1, hitSqA: 0,      // impact squash amount / angle (mirrors G.puckSq)
-    contactActive: false,     // hit-effects edge latch — see collideMallet
+    contactActive: false,     // hit-effects edge latch - see collideMallet
   };
 }
 function resetPositions() {
@@ -950,7 +1206,7 @@ function resize() {
   // Board orientation is a persisted setting and the single source of truth:
   // 'portrait' forces the rotated presentation on any screen, 'landscape'
   // (default) keeps the rink unrotated on any screen. No auto-override by
-  // screen shape — the toggle must do what it says on every device. The game
+  // screen shape - the toggle must do what it says on every device. The game
   // space itself stays landscape; physics and AI never see the rotation
   // (screenToRink inverts it for input).
   view.portrait = Settings.orientation === 'portrait';
@@ -998,7 +1254,7 @@ function onlineSideLabel(side) {
   return amGuest ? 'YOU' : 'RIVAL';
 }
 // Scoreboard + match-point ribbon side labels, by mode. Exhibition (watch)
-// names both AIs — the left board is never "YOU" when no human is playing.
+// names both AIs - the left board is never "YOU" when no human is playing.
 function sideLabel(side) {
   // While the lobby overlay sits over a paused match, openLobby flips G.mode
   // to 'online' (to keep the attract demo off). The scoreboard behind the
@@ -1029,7 +1285,7 @@ function clampMallet(m) {
   m.tx = clamp(m.tx, m.side === 0 ? PX + r : CX + 8, m.side === 0 ? CX - 8 : PX + PW - r);
   m.ty = clamp(m.ty, PY + r, PY + PH - r);
 }
-// move mallet toward target with a speed cap — 1:1 feel, never teleports
+// move mallet toward target with a speed cap - 1:1 feel, never teleports
 function driveMallet(m, dt, cap) {
   const dx = m.tx - m.x, dy = m.ty - m.y;
   const d = hyp(dx, dy), maxD = cap * dt;
@@ -1041,7 +1297,7 @@ function driveMallet(m, dt, cap) {
     m.vx += (ivx - m.vx) * k; m.vy += (ivy - m.vy) * k;
     m.x = nx; m.y = ny;
     // motion trail on fast flicks: distance-based so 240 Hz substeps don't
-    // flood it — ~8 points of ~26u reads as a streak, not a smear
+    // flood it - ~8 points of ~26u reads as a streak, not a smear
     const tr = m.trail, last = tr[tr.length - 1];
     if (hyp(m.vx, m.vy) > 1200) {
       if (!last || hyp(m.x - last.x, m.y - last.y) > 26) {
@@ -1057,7 +1313,7 @@ function driveMallet(m, dt, cap) {
 }
 
 // Touch finger-offset (v8): the mallet floats away from the fingertip so the
-// finger never covers it — the convention top mobile air hockey games use.
+// finger never covers it - the convention top mobile air hockey games use.
 // Size-aware: roughly one mallet diameter of screen-space offset, scaled by
 // the current view transform, so it feels right on phones and tablets.
 // Direction is away from the player's own body: in portrait 2P the top
@@ -1075,13 +1331,13 @@ function onPointerDown(e) {
   AudioSys.init(); AudioSys.resume();
   interacted = true;
   if (G.state === 'menu' || G.state === 'win') return; // buttons own the UI
-  if (G.mode === 'watch') return; // EXHIBITION: no human input — both mallets are AI-driven
+  if (G.mode === 'watch') return; // EXHIBITION: no human input - both mallets are AI-driven
   const touch = e.pointerType === 'touch';
   // Side assignment uses the raw (unshifted) touch point so the vertical
   // offset can never drag a touch across the center line in portrait 2P.
   const raw = screenToRink(e.clientX, e.clientY);
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
-    // ONLINE: exactly one local mallet — host plays m1, guest plays m2. No AI.
+    // ONLINE: exactly one local mallet - host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
     pointers.set(e.pointerId, Net.role === 'guest' ? 1 : 0);
   } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
@@ -1149,10 +1405,10 @@ function collideWalls(p) {
 // with full mallet-velocity transfer, so flicks become rockets.
 //
 // Possession clock (stuck-puck fix): a mallet pressing the puck into a rail
-// pocket defeats both anti-stall systems — constant contact keeps resetting
+// pocket defeats both anti-stall systems - constant contact keeps resetting
 // G.stallT, and the displacement nudge gets smothered. So each mallet tracks
 // glueT: sustained gentle contact time. Hard hits reset it; past
-// GLUE_HARD_CUTOFF (1.2s — legit contact is ~0.18s, so this never touches
+// GLUE_HARD_CUTOFF (1.2s - legit contact is ~0.18s, so this never touches
 // normal play; lowered from the original 2.5s) an unconditional release
 // fires. Rail pins squirt along the rail; open-ice presses pop off the
 // mallet face. The pressing mallet goes ghost for 0.30s so it can't
@@ -1162,18 +1418,18 @@ function collideWalls(p) {
 // window rather than one release at the end) was tried and measured here
 // and didn't hold up: once the mallet and puck velocities both settle near
 // zero the two are just resting in contact, not colliding, so nothing in
-// the per-substep collision response ever runs to apply a nudge to — the
+// the per-substep collision response ever runs to apply a nudge to - the
 // puck is asleep, not being repeatedly struck. Fixing that properly needs
 // a position-based (not impulse-based) escape, which is a bigger change
-// than this pass — the hard cutoff alone still cuts the worst case from
+// than this pass - the hard cutoff alone still cuts the worst case from
 // 2.5s to 1.2s, and the separate contactActive fix below removes the
 // hundreds-of-events-per-second effects spam that made the wait feel far
 // worse than the raw duration.
-// shared escape-direction logic for a puck pinned in a rail/corner pocket —
+// shared escape-direction logic for a puck pinned in a rail/corner pocket -
 // used by both the progressive relief nudge and the hard release below, so
 // they always agree on which way is "out." A true double-corner (near two
-// rails at once) can't just zero both blocked axes — that leaves a zero
-// vector — so once anything is railed we commit to a single clean axis:
+// rails at once) can't just zero both blocked axes - that leaves a zero
+// vector - so once anything is railed we commit to a single clean axis:
 // along the top/bottom rail toward whichever side exit is nearer.
 function glueEscapeDir(p, nx, ny) {
   const nearT = p.y < PY + 70, nearB = p.y > PY + PH - 70;
@@ -1235,7 +1491,7 @@ function collideMallet(p, m, dt) {
   const vn = rvx * nx + rvy * ny;
   if (vn >= 0) { m.contactActive = false; return; } // separating
   // Speed-dependent restitution: a still/slow mallet SMOTHERS the puck
-  // (real goalie play — the puck drops dead for possession), a driven
+  // (real goalie play - the puck drops dead for possession), a driven
   // mallet bounces it lively. This is what makes traps, dribbles and
   // possession possible instead of endless pinball.
   const msp0 = hyp(m.vx, m.vy);
@@ -1254,7 +1510,7 @@ function collideMallet(p, m, dt) {
   }
   const nsp = hyp(p.vx, p.vy);
   if (nsp > PUCK_MAX) { p.vx *= PUCK_MAX / nsp; p.vy *= PUCK_MAX / nsp; }
-  // english: tangential mallet velocity at contact becomes puck spin —
+  // english: tangential mallet velocity at contact becomes puck spin -
   // the Magnus curve is applied in stepPhysics
   const tx = -ny, ty = nx;
   const tang = (m.vx - p.vx) * tx + (m.vy - p.vy) * ty;
@@ -1264,7 +1520,7 @@ function collideMallet(p, m, dt) {
   // hit-effects cascade (sound, particles, shake, save/whoosh, mallet recoil):
   // only on the leading edge of a contact episode. Continuous smothering
   // contact re-enters this branch every substep (up to 240/sec) while the
-  // puck is pinned against the mallet — without this gate that's hundreds
+  // puck is pinned against the mallet - without this gate that's hundreds
   // of hit-sounds + camera shakes + particle bursts a second for a puck
   // that isn't going anywhere (the "stuck buzzing" / rapid-fire feel).
   // A genuinely separate touch (vn>=0 above, or losing contact entirely)
@@ -1273,13 +1529,13 @@ function collideMallet(p, m, dt) {
   if (!m.contactActive) {
     const impact = -vn + Math.max(0, mvn);
     // SAVE: a fast lateral block of a puck bound for your own goal gets the
-    // soft treatment — thud, ring pulse, brief puck glow. High drama, low noise.
+    // soft treatment - thud, ring pulse, brief puck glow. High drama, low noise.
     if (m.saveCd <= 0 && impact > 220 && (m.side === 0 ? pvx0 < -450 : pvx0 > 450) && msp0 > 650) {
       m.saveCd = 0.9;
       G.saveT = 0.55;
       G.pulses.push({ x: p.x, y: p.y, t: 0 });
       AudioSys.thud();
-      // match stat: bank a save for the defender's side (real play only — never demo)
+      // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
     }
     // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
@@ -1287,7 +1543,7 @@ function collideMallet(p, m, dt) {
       m.whooshT = 0.3;
       AudioSys.whoosh(msp0 / 3000);
     }
-    // the mallet takes a bit of the recoil too — a driven strike compresses
+    // the mallet takes a bit of the recoil too - a driven strike compresses
     // it along the contact normal for a couple frames before it springs back
     m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
     m.hitSqA = Math.atan2(ny, nx);
@@ -1302,7 +1558,7 @@ function stepPhysics(dt) {
   const damp = Math.exp(-paceDamp() * dt);
   p.vx *= damp; p.vy *= damp;
   // Magnus: puck spin (english from tangential mallet contact) curves flight.
-  // |a| = K·|w|·|v| — at w=10, v=2000 that's ~600 u/s², a visible bend
+  // |a| = K·|w|·|v| - at w=10, v=2000 that's ~600 u/s², a visible bend
   // across the table; negligible at low speed. Spin decays in ~1s.
   if (p.w) {
     const spm = hyp(p.vx, p.vy);
@@ -1325,7 +1581,7 @@ function stepPhysics(dt) {
   // decays when the mallet isn't touching so the possession ring never
   // lingers after a clean separation.
   for (let mi = 0; mi < 2; mi++) {
-    const m = mi === 0 ? G.m1 : G.m2; // indexed, not [G.m1, G.m2] — no alloc at 240 Hz
+    const m = mi === 0 ? G.m1 : G.m2; // indexed, not [G.m1, G.m2] - no alloc at 240 Hz
     if (m.ghostT > 0) m.ghostT -= dt;
     if (m.whooshT > 0) m.whooshT -= dt;
     if (m.saveCd > 0) m.saveCd -= dt;
@@ -1339,7 +1595,7 @@ function stepPhysics(dt) {
   // goals: full crossing of the line inside the mouth
   if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < goalW() / 2) onGoal(0);
   else if (p.x < PX - p.r * 0.35 && Math.abs(p.y - CY) < goalW() / 2) onGoal(1);
-  // near-miss drama: a fast puck kissing the goal frame without scoring —
+  // near-miss drama: a fast puck kissing the goal frame without scoring -
   // a tiny time dip, a glowing post, a soft tick. Once per 1.5s max.
   if (G.state === 'play' && !G.demo && G.nearCd <= 0) {
     const dy = Math.abs(p.y - CY);
@@ -1354,13 +1610,13 @@ function stepPhysics(dt) {
       AudioSys.blip(1500, 0.05, 0.10);
     }
   }
-  // anti-stall: a real table never lets the puck die mid-rink — a whisper
+  // anti-stall: a real table never lets the puck die mid-rink - a whisper
   // of air from the jets keeps the game alive
   if (G.state === 'play') stallWatch(dt);
   // trail
   G.trail.push({ x: p.x, y: p.y });
   if (G.trail.length > Math.round(16 * fxTrail())) G.trail.shift();
-  // squash recovery: a damped spring, not an exponential fade — the puck
+  // squash recovery: a damped spring, not an exponential fade - the puck
   // pops back with a faint overshoot, the way real rubber does. k=200/d=16
   // recovers in ~0.15s with a ~2% overshoot, settled by ~0.4s: snappy and
   // physical, never cartoonish.
@@ -1368,13 +1624,13 @@ function stepPhysics(dt) {
   G.puckSq += G.puckSqV * dt;
 }
 
-// Anti-stall: air jets. A dead puck never sits — shared by live play and the
+// Anti-stall: air jets. A dead puck never sits - shared by live play and the
 // attract demo so neither can freeze mid-rink.
 function stallWatch(dt) {
   const p = G.puck;
   // displacement anchor: a pinned puck (constant mallet contact keeps
   // resetting stallT below) still counts as stalled if it goes nowhere.
-  // The nudge aims at open ice, not random — it reads as the table
+  // The nudge aims at open ice, not random - it reads as the table
   // breathing, not a glitch.
   if (hyp(p.x - G.stallX, p.y - G.stallY) > 90) {
     G.stallX = p.x; G.stallY = p.y; G.anchorT = 0;
@@ -1415,7 +1671,7 @@ function mkBrain(side, diffIdx) {
     whiff: false, // this strike will swing clean through (a human miss)
     // commitment hysteresis (v24): sticky latches with deadbands so the AI
     // can't dither between strike/defend/reposition when the puck sits on a
-    // decision boundary — the feint-loop fix. behindH: mallet truly behind
+    // decision boundary - the feint-loop fix. behindH: mallet truly behind
     // the puck on LIVE geometry (not delayed perception). sideH: puck
     // possession latched across the center line. threatH: threat on/off
     // band. abortCd: cooldown after a cancelled windup before it may wind
@@ -1449,7 +1705,7 @@ function predictPuck(x, y, vx, vy, t) {
   return { x: px, y: py };
 }
 function aiHome(b) {
-  // home: goal-side, slightly favoring puck's vertical zone — with idle sway
+  // home: goal-side, slightly favoring puck's vertical zone - with idle sway
   b.swayT += 1 / 60;
   const hx = b.side === 0 ? PX + 190 : PX + PW - 190;
   const hy = CY + (b.seen.y - CY) * 0.35 + Math.sin(b.swayT * 1.7) * 14;
@@ -1466,26 +1722,26 @@ function aiThink(b, dt, m) {
   const foeGoalX = b.side === 0 ? PX + PW : PX;
   const puckOnMySide = b.side === 0 ? s.x < CX : s.x > CX;
   const puckSpeed = hyp(s.vx, s.vy);
-  // HYSTERESIS LATCHES (v24) — see mkBrain. The raw signals flicker when
+  // HYSTERESIS LATCHES (v24) - see mkBrain. The raw signals flicker when
   // the puck sits on a boundary (center line, threat speed, behind margin);
   // a latch only flips once the puck is clearly across its band, so the
   // brain can't shuttle guard<->engage<->defend every few ticks.
   const dirS0 = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
-  // threat: on at 500 u/s inbound (delayed perception — a human needs a beat
+  // threat: on at 500 u/s inbound (delayed perception - a human needs a beat
   // to notice), off at 350 or once it leaves my side. v24.2: the OFF edge
   // reads the LIVE puck, not the delayed ghost. The old code kept defend
   // latched on a stale inbound read after the puck bounced off the rail or
-  // was deflected away — the AI would then lunge at a puck that was moving
+  // was deflected away - the AI would then lunge at a puck that was moving
   // away from its net, meet it from the wrong side, and shank it home.
   // That stale-threat lunge was the #1 measured own-goal mechanism.
   if (!b.threatH && (b.side === 0 ? s.vx < -500 : s.vx > 500) && puckOnMySide) b.threatH = true;
   else if (b.threatH && ((b.side === 0 ? p.vx > -350 : p.vx < 350) || !puckOnMySide)) b.threatH = false;
   const threat = b.threatH;
-  // side possession: latch across the center line with a 40u deadband — the
+  // side possession: latch across the center line with a 40u deadband - the
   // puck jittering on the line can't bounce guard<->engage anymore
   if (b.side === 0 ? s.x < CX - 40 : s.x > CX + 40) b.sideH = true;
   else if (b.side === 0 ? s.x > CX + 40 : s.x < CX - 40) b.sideH = false;
-  // behind: sticky on LIVE geometry, not delayed perception — committing to
+  // behind: sticky on LIVE geometry, not delayed perception - committing to
   // a strike on a ghost puck is exactly the feint loop (windup on stale
   // `seen`, abort on live `p`, repeat). Latch at >50, release at <0.
   const liveBehind = dirS0 * (m.x - p.x);
@@ -1499,7 +1755,7 @@ function aiThink(b, dt, m) {
   const goHome = () => { const h = aiHome(b); setTx(h.x, h.y); };
 
   // Own-goal guard (v19): never plow through a slow puck that sits between
-  // the mallet and your own net — that shove is the #1 measured own-goal
+  // the mallet and your own net - that shove is the #1 measured own-goal
   // mechanism (AI own-goal rate was ~22% before this fix). Detour around it
   // to the goal side first. Skipped for live threats (defend handles those)
   // and for the strike sequence itself. Capped at 450 u/s: chasing a fast
@@ -1507,7 +1763,7 @@ function aiThink(b, dt, m) {
   if (b.state === 'guard' || b.state === 'defend') {
     const dirS = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
     const pSpd = hyp(p.vx, p.vy);
-    const towardMe = dirS * p.vx > 150;      // live dribble — defend it, don't dodge
+    const towardMe = dirS * p.vx > 150;      // live dribble - defend it, don't dodge
     const between = dirS * (p.x - m.x) > 0;  // puck sits between me and my net
     const close = hyp(p.x - m.x, p.y - m.y) < MALLET_R + PUCK_R + 80;
     if (!towardMe && pSpd < 450 && between && close) {
@@ -1516,7 +1772,7 @@ function aiThink(b, dt, m) {
   }
 
   // pin rescue: if I'm smothering the puck into my corner and it hasn't gone
-  // anywhere, I'm the trap — back off and dig it out. Speed-based checks
+  // anywhere, I'm the trap - back off and dig it out. Speed-based checks
   // fail here because a pinned puck jitters fast between mallet and rail.
   if (b.state !== 'windup' && b.state !== 'strike') {
     const myCorner = b.side === 0
@@ -1533,7 +1789,7 @@ function aiThink(b, dt, m) {
   switch (b.state) {
     case 'guard': {
       // v24.2: don't skate home through a live puck. If the puck blocks the
-      // path and isn't coming at my net, hold until it clears — driving
+      // path and isn't coming at my net, hold until it clears - driving
       // through from the wrong side shoves it home (measured own-goal
       // mechanism; the stale-threat defend fix funnels these here). Slow
       // pucks are handled by the 'around' detour above; this is for ones
@@ -1551,7 +1807,7 @@ function aiThink(b, dt, m) {
           blocked = hyp(p.x - (m.x + dxh * t), p.y - (m.y + dyh * t)) < MALLET_R + PUCK_R + 30;
         }
       }
-      if (blocked) setTx(m.x, m.y); // hold — the puck will clear
+      if (blocked) setTx(m.x, m.y); // hold - the puck will clear
       else goHome();
       if (threat) { b.state = 'defend'; b.tState = 0; }
       else if (b.sideH && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
@@ -1559,7 +1815,7 @@ function aiThink(b, dt, m) {
     }
     case 'around': {
       // OWN-GOAL DETOUR (v19): a slow puck sits between the mallet and my
-      // net — driving through it shoves it in. Two beats: sidestep clear
+      // net - driving through it shoves it in. Two beats: sidestep clear
       // (backing away can never touch it), then cross to its goal side so
       // the next touch clears it AWAY from the net.
       const dirS = b.side === 1 ? 1 : -1;
@@ -1571,7 +1827,7 @@ function aiThink(b, dt, m) {
         setTx(p.x + dirS * 120, p.y);
         if (dirS * (m.x - p.x) > 60 || b.tState > 1.1) { b.state = 'engage'; b.tState = 0; }
       }
-      // a live threat cancels the detour — go block it
+      // a live threat cancels the detour - go block it
       if (threat) { b.state = 'defend'; b.tState = 0; }
       break;
     }
@@ -1582,7 +1838,7 @@ function aiThink(b, dt, m) {
       const gx = b.side === 0 ? PX + 130 : PX + PW - 130;
       // deflection steering (v19): meet the puck slightly toward the mouth
       // CENTER from its lane, so the contact normal kicks deflections toward
-      // the walls instead of into your own mouth. Only near the mouth — far
+      // the walls instead of into your own mouth. Only near the mouth - far
       // from it the lane coverage matters more than the deflection angle.
       const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
       const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
@@ -1591,20 +1847,20 @@ function aiThink(b, dt, m) {
       // v24.2: this reads LIVE geometry and is checked BEFORE the guard
       // fallback. The old order fell through to guard on the delayed `seen`
       // read, so after a block the AI would skate home for a beat and then
-      // come back — the visible "backing away from a hittable puck".
+      // come back - the visible "backing away from a hittable puck".
       const liveSpd = hyp(p.vx, p.vy);
       if (liveSpd < 900 && hyp(p.x - m.x, p.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
       else if (!threat) { b.state = 'guard'; b.tState = 0; }
       break;
     }
     case 'engage': {
-      // skate to the puck — always from the GOAL side. Driving straight at
+      // skate to the puck - always from the GOAL side. Driving straight at
       // a puck from the far side shoves it toward your own net (the classic
       // goalie own goal), so when the mallet isn't behind the puck yet it
       // swings wide around it first, then commits.
       const dirS = b.side === 1 ? 1 : -1; // +1 = toward my own goal (right)
       // desperate block: it's coming at my net fast and I'm on the wrong
-      // side — forget the footwork, go meet it (defend steers the deflection)
+      // side - forget the footwork, go meet it (defend steers the deflection)
       if (threat && dirS * (m.x - s.x) < 40) { b.state = 'defend'; b.tState = 0; break; }
       // b.behindH is the sticky live-geometry latch from the top of aiThink:
       // swing wide until truly behind the puck, then drive at it. The
@@ -1615,7 +1871,7 @@ function aiThink(b, dt, m) {
         const wx = s.x + dirS * 70;
         // v24.2: swing wide WITHOUT crossing the puck. Driving straight at
         // (wx, wy) can cut through a puck sitting between the mallet and the
-        // waypoint — a wrong-side touch that shoves it toward your own net
+        // waypoint - a wrong-side touch that shoves it toward your own net
         // (measured own-goal mechanism). If the live puck blocks the straight
         // path, hold x and clear laterally first; the x-approach runs once
         // we're on the wide line, 180u off the puck's lane.
@@ -1638,12 +1894,12 @@ function aiThink(b, dt, m) {
       if (liveD < MALLET_R + PUCK_R + 44) b.possessT += D.tick; else b.possessT = Math.max(0, b.possessT - D.tick);
       // windup ONLY from behind the puck on LIVE geometry. The old code
       // committed on delayed perception and the live-puck own-goal guard
-      // then cancelled the strike: pull back, retreat, repeat — the visible
+      // then cancelled the strike: pull back, retreat, repeat - the visible
       // feint loop. abortCd spaces out attempts after a cancelled windup so
       // one bad read can't strobe the telegraph.
       if (b.abortCd <= 0 && b.behindH && liveD < MALLET_R + PUCK_R + 26 && (liveSpd < 700 || b.possessT > 0.35)) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
-        // pick aim: the FAR post, not the middle — the mouth corner farthest
+        // pick aim: the FAR post, not the middle - the mouth corner farthest
         // from the puck's lane forces the keeper to travel across. aimErr
         // scatters the shot per difficulty, so Rookie sprays it (missing
         // often) while Champion pins the post.
@@ -1659,7 +1915,7 @@ function aiThink(b, dt, m) {
       break;
     }
     case 'windup': {
-      // ANTICIPATION: pull back away from the aim point — telegraphs the smash
+      // ANTICIPATION: pull back away from the aim point - telegraphs the smash
       b.windT += D.tick;
       let ax = b.aimX, ay = b.aimY;
       if (b.bankY !== null) { ax = s.x; ay = b.bankY; } // aim at the rail first
@@ -1668,24 +1924,24 @@ function aiThink(b, dt, m) {
       setTx(s.x - dx / dl * back, s.y - dy / dl * back);
       if (b.windT > D.windup) {
         // commit to the strike only if the mallet is still behind the LIVE
-        // puck — it can drift during the windup, and lunging from the wrong
+        // puck - it can drift during the windup, and lunging from the wrong
         // side blasts it into your own net
         const dirS = b.side === 1 ? 1 : -1;
         if (dirS * (m.x - p.x) < 30) { b.state = 'recover'; b.tState = 0; b.abortCd = 0.6; break; }
         b.state = 'strike'; b.tState = 0;
-        // the whiff: a human misread, rolled per difficulty — the lunge
+        // the whiff: a human misread, rolled per difficulty - the lunge
         // below will be offset clean past the puck
         b.whiff = Math.random() < (D.whiff || 0);
       }
       break;
     }
     case 'strike': {
-      // drive THROUGH the puck toward the aim point — this is where
+      // drive THROUGH the puck toward the aim point - this is where
       // mallet velocity becomes puck velocity. Lead the puck slightly
       // so the lunge connects on a moving target.
       const dirS = b.side === 1 ? 1 : -1;
       // last-instant sanity: if the mallet somehow isn't behind the puck
-      // at strike time, abort — lunging from the wrong side blasts it
+      // at strike time, abort - lunging from the wrong side blasts it
       // into your own net
       if (b.tState <= D.tick * 1.5 && dirS * (m.x - p.x) < 20) {
         b.state = 'recover'; b.tState = 0; b.abortCd = 0.6; break;
@@ -1709,7 +1965,7 @@ function aiThink(b, dt, m) {
     }
     case 'recover': {
       goHome();
-      // a whiffed swing takes longer to gather — the embarrassment tax
+      // a whiffed swing takes longer to gather - the embarrassment tax
       if (b.tState > (b.whiff ? 0.75 : 0.4)) { b.state = 'guard'; b.tState = 0; b.whiff = false; }
       break;
     }
@@ -1728,7 +1984,7 @@ function aiThink(b, dt, m) {
     }
   }
   // Crease caution (v19): on the wrong side of the puck while positioning,
-  // the mallet is capped to a soft speed — a fast wrong-side touch is
+  // the mallet is capped to a soft speed - a fast wrong-side touch is
   // exactly how own goals happen; a soft touch never is. aiDrive applies it.
   // Defend/strike stay uncapped: blocks and lunges need full speed.
   const dirS = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
@@ -1767,7 +2023,7 @@ function shakeOffset() {
     r: rnd(-1, 1) * 0.011 * t2,
   };
 }
-// pooled particles — no allocation in the hot loop
+// pooled particles - no allocation in the hot loop
 const PPOOL = [];
 for (let i = 0; i < 260; i++) PPOOL.push({ on: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, max: 1, size: 3, color: '#fff' });
 function burst(x, y, n, color, speed, size = 3.5) {
@@ -1823,13 +2079,13 @@ function addText(x, y, str, color, size = 44) {
   if (G.texts.length > 8) G.texts.shift();
 }
 
-// impact events — the layered hit stack.
+// impact events - the layered hit stack.
 // Tiers around the 650 hit-stop threshold: tap (<650), drive (650–1400),
 // SMASH (>1400). Each tier buys more shake, a bigger flash, and a deeper
 // pitch; SMASH also startles the room itself (see G.roomPulse).
 function hitTier(impact) { return impact > 1400 ? 2 : impact > 650 ? 1 : 0; }
 function onMalletHit(x, y, impact, nx, ny) {
-  // rally bookkeeping first — the clack pitches up ~3% per hit so long
+  // rally bookkeeping first - the clack pitches up ~3% per hit so long
   // rallies audibly tighten (capped at +36%)
   let rallyN = 0;
   if (G.state === 'play' && !G.demo && G.stats) {
@@ -1840,14 +2096,14 @@ function onMalletHit(x, y, impact, nx, ny) {
   const v = clamp(impact / 2200, 0, 1);
   const tier = hitTier(impact);
   const fxp = fxParticles();
-  // hit-stop: 1–2 frames, scaled — the brain reads it as weight
+  // hit-stop: 1–2 frames, scaled - the brain reads it as weight
   if (tier >= 1) G.freezeT = Math.max(G.freezeT, Math.min(tier === 2 ? 0.045 : 0.032, 0.010 + v * 0.022));
   addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
   if (tier === 2) {
     if (fxFlash()) {
       G.hitFlash = 0.8; G.hitFlashX = x; G.hitFlashY = y;
       // SMASH slow-mo beat: ~90ms at the dip scale right after the 45ms
-      // hit-stop — the Holedown blend (freeze, then a near-halt beat, then
+      // hit-stop - the Holedown blend (freeze, then a near-halt beat, then
       // full speed). Rides the shared dipT channel with the near-miss dip
       // (Math.max: the two never stack or extend each other); play-state
       // only, so it can never touch the goal ceremony's reserved slow-mo.
@@ -1872,7 +2128,7 @@ function onMalletHit(x, y, impact, nx, ny) {
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
   const v = clamp(impact / 2200, 0, 1);
-  // puck squash on rails and the goal frame, 8–20% along the impact normal —
+  // puck squash on rails and the goal frame, 8–20% along the impact normal -
   // shared with the mallet-hit squash. Keeps the deeper of overlapping
   // deformations and restarts the spring from the new shape.
   if (nx !== undefined) {
@@ -1884,12 +2140,12 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
   if (impact > 300) burst(x, y, Math.max(1, Math.round((3 + v * 6) * fxParticles())), THEME.particle, 140 + v * 260, 2.5);
   if (isPost && impact > 900) {
     // the goal frame rattles: a hard frame hit earns a low clank and a
-    // visible shake of the trim — deliberately heavier than the post ping
+    // visible shake of the trim - deliberately heavier than the post ping
     AudioSys.clank(v);
     if (fxFlash()) G.rattle = { side: x < PX + PW / 2 ? 0 : 1, t: 0.42 };
     burst(x, y, Math.max(1, Math.round(10 * fxParticles())), '#ffffff', 380, 2.5);
   } else if (isPost && impact > 200) {
-    // the goal frame rings — a distinct metallic ping plus a bright kiss
+    // the goal frame rings - a distinct metallic ping plus a bright kiss
     AudioSys.ping();
     burst(x, y, Math.max(1, Math.round(8 * fxParticles())), '#ffffff', 320, 2.5);
   } else {
@@ -1909,7 +2165,7 @@ function clearCeremony() {
 function startGame(mode, diff) {
   AudioSys.init(); AudioSys.resume();
   G.mode = mode;
-  // EXHIBITION: diff is {a, b} — independent difficulty for left/right AI.
+  // EXHIBITION: diff is {a, b} - independent difficulty for left/right AI.
   if (mode === 'watch') { G.watch = { a: diff.a, b: diff.b }; G.difficulty = diff.b; }
   else { G.watch = null; G.difficulty = diff == null ? G.difficulty : diff; }
   G.score = [0, 0]; G.winSide = 0;
@@ -1941,7 +2197,7 @@ function startGame(mode, diff) {
 }
 // First-time hint: one line on the first local match ("Drag to move your
 // mallet"), dismissed forever after the first goal. Persisted in
-// localStorage so it never returns. Online/demo never get the hint — it's a
+// localStorage so it never returns. Online/demo never get the hint - it's a
 // local-match affordance only, and netcode stays untouched.
 const HINT_KEY = 'atelier-ah-hintseen';
 function hintSeen() {
@@ -1960,6 +2216,7 @@ function dismissHint(markSeen) {
 function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
   if (G.score[0] === 0 && G.score[1] === 0) MusicSys.setIntensity(0); // fresh match: the bed at rest
+  MusicSys.alignBeat(); // both peers start the same phrase on the countdown downbeat
   G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
   G.trail.length = 0;
 }
@@ -1971,14 +2228,14 @@ function startCount() {
 //   wide    ~28%: driven through at a real angle, ±32°
 //   drive   ~50%: the classic straight serve with a touch of wobble
 // Rolled once per point and stored on G so host and guest play the identical
-// serve — the host rolls, the guest receives (see Net.sendCountdown).
+// serve - the host rolls, the guest receives (see Net.sendCountdown).
 function rollServe(dir) {
   const sp = paceServe(), roll = Math.random();
   let ang, speed;
-  if (roll < 0.10) {          // banker — kiss the side rail first
+  if (roll < 0.10) {          // banker - kiss the side rail first
     ang = (60 + Math.random() * 16) * (Math.random() < 0.5 ? 1 : -1);
     speed = sp * (0.92 + Math.random() * 0.16);
-  } else if (roll < 0.22) {   // dink — a slow teasing feed
+  } else if (roll < 0.22) {   // dink - a slow teasing feed
     ang = (Math.random() - 0.5) * 50;
     speed = sp * (0.52 + Math.random() * 0.14);
   } else if (roll < 0.50) {   // wide angle
@@ -2001,7 +2258,7 @@ function updateCount(rdt) {
   if (G.countT >= 2.0) {
     G.goPlayed = false;
     G.state = 'play';
-    // serve the rolled point — the player who was scored on gets the puck
+    // serve the rolled point - the player who was scored on gets the puck
     // (USAA basic rules §4: "the player scored upon receives possession of
     // the puck for the next serve")
     G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
@@ -2032,23 +2289,23 @@ function onGoal(scorer) {
     st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
   }
   if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
-  beginGoalCeremony(scorer); // visuals only — never scores, never sends
+  beginGoalCeremony(scorer); // visuals only - never scores, never sends
   if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
 }
-// ONLINE: start the goal ceremony visuals only — no scoring, no sending.
+// ONLINE: start the goal ceremony visuals only - no scoring, no sending.
 // The host scores first in onGoal; the guest's scores arrive final in the
 // goal event. Splitting it this way makes double-counting impossible.
 // Goal hierarchy: YOUR goals get the full treatment (confetti storm, frame
 // flash, deeper chord); conceded goals are a smaller, dimmer affair.
 function goalIsYours(scorer) {
-  if (G.mode === '2p') return true; // both ends are players — both celebrate
+  if (G.mode === '2p') return true; // both ends are players - both celebrate
   if (G.mode === 'online') return (Net.role === 'host') === (scorer === 0);
   return scorer === 0;
 }
 function confettiColors() {
   return [THEME.gold || '#d8a93f', THEME.particle, '#ffffff', THEME.ink].filter(Boolean);
 }
-// goal-streak announcements — the little combo rush that makes scoring feel
+// goal-streak announcements - the little combo rush that makes scoring feel
 // addictive. Local matches only (online guests never own the sim, and the
 // streak state isn't in the snapshot), gated on fxFlash() like the rest of
 // the ceremony juice.
@@ -2060,7 +2317,7 @@ function announceStreak(scorer) {
   if (n < 2) return;
   const label = n === 2 ? 'TWO IN A ROW'
     : n === 3 ? 'HAT-TRICK!'
-    : n + ' IN A ROW — UNSTOPPABLE!';
+    : n + ' IN A ROW: UNSTOPPABLE!';
   addText(CX, CY - 200, label, THEME.gold || '#d8a93f', 56);
 }
 function beginGoalCeremony(scorer) {
@@ -2073,20 +2330,20 @@ function beginGoalCeremony(scorer) {
   const yours = goalIsYours(scorer);
   G.flashA = yours ? 1 : 0.65;
   G.goalFrameT = yours ? 1 : 0.5;
-  $('topbar').classList.add('hidden'); // ceremony is cinematic — no mis-taps
+  $('topbar').classList.add('hidden'); // ceremony is cinematic - no mis-taps
   const gx = scorer === 0 ? PX + PW : PX;
   const fxp = fxParticles();
   burst(gx, CY, Math.max(4, Math.round(46 * fxp)), THEME.particle, 620, 4.5);
   burst(gx, CY, Math.max(2, Math.round(20 * fxp)), '#ffffff', 380, 3);
   if (!PRM.reduce) {
-    // theme-colored confetti storm — bigger when YOU score
+    // theme-colored confetti storm - bigger when YOU score
     const cols = confettiColors();
     const n = Math.round((yours ? 90 : 36) * fxp);
     for (let c = 0; c < 3; c++) burst(gx, CY, Math.max(1, Math.round(n / 3)), cols[c % cols.length], 380 + c * 160, 4 + c);
   }
   addTrauma(0.85);
   addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
-  announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW — UNSTOPPABLE!
+  announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW - UNSTOPPABLE!
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   buzz([25, 40, 40]);
@@ -2123,10 +2380,10 @@ function updateGoal(rdt) {
 }
 function showWin() {
   clearCeremony(); // defensive: no ceremony visuals leak under the overlay
-  MusicSys.setIntensity(0); // the room exhales — bed back to rest
+  MusicSys.setIntensity(0); // the room exhales - bed back to rest
   $('topbar').classList.add('hidden');
   const you = G.winSide === 0;
-  // local rival record — AI rivals per difficulty, P1/P2 for same-screen 2P
+  // local rival record - AI rivals per difficulty, P1/P2 for same-screen 2P
   // (online matches are session-only: no stored record)
   if (G.mode === 'ai') Record.bump('ai' + G.difficulty, G.winSide === 0);
   else if (G.mode === '2p') { Record.bump('p1', G.winSide === 0); Record.bump('p2', G.winSide === 1); }
@@ -2137,10 +2394,10 @@ function showWin() {
     : G.mode === 'watch' // EXHIBITION: name the winning AI
     ? DIFFS[G.watch[G.winSide === 0 ? 'a' : 'b']].name + ' wins'
     : (you ? 'You win' : DIFFS[G.difficulty].name + ' wins');
-  $('winSub').textContent = G.score[0] + ' — ' + G.score[1];
+  $('winSub').textContent = G.score[0] + ':' + G.score[1];
   // match stats: top puck speed (table-scale km/h), longest rally, saves
   // per side (same side order as the score), and match duration. Two lines
-  // so the line never overflows a phone card; innerHTML is safe here —
+  // so the line never overflows a phone card; innerHTML is safe here -
   // every value is numeric.
   const st = G.stats || freshStats();
   const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
@@ -2150,7 +2407,7 @@ function showWin() {
     const sv = st.saves || [0, 0];
     $('winStats').innerHTML = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' + st.bestRally +
       '<br>Saves ' + sv[0] + '–' + sv[1] + ' · ' + mm + ':' + ss;
-    // v23 fun pass — personal bests, achievements, table tour. Local matches
+    // v23 fun pass - personal bests, achievements, table tour. Local matches
     // only: online stays session-only (no stored records, no feats, and the
     // guest's snapshot is display-only).
     if (G.mode === 'ai' || G.mode === '2p') {
@@ -2159,7 +2416,7 @@ function showWin() {
         const margin = Math.abs(G.score[0] - G.score[1]);
         const recs = checkBest(G.mode === 'ai' ? 'ai' + G.difficulty : 'p2p',
           secs, Math.round(kmh), st.bestRally || 0, margin);
-        if (recs.length) $('winStats').innerHTML += '<br>★ New record — ' + recs.join(' · ');
+        if (recs.length) $('winStats').innerHTML += '<br>★ New record: ' + recs.join(' · ');
         const fresh = [];
         if (G.score[1 - G.winSide] === 0 && Feats.unlock('shutout')) fresh.push('SHUTOUT');
         if ((st.worstDef || [0, 0])[G.winSide] <= -3 && Feats.unlock('comeback')) fresh.push('COMEBACK');
@@ -2167,7 +2424,7 @@ function showWin() {
         if (Math.round(kmh) >= 60 && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
         Tour.bump(G.themeId);
         if (Tour.count() >= THEME_ORDER.length && Feats.unlock('grandtour')) fresh.push('GRAND TOUR');
-        feats.textContent = fresh.length ? '🏆 UNLOCKED — ' + fresh.join(' · ') : '';
+        feats.textContent = fresh.length ? '🏆 UNLOCKED: ' + fresh.join(' · ') : '';
       } else {
         feats.textContent = '';
       }
@@ -2176,9 +2433,9 @@ function showWin() {
     }
   } catch (e) {}
   hideAll(); $('winov').classList.remove('hidden');
-  G.hintLive = false; // match over — the hint never survives a match end
+  G.hintLive = false; // match over - the hint never survives a match end
   AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
-  // slow theme-colored confetti rain over the win card (DOM — the card
+  // slow theme-colored confetti rain over the win card (DOM - the card
   // is a positioned container; pieces clean themselves up)
   if (!PRM.reduce && Settings.effects !== 'minimal') {
     const card = $('winov').querySelector('.card');
@@ -2198,7 +2455,7 @@ function showWin() {
   }
 }
 function togglePause(force, silent) {
-  // ONLINE: silent=true applies a pause that arrived over the wire — it must
+  // ONLINE: silent=true applies a pause that arrived over the wire - it must
   // not echo back, or the two clients would ping-pong pause events forever.
   // Pausing is allowed from 'goal' too: the ceremony is cleared so a frozen
   // GOAL! banner / slow-mo can't sit under the pause card, and resume replays
@@ -2247,18 +2504,18 @@ function pauseForFocusLoss() {
   // isn't up (menus, win card, an already-manual pause, confirm dialogs)
   if ($('pauseov').classList.contains('hidden')) $('focusov').classList.remove('hidden');
 }
-function resumeFromFocusLoss() { // the veil's tap handler — a user gesture
+function resumeFromFocusLoss() { // the veil's tap handler - a user gesture
   if (!G.focusLost) return;
   AudioSys.resume();
   G.focusLost = false;
   $('focusov').classList.add('hidden');
 }
 // Restart the current match from the pause menu.
-// LOCAL (ai/2p): immediate — startGame resets score, board, stats, and counts
-// down. ONLINE: host authority — the host restarts directly (the countdown
+// LOCAL (ai/2p): immediate - startGame resets score, board, stats, and counts
+// down. ONLINE: host authority - the host restarts directly (the countdown
 // event pulls the guest along via Net.onCountdown); the guest sends a
 // restart request and the host performs it, so both sides stay in sync.
-// Never changes net snapshot/input behavior — restart flows through the
+// Never changes net snapshot/input behavior - restart flows through the
 // existing countdown handshake.
 function restartMatch() {
   AudioSys.ui();
@@ -2271,7 +2528,7 @@ function restartMatch() {
   else startGame(G.mode, G.difficulty);
 }
 function quitToMenu() {
-  if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first — leave() resets mode
+  if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first - leave() resets mode
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
   clearCeremony();
@@ -2281,7 +2538,7 @@ function quitToMenu() {
   resetPositions();
   hideAll(); $('menu').classList.remove('hidden');
   $('topbar').classList.add('hidden');
-  G.hintLive = false; // match over — the hint never survives a match end
+  G.hintLive = false; // match over - the hint never survives a match end
   refreshRecordLines(); // menu record lines reflect the just-finished match
   refreshTour(); // tour counter + conquered pips reflect the just-finished match
   AudioSys.ui();
@@ -2312,9 +2569,9 @@ function playStep(rdt) {
       driveMallet(G.m1, sdt, PLAYER_CAP);
       driveMallet(G.m2, sdt, PLAYER_CAP);
     } else if (G.mode === 'online') {
-      // ONLINE: host-only branch — the guest never reaches playStep (see
+      // ONLINE: host-only branch - the guest never reaches playStep (see
       // frame). The host drives m1; m2 follows the guest's input target over
-      // the wire — without this the remote mallet is a statue on the
+      // the wire - without this the remote mallet is a statue on the
       // authoritative sim and the guest can never touch the puck.
       driveMallet(G.m1, sdt, PLAYER_CAP);
       Net.driveRemoteMallet(sdt);
@@ -2354,7 +2611,7 @@ function frame(t) {
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
   switch (G.state) {
     case 'menu':
-      // ONLINE: no attract demo while the online lobby is up — mode is
+      // ONLINE: no attract demo while the online lobby is up - mode is
       // 'online' from the moment the lobby opens until the session ends.
       G.idleT += rdt; G.demo = G.idleT > 5 && G.mode !== 'online';
       if (G.demo) {
@@ -2378,7 +2635,7 @@ function frame(t) {
         else driveMallet(G.m2, rdt, PLAYER_CAP);
       }
       // EXHIBITION / SINGLE-PLAYER: AI mallets hold their reset spots during
-      // the countdown — no perceiving, no thinking, no skating. (v24.2: the
+      // the countdown - no perceiving, no thinking, no skating. (v24.2: the
       // old code ran aiDrive here, so the AI would drift, pre-aim, and even
       // start its attack decision before the puck was live.)
       else if (G.mode === 'watch') { /* both AI mallets hold */ }
@@ -2386,12 +2643,12 @@ function frame(t) {
       updateParts(rdt);
       break;
     case 'play':
-      // ONLINE: the guest does not simulate — the host owns the physics.
+      // ONLINE: the guest does not simulate - the host owns the physics.
       // The guest only drives their own mallet; puck and rival mallet arrive
       // over the wire (dead-reckoned in Net.pump).
       // Near-miss dip: the reserved channel is goals' slow-mo, but a 0.22s
-      // 0.55x dip on a post kiss — and the ~90ms SMASH slow-mo beat on
-      // SMASH-tier mallet hits — are smaller beats that share this channel
+      // 0.55x dip on a post kiss - and the ~90ms SMASH slow-mo beat on
+      // SMASH-tier mallet hits - are smaller beats that share this channel
       // (Math.max, never stacking). Never overlaps the ceremony (state
       // leaves 'play' first).
       if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
@@ -2427,7 +2684,7 @@ function easeOutBack(t) { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1
  * One visual language for every canvas announcement: a dark warm pill with a
  * gold hairline and letterspaced small caps. Theme-agnostic by design, so it
  * reads identically on all ten rooms, light or dark. Match-point and the
- * rally counter share one slot through this renderer — only one ever draws. */
+ * rally counter share one slot through this renderer - only one ever draws. */
 function drawPlaque(ctx, cx, y, text, opts) {
   opts = opts || {};
   const size = opts.size || 12;
@@ -2452,11 +2709,11 @@ function drawPlaque(ctx, cx, y, text, opts) {
 
 function render() {
   const dpr = view.dpr || 1, w = view.w, h = view.h, s = view.s;
-  // the room: pre-rendered on theme change / resize — one drawImage, no shake
+  // the room: pre-rendered on theme change / resize - one drawImage, no shake
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (G.roomCanvas) ctx.drawImage(G.roomCanvas, 0, 0, w, h);
   else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h); }
-  // room reactivity: a SMASH startles the room — a warm lamp-glow swells and
+  // room reactivity: a SMASH startles the room - a warm lamp-glow swells and
   // sways gently overhead, always in the theme's own gold
   if (G.roomPulse > 0.01 && fxRoom()) {
     const lx = w / 2 + Math.sin(perfNow() * 2.1) * w * 0.06 * G.roomPulse;
@@ -2470,7 +2727,7 @@ function render() {
   ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
   if (!view.portrait) { ctx.translate(view.ox, view.oy); ctx.scale(s, s); }
   // portrait: a TRUE 90° rotation (determinant +s²). The previous matrix
-  // (0,-s,-s,0) had determinant -s² — a reflection that mirror-reversed
+  // (0,-s,-s,0) had determinant -s² - a reflection that mirror-reversed
   // every world-space glyph (scoreboard, countdown, GOAL!, floating text).
   // P1's goal stays at the bottom of the screen, as before.
   else ctx.transform(0, -s, s, 0, view.ox, view.oy + s * VW);
@@ -2483,7 +2740,7 @@ function render() {
     ctx.translate(gx, CY); ctx.scale(z, z); ctx.translate(-gx, -CY);
   }
 
-  // ONLINE: the guest plays from their own side, so the playfield mirrors —
+  // ONLINE: the guest plays from their own side, so the playfield mirrors -
   // their mallet and goal sit where the host's do. Everything above the
   // playfield (scoreboard, ceremony type, ribbon) stays unflipped.
   ctx.save();
@@ -2523,7 +2780,7 @@ function render() {
     ctx.restore();
   }
 
-  // speed lines: above 1500 the trail alone undersells it — theme-colored
+  // speed lines: above 1500 the trail alone undersells it - theme-colored
   // streaks stretch back along the velocity vector
   const psp = puckSpeed();
   if (psp > 1500 && Settings.effects !== 'minimal') {
@@ -2596,7 +2853,7 @@ function render() {
       ctx.restore();
     }
     // possession readability: sustained gentle contact (>0.4s) draws a soft
-    // ring under the puck — it reads as control, never as a stuck puck
+    // ring under the puck - it reads as control, never as a stuck puck
     if (m.glueT > 0.4) {
       const pr = PUCK_R + 12 + Math.sin(perfNow() * 6) * 3;
       ctx.save(); ctx.globalAlpha = 0.55; ctx.strokeStyle = THEME.gold || '#d8a93f';
@@ -2655,7 +2912,7 @@ function render() {
 
   // floating texts (positions flip with the playfield; glyphs stay upright).
   // Two passes: a dark blurred backing for separation on the lightest rooms,
-  // then the crisp color face on top — the gold stays gold, no muddy outline.
+  // then the crisp color face on top - the gold stays gold, no muddy outline.
   for (const t of G.texts) {
     const a = 1 - t.t / 1.1;
     ctx.save();
@@ -2671,7 +2928,7 @@ function render() {
   }
   ctx.restore(); // ONLINE flip
 
-  // countdown — anticipation with a pop
+  // countdown - anticipation with a pop
   if (G.state === 'count') {
     const frac = (G.countT % 0.55) / 0.55;
     const label = G.countT < 1.65 ? String(3 - Math.floor(G.countT / 0.55)) : 'GO!';
@@ -2683,11 +2940,11 @@ function render() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = THEME.ink;
     ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24;
-    ctx.fillText(label, 0, 0); // screen space — never flipped
+    ctx.fillText(label, 0, 0); // screen space - never flipped
     ctx.restore();
   }
 
-  // letterbox + GOAL! — the reserved channel (stable screen space, above the zoom).
+  // letterbox + GOAL! - the reserved channel (stable screen space, above the zoom).
   // Under reduced motion the banner arrives without the spring (bars fade in
   // instead of sliding, GOAL! appears at rest size).
   ctx.restore();
@@ -2705,25 +2962,25 @@ function render() {
     ctx.fillStyle = THEME.gold || '#d8a93f';
     ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 30;
     if ('letterSpacing' in ctx) ctx.letterSpacing = '6px';
-    ctx.fillText('GOAL!', 3, -6); // screen space — never flipped (+3 recenters the tracked type)
+    ctx.fillText('GOAL!', 3, -6); // screen space - never flipped (+3 recenters the tracked type)
     ctx.restore();
   }
 
   drawScoreboard(ctx);
 
-  // rally counter: consecutive hits without a goal — shown once it matters.
+  // rally counter: consecutive hits without a goal - shown once it matters.
   // It lives in the top-left margin as its own pill chip, OUTSIDE the
   // scoreboard band: every scoreboard device is centered (~CX±200) and draws
   // labels/plates at its own y, so the old centered slot collided with them
   // (seen on reels/deco once rally >= 4). The margin slot can never collide
-  // on any theme, device, orientation, or rally count — the pill sizes
+  // on any theme, device, orientation, or rally count - the pill sizes
   // itself to the text. Rendered through the shared plaque language so the
   // room speaks with one visual voice.
   if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4) {
     drawPlaque(ctx, 150, 71, 'RALLY ×' + G.stats.rally);
   }
 
-  // match-point ribbon — theme-agnostic plaque under the scoreboard. It
+  // match-point ribbon - theme-agnostic plaque under the scoreboard. It
   // cannot collide with the rally chip (the chip lives in the left margin).
   // Labels via sideLabel so exhibition names both AIs instead of "YOU".
   if ((G.state === 'play' || G.state === 'count') && !G.demo) {
@@ -2731,9 +2988,9 @@ function render() {
     const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
     if (m0 || m1) {
       const who = (m0 && m1) ? 'NEXT GOAL WINS'
-        : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ' — MATCH POINT')
-        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' — MATCH POINT') // ONLINE
-        : (sideLabel(m0 ? 0 : 1) + ' — MATCH POINT'); // ai + watch (exhibition names the AI)
+        : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ': MATCH POINT')
+        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT') // ONLINE
+        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT'); // ai + watch (exhibition names the AI)
       drawPlaque(ctx, CX, 78, who);
     }
   }
@@ -2766,7 +3023,7 @@ function drawPuck(c) {
     c.beginPath(); c.arc(0, 0, PUCK_R * 2.2, 0, TAU); c.fill();
   }
   // velocity stretch: continuous from cruise (~600 u/s), proportional to
-  // speed — subtle at a glide, pronounced on a real shot. Elongates along
+  // speed - subtle at a glide, pronounced on a real shot. Elongates along
   // the travel vector with a volume-preserving pinch across it. Pauses while
   // an impact squash is still springing back, so the two never fight.
   const psp = hyp(p.vx, p.vy);
@@ -2789,7 +3046,7 @@ function drawPuck(c) {
   c.beginPath(); c.ellipse(-5, -7, 4.5, 3, -0.5, 0, TAU); c.fill();
   c.restore();
   // spin cue: a small theme-gold dot rides the puck's rotation when it
-  // carries english — the Magnus curve becomes readable before it bends
+  // carries english - the Magnus curve becomes readable before it bends
   if (Math.abs(p.w || 0) > 2.5) {
     const da = p.ang || 0;
     c.save();
@@ -2808,7 +3065,7 @@ function drawMallet(c, m) {
   c.translate(m.x, m.y);
   // squash/stretch: a fast-driven mallet leans into its own travel
   // (exaggeration/appeal), and a strike compresses it along the contact
-  // normal for a couple frames before springing back (recoil) — same
+  // normal for a couple frames before springing back (recoil) - same
   // visual language as the puck's deformation for a consistent feel.
   const msp = hyp(m.vx, m.vy);
   if (msp > 900 && m.hitSq > 0.97) {

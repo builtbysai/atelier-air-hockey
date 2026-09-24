@@ -1,5 +1,5 @@
 /* ============================================================
-   ATELIER AIR HOCKEY — theme renderers
+   ATELIER AIR HOCKEY, theme renderers
    Each theme paints: room, rails, surface, markings, goal trim,
    scoreboard. Engine draws physics entities from theme palettes.
    Helpers below are shared; every theme function receives ctx.
@@ -74,7 +74,7 @@ function goldLine(ctx, x1, y1, x2, y2, w, color) {
 
 /* ================= 1. ART-DECO NOIR ================= */
 const THEME_DECO = {
-  id: 'deco', name: 'Noir Deco', tagline: 'Black lacquer · brass · walnut — the speakeasy table',
+  id: 'deco', name: 'Noir Deco', tagline: 'Black lacquer · brass · walnut, the speakeasy table',
   font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, 'Times New Roman', serif" },
   ink: '#e9d9a6', accent: '#d8a93f', gold: '#d8a93f', particle: '#e8c86a', trail: '#d8a93f',
   flash: 'rgba(216,169,63,1)', vignette: 'rgba(0,0,0,0.5)',
@@ -163,7 +163,7 @@ const THEME_DECO = {
 
 /* ================= 2. MID-CENTURY ================= */
 const THEME_MID = {
-  id: 'mid', name: "Palm Springs '62", tagline: 'Walnut · brass · cream laminate — the Eichler game room',
+  id: 'mid', name: "Palm Springs '62", tagline: 'Walnut · brass · cream laminate, the Eichler game room',
   font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, serif" },
   ink: '#4a3826', accent: '#c96a2e', gold: '#b98a2f', particle: '#e0955a', trail: '#c96a2e',
   flash: 'rgba(201,106,46,1)', vignette: 'rgba(60,35,15,0.35)',
@@ -252,7 +252,7 @@ const THEME_MID = {
 
 /* ================= 3. BRUTALIST ================= */
 const THEME_BRUT = {
-  id: 'brut', name: 'Beton', tagline: 'Raw concrete · aluminum · safety orange — the bunker table',
+  id: 'brut', name: 'Beton', tagline: 'Raw concrete · aluminum · safety orange, the bunker table',
   font: { display: "'Arial Black', 'Helvetica Neue', sans-serif", body: "'Helvetica Neue', Arial, sans-serif" },
   ink: '#f2f2f0', accent: '#ff4d00', gold: '#ff4d00', particle: '#ff7a33', trail: '#ff4d00',
   flash: 'rgba(255,77,0,1)', vignette: 'rgba(0,0,0,0.5)',
@@ -348,7 +348,7 @@ const THEME_BRUT = {
 
 /* ================= 4. BILLIARD HERITAGE ================= */
 const THEME_BIL = {
-  id: 'bil', name: 'The Billiard Room', tagline: 'Mahogany · brass · snooker green — the members\u2019 club table',
+  id: 'bil', name: 'The Billiard Room', tagline: 'Mahogany · brass · snooker green, the members\u2019 club table',
   font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, serif" },
   ink: '#ecdfc2', accent: '#c9a227', gold: '#c9a227', particle: '#e8d488', trail: '#c9a227',
   flash: 'rgba(201,162,39,1)', vignette: 'rgba(10,5,2,0.5)',
@@ -439,10 +439,10 @@ const THEME_BIL = {
 const THEMES = { deco: THEME_DECO, mid: THEME_MID, brut: THEME_BRUT, bil: THEME_BIL };
 
 /* ============================================================
-   ATELIER AIR HOCKEY — theme renderers, second set
+   ATELIER AIR HOCKEY, theme renderers, second set
    Memphis Milano '81 and Wabi-Sabi Sashiko, plus the shared
    screen-space room painters (pre-rendered offscreen by the
-   engine on theme change / resize — one drawImage per frame).
+   engine on theme change / resize, one drawImage per frame).
    ============================================================ */
 
 function mulberry32(seed) {
@@ -475,7 +475,7 @@ function seigaiha(g, x, y, w, h, color, r, alpha) {
   g.restore();
 }
 
-/* Bacterio squiggle — the Memphis signature stroke */
+/* Bacterio squiggle, the Memphis signature stroke */
 function squiggle(g, x, y, w, h, color, lw, seed) {
   const R = mulberry32(seed || 7);
   g.save();
@@ -520,7 +520,7 @@ function roomGlow(g, x, y, r, color, alpha) {
 
 /* ================= 5. MEMPHIS MILANO '81 ================= */
 const THEME_MEMPHIS = {
-  id: 'mem', name: 'Memphis Milano', tagline: 'Laminate confetti · squiggles · the loft party — 1981',
+  id: 'mem', name: 'Memphis Milano', tagline: 'Laminate confetti · squiggles · the loft party, 1981',
   font: { display: "'Futura', 'Century Gothic', 'Trebuchet MS', sans-serif", body: "'Trebuchet MS', Verdana, sans-serif" },
   ink: '#171515', accent: '#D93A2B', gold: '#F5B301', particle: '#E84D8A', trail: '#1F4E9D',
   flash: 'rgba(217,58,43,1)', vignette: 'rgba(60,30,10,0.30)',
@@ -543,7 +543,7 @@ const THEME_MEMPHIS = {
     ctx.restore();
   },
   paintRoom(g, W, H) {
-    // The Loft Party — gallery wall, terrazzo, pendant light
+    // The Loft Party, gallery wall, terrazzo, pendant light
     const R = mulberry32(1981);
     const hy = roomBase(g, W, H, ['#F5EFDD', '#E4D4B0'], ['#D9C9A4', '#B8A37C']);
     // terrazzo speckle
@@ -700,7 +700,7 @@ const THEME_SASHIKO = {
     seigaiha(ctx, -200, -200, VW + 400, VH + 400, '#EFE9DC', 90, 0.05);
   },
   paintRoom(g, W, H) {
-    // The Machiya — timber beams, shoji glow, tatami, lantern light
+    // The Machiya, timber beams, shoji glow, tatami, lantern light
     const R = mulberry32(1603);
     const hy = roomBase(g, W, H, ['#3a2c20', '#241a12'], ['#6e5f45', '#4a3f2e']);
     // tatami cloth seams + weave
@@ -715,7 +715,7 @@ const THEME_SASHIKO = {
     g.fillRect(0, H * 0.06, W, H * 0.045);
     g.fillStyle = 'rgba(184,154,107,0.25)';
     g.fillRect(0, H * 0.06, W, 3);
-    // shoji screens — warm glowing lattice
+    // shoji screens, warm glowing lattice
     const shoji = (x, y, w, h) => {
       const sg = g.createLinearGradient(x, y, x, y + h);
       sg.addColorStop(0, '#f5e6c4'); sg.addColorStop(1, '#d9bd8a');
@@ -741,7 +741,7 @@ const THEME_SASHIKO = {
     for (let i = -2; i <= 2; i++) {
       g.beginPath(); g.ellipse(W * 0.5, H * 0.30, 26, 34, 0, -0.5 + i * 0.28, 0.5 + i * 0.28); g.stroke();
     }
-    // hanging noren suggestion — indigo cloth strips
+    // hanging noren suggestion, indigo cloth strips
     g.fillStyle = 'rgba(34,56,79,0.85)';
     for (let i = 0; i < 3; i++) g.fillRect(W * 0.42 + i * W * 0.055, H * 0.105, W * 0.045, H * 0.10);
     // faint seigaiha on the wall
@@ -843,7 +843,7 @@ THEMES.sashi = THEME_SASHIKO;
 /* ---------- rooms for the original four tables ---------- */
 
 THEMES.deco.paintRoom = function (g, W, H) {
-  // The Skyline Bar — black lacquer, brass inlay, ziggurat skyline
+  // The Skyline Bar, black lacquer, brass inlay, ziggurat skyline
   const R = mulberry32(1929);
   const hy = roomBase(g, W, H, ['#101014', '#060607'], ['#17171c', '#0a0a0c']);
   // brass wall inlays
@@ -892,7 +892,7 @@ THEMES.deco.paintRoom = function (g, W, H) {
 };
 
 THEMES.mid.paintRoom = function (g, W, H) {
-  // The Cabana — breeze-block, terrazzo, low desert sun, palm
+  // The Cabana, breeze-block, terrazzo, low desert sun, palm
   const R = mulberry32(1962);
   const hy = roomBase(g, W, H, ['#f0e4c8', '#dcc9a0'], ['#d8c49c', '#a98f66']);
   // breeze-block pattern
@@ -940,7 +940,7 @@ THEMES.mid.paintRoom = function (g, W, H) {
 };
 
 THEMES.brut.paintRoom = function (g, W, H) {
-  // The Bunker Gallery — board-formed concrete, skylight shaft, rust accent
+  // The Bunker Gallery, board-formed concrete, skylight shaft, rust accent
   const R = mulberry32(1972);
   const hy = roomBase(g, W, H, ['#5c5e60', '#3a3c3e'], ['#4a4c4e', '#26282a']);
   // board-form lines
@@ -986,7 +986,7 @@ THEMES.brut.paintRoom = function (g, W, H) {
 };
 
 THEMES.bil.paintRoom = function (g, W, H) {
-  // The Century Club — bottle-green plaster, oak wainscot, billiard lamp
+  // The Century Club, bottle-green plaster, oak wainscot, billiard lamp
   const R = mulberry32(1911);
   const hy = roomBase(g, W, H, ['#274d38', '#142a1e'], ['#3a2c1c', '#201812']);
   // plaster texture
@@ -1019,7 +1019,7 @@ THEMES.bil.paintRoom = function (g, W, H) {
     const qx = W * 0.315 + i * W * 0.024;
     g.beginPath(); g.moveTo(qx, H * 0.15); g.lineTo(qx + 6, hy - 4); g.stroke();
   }
-  // the billiard lamp — green shade + amber pool
+  // the billiard lamp, green shade + amber pool
   const lx = W * 0.55, ly = H * 0.10;
   g.strokeStyle = '#1c130c'; g.lineWidth = 5;
   g.beginPath(); g.moveTo(lx, 0); g.lineTo(lx, ly); g.stroke();
@@ -1039,7 +1039,7 @@ THEMES.bil.paintRoom = function (g, W, H) {
 };
 
 /* ============================================================
-   ATELIER AIR HOCKEY — theme renderers, third set (v22)
+   ATELIER AIR HOCKEY, theme renderers, third set (v22)
    Bauhaus Dessau '23, Zellige Riad, Swiss Grid.
    Same contract as themes.js / themes2.js: each theme paints
    room, rails, surface, markings, goal trim, and carries the
@@ -1063,7 +1063,7 @@ function star8(g, cx, cy, r, rot) {
 
 /* ================= 7. BAUHAUS DESSAU '23 ================= */
 const THEME_BAUHAUS = {
-  id: 'bau', name: "Bauhaus Dessau '23", tagline: 'Tubular steel · primaries · the workshop stage — 1923',
+  id: 'bau', name: "Bauhaus Dessau '23", tagline: 'Tubular steel · primaries · the workshop stage, 1923',
   font: { display: "'Futura', 'Century Gothic', sans-serif", body: "'Helvetica Neue', Arial, sans-serif" },
   ink: '#1a1a1a', accent: '#D03A2B', gold: '#E8A820', particle: '#E8A820', trail: '#2456A6',
   flash: 'rgba(208,58,43,1)', vignette: 'rgba(40,30,18,0.28)',
@@ -1084,13 +1084,13 @@ const THEME_BAUHAUS = {
     ctx.save(); ctx.strokeStyle = 'rgba(26,26,26,0.06)'; ctx.lineWidth = 2;
     for (let x = -200; x < VW + 200; x += 120) { ctx.beginPath(); ctx.moveTo(x, -200); ctx.lineTo(x, VH + 200); ctx.stroke(); }
     for (let y = -200; y < VH + 200; y += 120) { ctx.beginPath(); ctx.moveTo(-200, y); ctx.lineTo(VW + 200, y); ctx.stroke(); }
-    // one big red circle, very faint — the Albers wall
+    // one big red circle, very faint, the Albers wall
     ctx.strokeStyle = 'rgba(208,58,43,0.07)'; ctx.lineWidth = 26;
     ctx.beginPath(); ctx.arc(VW * 0.85, VH * 0.2, 150, 0, TAU); ctx.stroke();
     ctx.restore();
   },
   paintRoom(g, W, H) {
-    // The Workshop — white cubic Dessau blocks, glass grid, red balcony
+    // The Workshop, white cubic Dessau blocks, glass grid, red balcony
     const R = mulberry32(1923);
     const hy = roomBase(g, W, H, ['#F4EEE0', '#E0D5BC'], ['#CFC2A4', '#A8977A']);
     // main workshop block
@@ -1122,7 +1122,7 @@ const THEME_BAUHAUS = {
     g.strokeStyle = 'rgba(90,70,50,0.35)'; g.lineWidth = 2;
     for (let x = 0; x < W; x += 64) { g.beginPath(); g.moveTo(x, hy); g.lineTo(x - 30, H); g.stroke(); }
     g.restore();
-    // floating primary shapes on the wall — the Vorkurs exercise
+    // floating primary shapes on the wall, the Vorkurs exercise
     g.fillStyle = '#D03A2B';
     g.beginPath(); g.arc(W * 0.10, H * 0.20, 26, 0, TAU); g.fill();
     g.fillStyle = '#E8A820';
@@ -1210,7 +1210,7 @@ const THEME_BAUHAUS = {
 
 /* ================= 8. ZELLIGE RIAD ================= */
 const THEME_ZEL = {
-  id: 'zel', name: 'Zellige Riad', tagline: 'Cobalt stars · terracotta · the courtyard fountain — Marrakech',
+  id: 'zel', name: 'Zellige Riad', tagline: 'Cobalt stars · terracotta · the courtyard fountain, Marrakech',
   font: { display: "Georgia, 'Times New Roman', serif", body: "Georgia, serif" },
   ink: '#F0E6D2', accent: '#C96A3B', gold: '#C96A3B', particle: '#E8A06A', trail: '#4E7AC2',
   flash: 'rgba(201,106,59,1)', vignette: 'rgba(30,18,8,0.42)',
@@ -1256,7 +1256,7 @@ const THEME_ZEL = {
     return c;
   },
   paintRoom(g, W, H) {
-    // The Courtyard — tadelakt walls, horseshoe arch, star fountain
+    // The Courtyard, tadelakt walls, horseshoe arch, star fountain
     const R = mulberry32(1550);
     const hy = roomBase(g, W, H, ['#EFDDB8', '#D9BC8C'], ['#C9A878', '#96703F']);
     if (!this._starTile) this._starTile = this._makeStarTile();
@@ -1408,7 +1408,7 @@ const THEME_ZEL = {
 
 /* ================= 9. SWISS GRID ================= */
 const THEME_SUISSE = {
-  id: 'swi', name: 'Swiss Grid', tagline: 'Paper white · black rules · the Zurich gallery — 1957',
+  id: 'swi', name: 'Swiss Grid', tagline: 'Paper white · black rules · the Zurich gallery, 1957',
   font: { display: "'Helvetica Neue', Helvetica, Arial, sans-serif", body: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
   ink: '#111111', accent: '#E30613', gold: '#E30613', particle: '#E30613', trail: '#111111',
   flash: 'rgba(227,6,19,1)', vignette: 'rgba(0,0,0,0.22)',
@@ -1435,14 +1435,14 @@ const THEME_SUISSE = {
     ctx.restore();
   },
   paintRoom(g, W, H) {
-    // The Gallery — white walls, concrete floor, one red canvas, track light
+    // The Gallery, white walls, concrete floor, one red canvas, track light
     const hy = roomBase(g, W, H, ['#FAFAF8', '#ECECE8'], ['#D2D2CE', '#ACACA8']);
     // concrete floor joints
     g.save(); g.beginPath(); g.rect(0, hy, W, H - hy); g.clip();
     g.strokeStyle = 'rgba(0,0,0,0.12)'; g.lineWidth = 2;
     for (let x = 0; x < W; x += W / 5) { g.beginPath(); g.moveTo(x, hy); g.lineTo(x, H); g.stroke(); }
     g.restore();
-    // the red canvas — concrete art, slightly off-center
+    // the red canvas, concrete art, slightly off-center
     const cxx = W * 0.38, cyw = W * 0.20, cyh = H * 0.30, cyt = H * 0.14;
     g.fillStyle = '#111'; g.fillRect(cxx - 8, cyt - 8, cyw + 16, cyh + 16);
     g.fillStyle = '#F7F7F5'; g.fillRect(cxx, cyt, cyw, cyh);
@@ -1547,7 +1547,7 @@ THEMES.swi = THEME_SUISSE;
 /* ================= 10. NEON MIDNIGHT =================
    Classic neon / glow-in-the-dark: near-black felt, neon-tube rails,
    a glowing puck with a light-tube trail. Neon is painted as layered
-   strokes (wide faint halo + bright core) — cheaper than shadowBlur
+   strokes (wide faint halo + bright core), cheaper than shadowBlur
    and truer to a real tube. */
 function neonTube(ctx, draw, color, core) {
   ctx.save();
@@ -1577,7 +1577,7 @@ const THEME_NEON = {
     const g = ctx.createRadialGradient(VW / 2, VH / 2, 100, VW / 2, VH / 2, 780);
     g.addColorStop(0, '#0a0d18'); g.addColorStop(0.55, '#05070e'); g.addColorStop(1, '#020308');
     ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
-    // sparse starfield — faint, classy, never busy
+    // sparse starfield, faint, classy, never busy
     const R = mulberry32(1983);
     ctx.save();
     for (let i = 0; i < 90; i++) {
@@ -1588,7 +1588,7 @@ const THEME_NEON = {
     ctx.restore();
   },
   paintRoom(g, W, H) {
-    // The arcade after hours — near-black room, neon spill from offscreen signs
+    // The arcade after hours, near-black room, neon spill from offscreen signs
     const bg = g.createLinearGradient(0, 0, 0, H);
     bg.addColorStop(0, '#070a12'); bg.addColorStop(1, '#03040a');
     g.fillStyle = bg; g.fillRect(0, 0, W, H);
@@ -1622,7 +1622,7 @@ const THEME_NEON = {
     const g = ctx.createLinearGradient(PX, PY, PX + PW, PY + PH);
     g.addColorStop(0, '#070a12'); g.addColorStop(0.5, '#04060c'); g.addColorStop(1, '#02040a');
     ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
-    // faint glow grid etched in the glass — barely there
+    // faint glow grid etched in the glass, barely there
     ctx.save(); ctx.strokeStyle = 'rgba(0,240,255,0.055)'; ctx.lineWidth = 1;
     for (let x = PX; x <= PX + PW; x += 64) { ctx.beginPath(); ctx.moveTo(x, PY); ctx.lineTo(x, PY + PH); ctx.stroke(); }
     for (let y = PY; y <= PY + PH; y += 64) { ctx.beginPath(); ctx.moveTo(PX, y); ctx.lineTo(PX + PW, y); ctx.stroke(); }
@@ -1632,7 +1632,7 @@ const THEME_NEON = {
     ctx.save();
     neonTube(ctx, () => { ctx.beginPath(); ctx.moveTo(CX, PY + 14); ctx.lineTo(CX, PY + PH - 14); }, 'rgba(0,240,255,0.85)', 2.5);
     neonTube(ctx, () => { ctx.beginPath(); ctx.arc(CX, CY, 62, 0, TAU); }, 'rgba(255,47,179,0.85)', 2.5);
-    // face-off dots — warm yellow, no tube (contrast beat)
+    // face-off dots, warm yellow, no tube (contrast beat)
     ctx.fillStyle = '#ffe14d';
     ctx.shadowColor = '#ffe14d'; ctx.shadowBlur = 12;
     for (const fx of [PX + PW * 0.25, PX + PW * 0.75])

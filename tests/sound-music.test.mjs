@@ -1,6 +1,6 @@
 // Sound vs music independence: Sound off must never silence music and
-// Music off must never silence SFX. Two buses — sfxBus (Sound) and
-// musicBus (Music) — with the ambience bed riding the music bus.
+// Music off must never silence SFX. Two buses - sfxBus (Sound) and
+// musicBus (Music) - with the ambience bed riding the music bus.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -84,18 +84,23 @@ async function loadGame(storageSeed) {
   vm.runInContext(`${sb}\n${source}\nthis.__t = { MusicSys, MUSIC, AudioSys, Settings, loadSettings, saveSettings, ROOM_AMB };`,
     context, { filename: 'src/game.js' });
   const t = context.__t;
-  // wire the two buses the way init() does
+  // wire the three buses the way init() does: sfx + music into master
   t.AudioSys.ctx = ac;
-  t.AudioSys.sfxBus = ac.createGain(); t.AudioSys.sfxBus.tag = 'sfxBus'; t.AudioSys.sfxBus.connect(ac.destination);
-  t.AudioSys.musicBus = ac.createGain(); t.AudioSys.musicBus.tag = 'musicBus'; t.AudioSys.musicBus.connect(ac.destination);
+  t.AudioSys.sfxBus = ac.createGain(); t.AudioSys.sfxBus.tag = 'sfxBus';
+  t.AudioSys.musicBus = ac.createGain(); t.AudioSys.musicBus.tag = 'musicBus';
+  t.AudioSys.masterBus = ac.createGain(); t.AudioSys.masterBus.tag = 'masterBus';
+  t.AudioSys.sfxBus.connect(t.AudioSys.masterBus);
+  t.AudioSys.musicBus.connect(t.AudioSys.masterBus);
+  t.AudioSys.masterBus.connect(ac.destination);
   return { t, ac, storage, timers };
 }
 
-// the three lines applySettingsToUI runs for audio on every settings change
+// the lines applySettingsToUI runs for audio on every settings change
 function applyAudio(t) {
   t.AudioSys.muted = !t.Settings.sound;
   t.AudioSys.syncMute();
   t.AudioSys.syncMusic();
+  t.AudioSys.syncMaster();
 }
 
 test('sound off silences SFX but leaves the music bus at full', async () => {
@@ -155,4 +160,37 @@ test('both toggles persist independently', async () => {
   t2.loadSettings();
   assert.equal(t2.Settings.sound, false, 'sound off persists');
   assert.equal(t2.Settings.music, true, 'music on persists alongside it');
+});
+
+test('HUD master mute silences both buses at once', async () => {
+  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: true, music: true, masterMuted: true }) });
+  t.loadSettings();
+  applyAudio(t);
+  assert.equal(t.AudioSys.masterBus.gain.value, 0, 'master bus must be muted');
+  assert.equal(t.AudioSys.sfxBus.gain.value, 0.5, 'sfx bus keeps its own setting underneath');
+  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music bus keeps its own setting underneath');
+});
+
+test('unmuting the master restores each bus to its own setting', async () => {
+  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: false, music: true, masterMuted: true }) });
+  t.loadSettings();
+  applyAudio(t);
+  assert.equal(t.AudioSys.masterBus.gain.value, 0, 'master starts muted');
+  t.AudioSys.setMasterMuted(false);
+  assert.equal(t.AudioSys.masterBus.gain.value, 1, 'master bus reopens');
+  assert.equal(t.AudioSys.sfxBus.gain.value, 0, 'sfx stays off - its own toggle was off');
+  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music stays on - its own toggle was on');
+});
+
+test('master mute never flips the settings toggles', async () => {
+  const { t, storage } = await loadGame();
+  t.loadSettings();
+  t.Settings.sound = true; t.Settings.music = true;
+  t.AudioSys.setMasterMuted(true);
+  assert.equal(t.Settings.sound, true, 'sound toggle untouched by master mute');
+  assert.equal(t.Settings.music, true, 'music toggle untouched by master mute');
+  const saved = JSON.parse(storage._dump()['atelier-ah-settings']);
+  assert.equal(saved.masterMuted, true, 'master mute persists');
+  assert.equal(saved.sound, true, 'sound persists alongside it');
+  assert.equal(saved.music, true, 'music persists alongside it');
 });

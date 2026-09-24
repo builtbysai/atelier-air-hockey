@@ -75,7 +75,7 @@
   .lobby-title{ font-size:clamp(26px,5.4vw,38px); }
   .carcount{ color:var(--title); letter-spacing:2px; }
 
-  /* table carousel — one featured table, snap scroll, arrows + dots */
+  /* table carousel - one featured table, snap scroll, arrows + dots */
   .carousel{ position:relative; margin:2px -6px 0; }
   .ctrack{
     display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory;
@@ -118,17 +118,17 @@
   .watchsel{ margin-top:10px; }
   .watchsel .seclabel{ margin-top:8px; }
   .btn.lablight{ border-style:dashed; opacity:0.75; margin-top:10px; }
-  /* v21: the explicit start button — the one primary action on the menu */
+  /* v21: the explicit start button - the one primary action on the menu */
   .btn.bigstart{ margin-top:12px; padding:16px 16px; font-size:18px; font-weight:800; letter-spacing:1px; }
   .menugrid{ display:block; }
-  /* the menu carousel is decorative — cap its width on roomy screens so the
+  /* the menu carousel is decorative - cap its width on roomy screens so the
      stacked desktop menu (now with the v21 START button) never scrolls */
   @media (min-width:700px){
     #menu .carousel{ max-width:460px; margin-left:auto; margin-right:auto; }
     #menu .tagline{ margin-bottom:10px; }
     #menu .btn{ margin:5px 0; }
   }
-  /* short-but-wide (landscape phones): tables left, rivals right — no scroll */
+  /* short-but-wide (landscape phones): tables left, rivals right - no scroll */
   @media (max-height:540px) and (min-width:700px){
     #menu{ padding:8px; }
     #menu .card{ padding:6px 18px; text-align:left; }
@@ -169,7 +169,7 @@
     margin:0 0 16px;
   }
   .notice.warn{ border-left-color:#d98a4a; }
-  /* confirm dialogs keep their message visible at every size — unlike
+  /* confirm dialogs keep their message visible at every size - unlike
      .tagline, this is never hidden on compact screens */
   .confirm-msg{ color:var(--sub); font-style:italic; font-size:15px; line-height:1.55; margin:0 0 22px; }
   .seclabel{ font-size:11px; letter-spacing:3px; color:var(--sub); margin:18px 0 10px; }
@@ -226,7 +226,7 @@
   .tslide.won .tname::after{ content:' ★'; color:#d8a93f; }
   /* table tour counter: a small gold pill, clearly separate from the carousel position */
   .tourpill{ float:right; color:#d8a93f; border:1px solid #d8a93f; border-radius:20px; padding:1px 10px; letter-spacing:2px; }
-  /* online lobby — compact by design, nothing may scroll */
+  /* online lobby - compact by design, nothing may scroll */
   .online-code{
     font-family:var(--display); font-size:clamp(34px,8vw,52px); font-weight:800;
     letter-spacing:12px; text-indent:12px; margin:8px 0 2px; color:var(--title);
@@ -239,7 +239,12 @@
   }
   .online-input:focus{ outline:none; border-color:var(--btnbg); }
   .online-note{ color:var(--sub); font-size:13px; line-height:1.55; margin:8px 0; }
-  /* lobby error: a designed alert surface, not bare red text — dark by
+  /* host lobby QR: white card for contrast, quiet zone built into the SVG
+     plus padding here; fixed size so it scans from a phone screen */
+  .qr-wrap{ display:flex; justify-content:center; margin:6px 0 2px; }
+  #qrCode{ width:150px; height:150px; background:#fff; padding:8px; border-radius:10px; }
+  #qrCode svg{ width:100%; height:100%; display:block; }
+  /* lobby error: a designed alert surface, not bare red text - dark by
      design so it reads on every room, with a warm red edge for urgency */
   .online-err{
     color:#f3c1b8; background:rgba(217,92,78,0.10);
@@ -250,7 +255,7 @@
   .online-err:empty{ border:none; background:none; padding:0; min-height:0; }
   .pulse{ animation:opulse 1.6s ease-in-out infinite; }
   @keyframes opulse{ 0%,100%{ opacity:0.45; } 50%{ opacity:1; } }
-  /* win-card confetti rain — theme-colored pieces spawned by showWin() */
+  /* win-card confetti rain - theme-colored pieces spawned by showWin() */
   #winov .card{ position:relative; overflow-x:hidden; overflow-y:auto; }
   .confetti{ position:absolute; top:-14px; z-index:5; pointer-events:none; border-radius:2px; animation:cfall linear forwards; }
   @keyframes cfall{ to{ transform:translateY(110vh) rotate(720deg); opacity:0.85; } }
@@ -264,7 +269,7 @@
   .foot b{ color:var(--title); }
   #settings .card{ max-width:500px; text-align:left; }
   #settings .kicker, #settings h1, #settings .tagline{ text-align:center; }
-  /* compact menu: narrow phones AND short landscape — nothing may scroll */
+  /* compact menu: narrow phones AND short landscape - nothing may scroll */
   @media (max-width:480px), (max-height:540px){
     .card{ padding:10px 12px; }
     h1{ font-size:20px; }
@@ -279,7 +284,7 @@
     .tslide .tname{ font-size:14px; }
     .tslide .tmeta{ padding:8px 12px 10px; justify-content:center; }
     .seg4{ gap:8px; }
-    /* records stay visible on compact screens when present — 9px to fit the
+    /* records stay visible on compact screens when present - 9px to fit the
        narrow buttons; verified: menu still fits 390x844 without scrolling */
     .btn .rec{ display:none; }
     .btn .rec:not(:empty){ display:block; font-size:9px; letter-spacing:1px; }

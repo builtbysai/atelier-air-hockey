@@ -1,12 +1,12 @@
 /* ============================================================
-   ATELIER AIR HOCKEY — scoreboards
+   ATELIER AIR HOCKEY - scoreboards
    Physical scoring devices, one per theme. The engine owns the
    animation state (G.board); each renderer is a pure draw call.
 
    Draw contract:
      draw(ctx, s0, s1, target, trim, B, labels)
      - trim: per-theme palette for the device
-     - B: { shown:[a,b], anim:[{t,from},{t,from}] } — t goes 0→1
+     - B: { shown:[a,b], anim:[{t,from},{t,from}] } - t goes 0→1
      - labels: ['YOU','CPU'] or ['P1','P2']
    Anchor: top-center of virtual space (y=8). The engine's portrait
    rotation handles orientation; every device fits ~400×110.
@@ -464,7 +464,7 @@ function tickBoard(rdt) {
   }
 }
 function drawScoreboard(ctx) {
-  // Labels by mode — the local player is always "YOU"; exhibition names both AIs.
+  // Labels by mode - the local player is always "YOU"; exhibition names both AIs.
   const labels = [sideLabel(0), sideLabel(1)];
   const dev = Scoreboards[THEME.scoreboard] || Scoreboards.solari;
   dev.draw(ctx, G.score[0], G.score[1], Settings.firstTo, THEME.board, G.board, labels);

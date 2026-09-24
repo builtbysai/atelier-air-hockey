@@ -1,5 +1,5 @@
 // Portrait orientation: the render transform must be a TRUE rotation
-// (positive determinant), never a reflection — the old matrix mirrored
+// (positive determinant), never a reflection - the old matrix mirrored
 // the table and reversed every world-space glyph (scoreboards, countdown,
 // GOAL!, floating text). screenToRink must be its exact inverse so input
 // stays glued to the fingertip.
