@@ -13,8 +13,9 @@
  * Transport: Trystero 0.25.4 (WebRTC data channels, Nostr signaling), one
  * reliable ordered channel. Three actions:
  *
- *   st  host -> guest, ~25 Hz. Compact array (all numbers, 1-decimal):
- *       [px,py,pvx,pvy, m1x,m1y, m2x,m2y, s0,s1, flags, top, br, sv0, sv1]
+ *   st  host -> guest, ~30 Hz. Compact array (all numbers, 1-decimal):
+ *       [px,py,pvx,pvy, m1x,m1y, m2x,m2y, s0,s1, flags, top, br, sv0, sv1,
+ *        svx, svy, sdir]
  *        0-3  puck position / velocity (rink units, units/s)
  *        4-5  host mallet (m1) position
  *        6-7  guest mallet (m2) position (echo)
@@ -23,6 +24,8 @@
  *        11   host topSpeed (rounded, for the guest's win card)
  *        12   host bestRally (int, for the guest's win card)
  *        13-14 host saves [side0, side1]
+ *        15-16 the serve vector the host rolled for this point (guest resync)
+ *        17   serve direction (guest resync)
  *
  *   in  guest -> host, ~30 Hz. Array [tx, ty]: guest mallet target, rink units.
  *
@@ -37,12 +40,29 @@
  *
  * Roles: Create -> host (side 0, m1, unflipped view). Join -> guest (side 1,
  * m2, view flipped so they play from their own side — see G.onlineFlip).
- * The host runs the 240 Hz sim untouched; the guest never simulates the puck.
- * Guest rendering: own mallet local every frame (zero input latency) + sent
- * via `in`; puck + host mallet from `st` with dead reckoning between
+ * The host runs the 240 Hz sim untouched and drives the guest's mallet from
+ * the guest's input targets (Net.remote -> Net.driveRemoteMallet, same speed
+ * cap and side clamping as a local mallet); the guest never simulates the
+ * puck. Guest rendering: own mallet local every frame (zero input latency) +
+ * sent via `in`; puck + host mallet from `st` with dead reckoning between
  * snapshots (extrapolate by last velocity, lerp-correct toward arrivals —
  * smooth, never teleports). Ceremony + boardKick run from `ev {t:'goal'}` so
- * the Solari / reels / cribbage / bulbs animate in sync on both sides.
+ * the Solari / reels / cribbage / bulbs animate in sync on both sides; the
+ * snapshot flags are the backstop — Net.guestSyncState re-syncs the guest's
+ * state machine (goal/count/pause/win, scores, serve vector) if an event
+ * was ever lost, so the two sides reconverge instead of drifting apart.
+ *
+ * The ping probe is display-only: each side namespaces its probe ids with a
+ * per-match salt, keeps its own send timestamps, and smooths samples with an
+ * EWMA; the chip shows the last good reading and falls back to '–' when
+ * samples go stale, never a negative or cross-device value.
+ *
+ * Disconnects: a mid-match peer loss freezes the table and shows
+ * "reconnecting" for a real grace window (mobile ICE restarts routinely
+ * exceed a few seconds) instead of declaring the rival gone at the first
+ * flap. A clean 'leave' still ends the match immediately. Rejoin inside the
+ * window resumes seamlessly; a later rejoin re-knocks and the host starts a
+ * fresh match.
  *
  * Trystero 0.25 room shape: peer listeners are callback properties and
  * makeAction() returns an action object. Messages expose sender metadata via
@@ -65,6 +85,12 @@ const Net = {
   disconnectTimer: 0,
   reconnecting: false,
   reconnectState: null,
+  dropPaused: false,   // the user had manually paused before the drop
+  // Mid-match peer loss waits this long for the network to recover before
+  // the rival is declared gone (mobile ICE restarts routinely exceed 5s).
+  RECONNECT_GRACE_MS: 15000,
+  // The quality chip falls back to '–' after this long with no valid probe.
+  PING_STALE_MS: 10000,
 
   // ---- UI state ----
   lobbyOpen: false,    // online overlay visible -> attract demo stays off
@@ -80,7 +106,11 @@ const Net = {
   savedSettings: null, // guest's own prefs, restored on leave
 
   // ---- connection quality (display only — never affects net behavior) ----
-  conn: { rtt: -1, pingId: 0, pendingTs: 0, pingAcc: 0 }, // RTT ms of last pong
+  // rtt is an EWMA of measured round trips; lastPongT marks the last valid
+  // sample so the chip can show stale ('–') instead of a fossilized number.
+  // Probe ids are namespaced per side (salt-n) so the two sides' probes can
+  // never be mistaken for each other.
+  conn: { rtt: -1, pingId: 0, pending: null, pingAcc: 0, paintAcc: 0, lastPongT: 0, salt: '' },
 
   // ---- plumbing ----
   _trystero: null,     // cached dynamic import
@@ -200,7 +230,10 @@ Net.encodeSnapshot = function () {
     _r1(G.m1.x), _r1(G.m1.y), _r1(G.m2.x), _r1(G.m2.y),
     G.score[0], G.score[1], flags,
     Math.round(G.stats ? G.stats.topSpeed : 0), G.stats ? G.stats.bestRally : 0,
-    G.stats ? G.stats.saves[0] : 0, G.stats ? G.stats.saves[1] : 0];
+    G.stats ? G.stats.saves[0] : 0, G.stats ? G.stats.saves[1] : 0,
+    // 15-17: the serve vector + direction the host rolled for this point,
+    // so a guest that missed the countdown event can still start even
+    _r1(G.serveVX || 0), _r1(G.serveVY || 0), G.serveDir || 0];
 };
 Net.decodeSnapshot = function (a) {
   return {
@@ -208,6 +241,9 @@ Net.decodeSnapshot = function (a) {
     m1x: a[4], m1y: a[5], m2x: a[6], m2y: a[7],
     s0: a[8], s1: a[9], flags: a[10],
     top: a[11] || 0, br: a[12] || 0, sv0: a[13] || 0, sv1: a[14] || 0,
+    svx: a.length > 15 ? a[15] : undefined,
+    svy: a.length > 16 ? a[16] : undefined,
+    sdir: a.length > 17 ? a[17] : undefined,
   };
 };
 
@@ -462,18 +498,29 @@ Net.onPeerJoin = function (id) {
   Net.reconnecting = false;
   Net.paintConn();
   if (wasReconnecting && Net.active) {
-    // Both roles resume their own retained state. Previously only the host
-    // resumed here, leaving a reconnecting guest stuck on the pause overlay.
-    // But if the user had manually paused before the drop, keep them paused.
+    // The rival is back inside the grace window: both sides resume their
+    // own retained state. A manual pause from before the drop is kept.
+    // The 'resume' event goes out only when WE are resuming from the
+    // drop-induced pause — never clobber the rival's own manual pause.
     Net.setPauseNotice(false);
-    if (G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause' && !Net.wasPausedBeforeDisconnect) togglePause(false, true);
+    const resumeUs = !Net.dropPaused && G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause';
+    if (resumeUs) togglePause(false, true);
     Net.reconnectState = null;
-    Net.wasPausedBeforeDisconnect = false;
-    if (Net.wire) Net.wire.sendEv({ t: 'resume' });
+    Net.dropPaused = false;
+    if (Net.wire && resumeUs) Net.wire.sendEv({ t: 'resume' });
+    // fast resync: push a snapshot on the next pump instead of waiting
+    // for the tick, so the guest reconverges immediately
+    if (Net.role === 'host') Net.snapAcc = 1;
     return;
   }
   if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
   else if (Net.role === 'guest' && !Net.active && Net.wire) Net.wire.sendEv({ t: 'knock' });
+};
+// The "rival left" overlay is up and the room is still alive — a peer that
+// (re)joins now is knocking for a fresh match. DOM-guarded for headless.
+Net.dropOpen = function () {
+  const el = (typeof $ === 'function') ? $('onlinedropov') : null;
+  return !!(el && el.classList && typeof el.classList.contains === 'function' && !el.classList.contains('hidden'));
 };
 // pause-card reconnect notice: visible only while the match waits on a
 // dropped rival; hidden the moment play resumes or the room goes away.
@@ -486,11 +533,22 @@ Net.onPeerLeave = function (id) {
   if (id !== Net.peerId) return;
   Net.peerId = null; Net.handshakePeerId = null;
   if (!Net.active && !Net.waitingForRival) return;
-  if (Net.waitingForRival) { Net.onRivalLeft(); return; }
+  if (Net.waitingForRival && !Net.active) {
+    // A knocker bailed before the match started — keep hosting. No scary
+    // overlay for a failed knock; the waiting room just goes back to
+    // waiting for a real rival.
+    Net.uiShow('waiting', { code: Net.code });
+    Net.paintConn();
+    return;
+  }
+  // Mid-match drop: freeze the table, show "reconnecting", and give the
+  // network a real grace window — mobile ICE restarts routinely exceed a
+  // few seconds, and the first flap is not a departure. A clean 'leave'
+  // event still ends the match immediately via onRivalLeft.
   Net.reconnecting = true;
-  // Remember if the user had manually paused before the drop, so we don't
-  // auto-resume on reconnect and lose their manual pause.
-  Net.wasPausedBeforeDisconnect = (G.state === 'pause');
+  // Remember a manual pause from before the drop, so the rejoin path
+  // neither auto-resumes us nor clobbers the rival's pause.
+  Net.dropPaused = (G.state === 'pause');
   Net.reconnectState = G.state === 'pause' ? G.pausedFrom : G.state;
   if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true, true);
   Net.setPauseNotice(true);
@@ -501,12 +559,14 @@ Net.onPeerLeave = function (id) {
       Net.reconnecting = false;
       Net.onRivalLeft();
     }
-  }, 5000);
+  }, Net.RECONNECT_GRACE_MS);
 };
 
 Net.onSnapshot = function (a, peerId) {
   if (Net.role !== 'guest' || !Net.active || !Net.acceptPeer(peerId)) return;
-  if (!Array.isArray(a) || a.length < 15 || !a.slice(0, 15).every(Number.isFinite)) return;
+  // 15 slots from older hosts still decode (serve slots are optional);
+  // anything shorter or non-numeric is junk
+  if (!Array.isArray(a) || a.length < 15 || !a.every(Number.isFinite)) return;
   const s = Net.decodeSnapshot(a);
   if (!Net.gview) {
     Net.gview = { px: s.px, py: s.py, pvx: s.pvx, pvy: s.pvy };
@@ -522,8 +582,23 @@ Net.onSnapshot = function (a, peerId) {
 Net.onInput = function (a, peerId) {
   if (Net.role !== 'host' || !Net.active || !Net.acceptPeer(peerId)) return;
   if (!Array.isArray(a) || a.length < 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1])) return;
-  Net.remote.tx = clamp(a[0], CX + MALLET_R, PX + PW - MALLET_R);
+  // the guest owns the right half — clamp the target to it up front
+  // (driveMallet re-clamps per side, but the target itself should never
+  // cross the center line)
+  Net.remote.tx = clamp(a[0], CX + 8, PX + PW - MALLET_R);
   Net.remote.ty = clamp(a[1], PY + MALLET_R, PY + PH - MALLET_R);
+};
+
+/* Host: fold the guest's latest input target into their mallet, then drive
+ * it with the same speed cap and side clamping as a local mallet. Called
+ * from the host's sim (play substeps) and countdown — without this the
+ * remote mallet is a statue on the authoritative sim and the guest can
+ * never touch the puck. driveMallet and PLAYER_CAP live in game.js; unit
+ * tests stub driveMallet. */
+Net.driveRemoteMallet = function (dt) {
+  const m = G.m2;
+  m.tx = Net.remote.tx; m.ty = Net.remote.ty;
+  driveMallet(m, dt, PLAYER_CAP);
 };
 
 Net.validGoalEvent = function (ev) {
@@ -535,6 +610,10 @@ Net.onEvent = function (ev, peerId) {
   switch (ev.t) {
     case 'knock':
       if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
+      // late rejoin after the match was declared dead: the guest re-knocks
+      // on join (see onPeerJoin) — answer with a fresh match instead of
+      // silence, so a long blip ends in a rematch, not a dead table
+      else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
       break;
     case 'hello':
       if (Net.role === 'guest' && !Net.active) Net.onHello(ev);
@@ -564,9 +643,11 @@ Net.onEvent = function (ev, peerId) {
       break;
     // connection-quality probe: the echo rides the event channel but is
     // display-only — it never touches snapshots, inputs, or game state.
+    // The originator kept its own send timestamp, so the echo carries only
+    // the id; ids are namespaced per side (salt-n) and never collide.
     case 'ping':
-      if (Net.wire && Net.active && Number.isInteger(ev.id) && Number.isFinite(ev.ts))
-        Net.wire.sendEv({ t: 'pong', id: ev.id, ts: ev.ts });
+      if (Net.wire && Net.active && typeof ev.id === 'string' && ev.id.length < 32)
+        Net.wire.sendEv({ t: 'pong', id: ev.id });
       break;
     case 'pong':
       Net.onPong(ev);
@@ -575,22 +656,35 @@ Net.onEvent = function (ev, peerId) {
 };
 
 /* RTT probe: both sides ping every 2.5s while a match is live; each side
- * measures its OWN round trip and paints its OWN chip. */
+ * measures its OWN round trip and paints its OWN chip. Samples are smoothed
+ * (EWMA) so one slow pong doesn't swing the display. */
 Net.sendPing = function () {
   if (!Net.wire || !Net.active) return;
   Net.conn.pingId++;
-  Net.conn.pendingTs = performance.now();
-  try { Net.wire.sendEv({ t: 'ping', id: Net.conn.pingId, ts: Net.conn.pendingTs }); } catch (e) {}
+  const id = Net.conn.salt + '-' + Net.conn.pingId;
+  if (!Net.conn.pending) Net.conn.pending = {};
+  Net.conn.pending[id] = performance.now();
+  // cap the pending map — a stalled network shouldn't grow it forever
+  const keys = Object.keys(Net.conn.pending);
+  if (keys.length > 8) delete Net.conn.pending[keys[0]];
+  try { Net.wire.sendEv({ t: 'ping', id }); } catch (e) {}
 };
 
 Net.onPong = function (ev) {
-  if (!ev || ev.id !== Net.conn.pingId || !Number.isFinite(ev.ts)) return;
-  Net.conn.rtt = Math.max(0, Math.round(performance.now() - ev.ts));
+  if (!ev || typeof ev.id !== 'string' || !Net.conn.pending) return;
+  const sent = Net.conn.pending[ev.id];
+  if (sent === undefined) return; // not our probe (or already answered)
+  delete Net.conn.pending[ev.id];
+  const sample = Math.max(0, Math.round(performance.now() - sent));
+  Net.conn.rtt = Net.conn.rtt < 0 ? sample : Math.round(Net.conn.rtt * 0.7 + sample * 0.3);
+  Net.conn.lastPongT = performance.now();
   Net.paintConn();
 };
 
 /* Quality chip in the topbar: dot + RTT ms. Pure display; the chip hides
- * itself the moment we're not in a live online match. */
+ * itself the moment we're not in a live online match. Shows the last good
+ * reading and falls back to '–' when samples go stale — never negative,
+ * never NaN, never another device's clock. */
 Net.paintConn = function () {
   const chip = $('connChip');
   if (!chip) return;
@@ -601,13 +695,16 @@ Net.paintConn = function () {
   const label = chip.querySelector('em');
   if (Net.reconnecting) { dot.className = 'fair'; label.textContent = 'reconnecting'; return; }
   const rtt = Net.conn.rtt;
-  const cls = rtt < 0 ? 'unknown' : rtt < 120 ? 'good' : rtt < 300 ? 'fair' : 'poor';
-  dot.className = cls;
-  label.textContent = rtt < 0 ? '–ms' : rtt + 'ms';
+  const stale = Net.conn.lastPongT > 0 && (performance.now() - Net.conn.lastPongT > Net.PING_STALE_MS);
+  if (rtt < 0 || stale || !Number.isFinite(rtt)) { dot.className = 'unknown'; label.textContent = '–ms'; return; }
+  dot.className = rtt < 120 ? 'good' : rtt < 300 ? 'fair' : 'poor';
+  label.textContent = rtt + 'ms';
 };
 
 Net.resetConn = function () {
-  Net.conn.rtt = -1; Net.conn.pingId = 0; Net.conn.pendingTs = 0; Net.conn.pingAcc = 0;
+  Net.conn.rtt = -1; Net.conn.pingId = 0; Net.conn.pending = {};
+  Net.conn.pingAcc = 0; Net.conn.paintAcc = 0; Net.conn.lastPongT = 0;
+  Net.conn.salt = Math.random().toString(36).slice(2, 10);
   Net.paintConn();
 };
 
@@ -639,7 +736,6 @@ Net.beginMatch = function (role) {
   // net state
   Net.rsnap = null; Net.gview = null;
   Net.snapAcc = 0; Net.inAcc = 0;
-  Net.resetConn(); // fresh RTT chip for this match
   Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
 };
 
@@ -647,6 +743,7 @@ Net.beginMatch = function (role) {
 Net.startHostMatch = function () {
   if (Net.active || !Net.waitingForRival) return;
   Net.beginMatch('host');
+  Net.resetConn(); // fresh RTT chip for a fresh match (not on every countdown)
   Net.sendHello();
   startCount();
   rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
@@ -666,6 +763,7 @@ Net.onHello = function (ev) {
   Net.waitingForRival = false;
   G.mode = 'online';
   G.onlineFlip = true;
+  Net.resetConn(); // fresh RTT chip for a fresh match (not on every countdown)
   Net.uiShow('guestwait');
 };
 
@@ -701,24 +799,74 @@ Net.applyRemotePause = function (paused) {
   else if (!paused && G.state === 'pause') togglePause(false, true);
 };
 
+/* Guest: the snapshot flags are the backstop for lost event-channel
+ * messages. If a 'goal'/'countdown'/'pause'/'resume' event never arrived,
+ * the flags pull the guest's state machine back in line — scores and the
+ * serve vector ride the snapshot, so the guest rejoins the point evenly
+ * instead of drifting in a stale state forever. Runs before the per-frame
+ * score copy so a missed goal can still recover its scorer from the
+ * increment. Never fights a gesture-owned pause: applyRemotePause routes
+ * through the veil-aware togglePause path. */
+Net.guestSyncState = function (s) {
+  if (!s) return;
+  const flags = s.flags | 0;
+  if ((flags & 4) && G.state === 'play') {
+    // host is mid-ceremony and we never saw the goal event — recover the
+    // scorer from the score increment (exactly one side moves by one)
+    let scorer = -1;
+    if (s.s0 === G.score[0] + 1 && s.s1 === G.score[1]) scorer = 0;
+    else if (s.s1 === G.score[1] + 1 && s.s0 === G.score[0]) scorer = 1;
+    if (scorer >= 0) { Net.guestGoal({ scorer, s0: s.s0, s1: s.s1 }); return; }
+  }
+  if ((flags & 16) && G.state !== 'win') {
+    // host is at full time and we missed it — adopt the final scores
+    G.score = [s.s0, s.s1];
+    G.winSide = s.s0 > s.s1 ? 0 : 1;
+    G.state = 'win';
+    showWin();
+    return;
+  }
+  if ((flags & 1) && G.state !== 'count') {
+    // host is counting down and we're behind (missed goal + countdown) —
+    // take the serve from the snapshot so the point starts even
+    hideAll();
+    const tb = (typeof $ === 'function') ? $('topbar') : null;
+    if (tb) tb.classList.remove('hidden');
+    if (Number.isFinite(s.svx) && Number.isFinite(s.svy)) {
+      G.serveVX = clamp(s.svx, -PUCK_MAX, PUCK_MAX);
+      G.serveVY = clamp(s.svy, -PUCK_MAX, PUCK_MAX);
+      if (s.sdir === 1 || s.sdir === -1) G.serveDir = s.sdir;
+    }
+    startCount();
+    return;
+  }
+  if ((flags & 8) && G.state !== 'pause') Net.applyRemotePause(true);
+  else if (!(flags & 8) && G.state === 'pause') Net.applyRemotePause(false);
+};
+
 /* ---------------- per-frame ---------------- */
-/* Host: snapshots @25Hz. Guest: input @30Hz + dead reckoning every frame.
+/* Host: snapshots @30Hz. Guest: input @30Hz + dead reckoning every frame.
  * No-op unless a match is live. */
 Net.pump = function (rdt) {
   if (!Net.active || !Net.wire) return;
   // RTT probe: cheap, on the event channel, display-only
   Net.conn.pingAcc += rdt;
   if (Net.conn.pingAcc >= 2.5) { Net.conn.pingAcc = 0; Net.sendPing(); }
+  // repaint the chip ~1Hz so staleness shows promptly even with no traffic
+  Net.conn.paintAcc += rdt;
+  if (Net.conn.paintAcc >= 1) { Net.conn.paintAcc = 0; Net.paintConn(); }
   if (Net.role === 'host') {
     Net.snapAcc += rdt;
-    if (Net.snapAcc >= 1 / 25 && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
+    if (Net.snapAcc >= 1 / 30 && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
       Net.snapAcc = 0;
       Net.wire.sendSt(Net.encodeSnapshot());
     }
   } else {
     Net.inAcc += rdt;
     if (Net.inAcc >= 1 / 30) { Net.inAcc = 0; Net.sendInput(); }
-    Net.guestApply(rdt);
+    // a paused guest holds the frozen frame — dead reckoning must not keep
+    // extrapolating the puck behind the pause card
+    if (G.state !== 'pause') Net.guestApply(rdt);
   }
 };
 
@@ -735,6 +883,7 @@ Net.easeHostMallet = function (rdt) {
 Net.guestApply = function (rdt) {
   const s = Net.rsnap, gv = Net.gview;
   if (!s || !gv) return;
+  Net.guestSyncState(s); // flags backstop first — may change G.state/scores
   const k = 0.5; // lerp-correct: smooth, never teleports
   gv.px += (s.px - gv.px) * k; gv.py += (s.py - gv.py) * k;
   gv.pvx = s.pvx; gv.pvy = s.pvy;
@@ -758,7 +907,10 @@ Net.guestApply = function (rdt) {
 };
 
 /* ---------------- events out ---------------- */
+/* All sends are safe to call from any state: with no wire or no live match
+ * they no-op instead of throwing. */
 Net.sendHello = function () {
+  if (!Net.wire || !Net.active) return;
   Net.wire.sendEv({ t: 'hello', firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id });
 };
 // The serve vector rides along so both machines play the identical point —
@@ -766,19 +918,25 @@ Net.sendHello = function () {
 // gw carries the host's goal-mouth width (v20) so the guest renders and
 // (via the host's snapshots) plays the same table.
 Net.sendCountdown = function () {
+  if (!Net.wire || !Net.active) return;
   Net.wire.sendEv({ t: 'countdown', serveDir: G.serveDir,
     svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10,
     gw: Math.round(goalW()) });
 };
 Net.sendGoal = function (scorer) {
+  if (!Net.wire || !Net.active) return;
   Net.wire.sendEv({
     t: 'goal', scorer,
     s0: G.score[0], s1: G.score[1],
     matchEnd: G.score[scorer] >= Settings.firstTo,
   });
 };
-Net.sendPause = function (paused) { Net.wire.sendEv({ t: paused ? 'pause' : 'resume' }); };
+Net.sendPause = function (paused) {
+  if (!Net.wire || !Net.active) return;
+  Net.wire.sendEv({ t: paused ? 'pause' : 'resume' });
+};
 Net.sendInput = function () {
+  if (!Net.wire || !Net.active) return;
   Net.wire.sendIn([_r1(G.m2.tx), _r1(G.m2.ty)]);
 };
 
@@ -827,8 +985,12 @@ Net.declineRematch = function () {
   AudioSys.ui();
   hideAll(); $('winov').classList.remove('hidden');
 };
+/* Host: a rival re-knocked after a dead match — start a genuinely fresh match:
+ * new hello (settings), new countdown, new serve roll, fresh RTT chip. */
 Net.restartMatchAsHost = function () {
   Net.beginMatch('host');
+  Net.resetConn(); // the old match's RTT died with it
+  Net.sendHello();
   startCount();
   rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
   Net.sendCountdown();

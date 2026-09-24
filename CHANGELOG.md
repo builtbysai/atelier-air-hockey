@@ -42,6 +42,71 @@
   simultaneous with pointer on the other side), online host (WASD → left mallet),
   online guest (WASD → right mallet), portrait (W → toward the far goal),
   P pause/resume, M sound toggle.
+## Unreleased — online netcode repair (feat/online-netcode-240924)
+
+**The remote mallet actually moves now, and the netcode survives real networks.**
+
+Sam's report: online was "barely playable" — a `-ms` chip, ~149ms ping,
+"rival left" on every flap, lag with no sync. Root causes found and fixed:
+
+### The game-breaking one: host ignored the guest's mallet
+- `Net.onInput()` stored the guest's target in `Net.remote`, but nothing
+  ever read it — the authoritative host's `G.m2` never moved, so the guest
+  could never touch the puck. The host now folds every guest input target
+  into `G.m2` via `Net.driveRemoteMallet()` on every physics substep and
+  during the countdown, with the same speed cap and side clamping as a
+  local mallet (targets are clamped to the guest half on receipt, so a
+  hostile or buggy peer can't drag their mallet across the center line).
+- Verified by a 150ms-RTT loopback simulation: the guest tracks the puck
+  with bounded error and no teleports.
+
+### Ping chip: honest numbers only
+- The `-ms` was a raw `-1` sentinel rendered as text. The chip now shows
+  `–ms` while unknown, smooths samples with an EWMA (one slow pong can't
+  swing the display), namespaces probe ids per side per match (the two
+  sides' probes can never be mistaken for each other), keeps its own send
+  timestamps, ignores stray pongs, and falls back to `–ms` when samples go
+  stale (>10s) instead of showing a fossilized number. Each side still
+  measures and paints only its own round trip.
+
+### Disconnects: grace instead of instant "rival left"
+- A mid-match peer loss now freezes the table and shows "reconnecting"
+  for a 15-second grace window (mobile ICE restarts routinely exceed the
+  old 5s) instead of declaring the rival gone at the first flap. A clean
+  `leave` still ends the match immediately.
+- Rejoin inside the window resumes seamlessly; a manual pause from before
+  the drop is kept and the rejoin never sends a `resume` that would clobber
+  the rival's own pause. Snapshots resume at 30Hz (up from 25Hz) so the
+  guest reconverges faster.
+- A peer that rejoins after the match was declared dead re-knocks and the
+  host starts a genuinely fresh match (new hello/settings, countdown,
+  serve roll, fresh RTT chip) instead of a silent dead table.
+- A knocker bailing before the match starts no longer kills the waiting
+  room — the host keeps waiting.
+
+### Guest state reconciliation
+- Snapshot flags are now the backstop for lost event-channel messages:
+  a missed goal is recovered from the score increment, a missed countdown
+  adopts the serve vector/direction from new snapshot slots, a missed pause
+  or resume is applied from the pause flag, and missed full time adopts the
+  final scores. The two sides reconverge instead of drifting apart forever.
+- The guest holds the frozen frame while paused — dead reckoning no longer
+  extrapolates the puck behind the pause card.
+
+### Hardening
+- Every `Net.send*` is now a safe no-op with no wire or no live match
+  (previously several would throw on `Net.wire.sendEv`).
+
+### Tests
+- New `tests/net-online.test.mjs`: 16 tests, including a delayed loopback
+  transport (75ms each way ≈ Sam's 150ms) proving RTT convergence,
+  bounded guest tracking error with no teleports, input clamping, missed
+  event recovery, the reconnect grace window, manual-pause preservation,
+  and send-path safety. Full suite: 69/69 pass.
+
+### Still needs Sam's real-device test
+- Two real devices over the Internet, feel at 100–200ms RTT, reconnect
+  through a real mobile/Wi-Fi transition, and both sides' focus loss.
 
 ## v24.3 — 2026-09-24
 
