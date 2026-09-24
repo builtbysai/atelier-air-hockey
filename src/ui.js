@@ -30,6 +30,7 @@ function setTheme(id, silent) {
   document.title = THEME.name + ' — Atelier Air Hockey';
   paintRoom();
   AudioSys.ambience(id); // room ambience follows the room (deferred pre-gesture)
+  MusicSys.setTable(id); // generative music follows the room too (crossfades)
   if (!silent) AudioSys.ui();
 }
 function paintThumbnails() {
@@ -77,7 +78,7 @@ function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
   // Lock them during an online match so peers can't desynchronize.
   if ((key === 'firstTo' || key === 'pace' || key === 'goalW') && G.mode === 'online' && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) return;
-  if (key === 'sound' || key === 'haptics') val = (val === 'true');
+  if (key === 'sound' || key === 'haptics' || key === 'music') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
   Settings[key] = val; saveSettings(); applySettingsToUI();
   // the menu's table thumbnails draw the goal mouth — repaint so the
@@ -97,6 +98,7 @@ function applySettingsToUI() {
   });
   AudioSys.muted = !Settings.sound;
   AudioSys.syncMute(); // keep the looped ambience bed under Mute too
+  MusicSys.syncEnabled(); // the music toggle starts/stops the scheduler (no runaway timers)
   const sb = $('btnSound');
   if (sb) {
     sb.classList.toggle('off', !Settings.sound);
@@ -335,6 +337,34 @@ function installDialogA11y() {
   }, true);
 }
 
+/* ---------- in-game confirm dialog ----------
+ * Replaces the native confirm() for Restart / Quit / Reset progress: same
+ * decisions and triggers, but a themed, focus-trapped, keyboard-operable
+ * surface. askConfirm resolves true on confirm, false on cancel or Esc. */
+let confirmResolve = null, confirmReturn = null;
+function askConfirm({ title, message, ok, ret }) {
+  return new Promise(resolve => {
+    confirmResolve = resolve;
+    confirmReturn = ret || null;
+    $('confirmTitle').textContent = title;
+    $('confirmMsg').textContent = message;
+    $('confirmOk').textContent = ok;
+    hideAll();
+    $('confirmov').classList.remove('hidden');
+  });
+}
+function settleConfirm(val) {
+  const r = confirmResolve; confirmResolve = null;
+  const ret = confirmReturn; confirmReturn = null;
+  AudioSys.ui();
+  // Always dismiss the overlay, even when no return panel was named —
+  // otherwise a ret-less confirm (or a future caller that omits ret) leaves
+  // a stuck dialog that Escape can never clear.
+  hideAll();
+  if (ret) $(ret).classList.remove('hidden');
+  if (r) r(val);
+}
+
 function wireUI() {
   installDialogA11y();
   buildCarousel();
@@ -368,24 +398,46 @@ function wireUI() {
   $('btnHelp').addEventListener('click', () => { AudioSys.ui(); applySettingsToUI(); hideAll(); $('help').classList.remove('hidden'); });
   $('btnProgress').addEventListener('click', () => { AudioSys.ui(); renderProgress(); hideAll(); $('progress').classList.remove('hidden'); });
   $('progressClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
-  $('btnResetProgress').addEventListener('click', () => {
-    if (!confirm('Reset records, personal bests, achievements, and table-tour progress on this device?')) return;
+  $('btnResetProgress').addEventListener('click', async () => {
+    const ok = await askConfirm({
+      title: 'Reset progress',
+      message: 'Reset records, personal bests, achievements, and table-tour progress on this device?',
+      ok: 'Reset everything', ret: 'progress',
+    });
+    if (!ok) return;
     [Record.key, Best.key, Feats.key, Tour.key].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     Record.load(); Best.load(); Feats.load(); Tour.load(); refreshRecordLines(); refreshTour(); renderProgress();
   });
   $('helpClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
   $('btnPause').addEventListener('click', () => togglePause());
   $('btnResume').addEventListener('click', () => togglePause());
-  $('btnRestart').addEventListener('click', () => {
-    if ((G.score[0] || G.score[1]) && !confirm('Restart this match and reset the score?')) return;
+  $('btnRestart').addEventListener('click', async () => {
+    if (G.score[0] || G.score[1]) {
+      const ok = await askConfirm({
+        title: 'Restart match',
+        message: 'Restart this match and reset the score?',
+        ok: 'Restart', ret: 'pauseov',
+      });
+      if (!ok) return;
+    }
     restartMatch();
   });
-  $('btnQuit').addEventListener('click', () => {
-    if ((G.score[0] || G.score[1]) && !confirm('Quit this match?')) return;
+  $('btnQuit').addEventListener('click', async () => {
+    if (G.score[0] || G.score[1]) {
+      const ok = await askConfirm({
+        title: 'Quit match',
+        message: 'Quit this match?',
+        ok: 'Quit to menu', ret: 'pauseov',
+      });
+      if (!ok) return;
+    }
     quitToMenu();
   });
   // ONLINE: rival-left overlay — back to the menu (leave() runs inside quitToMenu)
   $('dropMenu').addEventListener('click', quitToMenu);
+  // in-game confirm dialog buttons
+  $('confirmOk').addEventListener('click', () => settleConfirm(true));
+  $('confirmCancel').addEventListener('click', () => settleConfirm(false));
   $('btnRematch').addEventListener('click', () => {
     AudioSys.ui();
     // ONLINE: a rematch needs the rival's accept — the host restarts on accept
@@ -410,7 +462,8 @@ function wireUI() {
     if (e.key === 'p' || e.key === 'P') togglePause();
     else if (e.key === 'm' || e.key === 'M') $('btnSound').click();
     else if (e.key === 'Escape') {
-      if (!$('help').classList.contains('hidden')) $('helpClose').click();
+      if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
+      else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
       else if (!$('progress').classList.contains('hidden')) $('progressClose').click();
       else if (!$('onlineov').classList.contains('hidden') && !Net.active) Net.cancelLobby();
