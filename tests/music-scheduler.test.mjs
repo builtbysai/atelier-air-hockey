@@ -1,5 +1,5 @@
 // Music scheduler contract: when the user starts a match, the generative
-// music engine must actually schedule audible notes — not just build a bus
+// music engine must actually schedule audible notes - not just build a bus
 // and sit silent. Regression test for the "music is inaudible" report.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -99,5 +99,114 @@ test('prime() stays silent without a user gesture (no AudioContext)', async () =
   t.AudioSys.ctx = null;
   t.MusicSys.timer = 0; t.MusicSys.nodes = null;
   t.MusicSys.prime();
-  assert.equal(t.MusicSys.timer, 0, 'no AudioContext means no scheduler — autoplay policy');
+  assert.equal(t.MusicSys.timer, 0, 'no AudioContext means no scheduler - autoplay policy');
+});
+
+async function loadEuclid() {
+  const src = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  const m = src.match(/function euclid\(k, n, rot\) \{[\s\S]*?\n\}/);
+  assert.ok(m, 'euclid helper missing from src/game.js');
+  return new Function(`${m[0]}; return euclid;`)();
+}
+
+function quietSys(t) {
+  // patch every voice so scheduleBeat/startPhrase run silent and recordable
+  const M = t.MusicSys;
+  M.nodes = {};
+  const calls = [];
+  M.tone = (o) => calls.push(o);
+  M.padChord = () => {};
+  M.kickHit = (tt, v) => calls.push({ drum: 'kick', t: tt, vol: v });
+  M.snareHit = (tt, v) => calls.push({ drum: 'snare', t: tt, vol: v });
+  M.hatHit = (tt, v) => calls.push({ drum: 'hat', t: tt, vol: v });
+  M.pulseTok = () => {};
+  M.shimmerTone = () => {};
+  return calls;
+}
+
+test('euclid spreads onsets evenly (tresillo, cinquillo, four-on-floor)', async () => {
+  const euclid = await loadEuclid();
+  const bits = (p) => p.map(b => (b ? 1 : 0)).join('');
+  assert.equal(bits(euclid(3, 8)), '10010010', 'E(3,8) is the tresillo');
+  // E(5,8) is the cinquillo up to rotation: 5 hits, starts on a hit, gaps maximally even
+  const c5 = euclid(5, 8);
+  assert.equal(c5[0], true, 'E(5,8) starts on a hit');
+  const gaps = [];
+  let last = 0;
+  c5.forEach((b, i) => { if (b && i > 0) { gaps.push(i - last); last = i; } });
+  gaps.push(8 - last);
+  assert.deepEqual(gaps.slice().sort(), [1, 1, 2, 2, 2], 'E(5,8) gaps are maximally even');
+  assert.equal(bits(euclid(4, 16)), '1000100010001000', 'E(4,16) is four-on-the-floor');
+  assert.equal(bits(euclid(2, 16, 4)), '0000100000001000', 'E(2,16,4) is the backbeat');
+  assert.equal(bits(euclid(0, 16)).length, 16, 'E(0,16) is empty but full-length');
+});
+
+test('the progression walks in composed order, bridge every 4th cycle', async () => {
+  const { t } = await loadGame();
+  quietSys(t);
+  t.MusicSys.key = 'deco'; t.MusicSys.pendingKey = 'deco';
+  t.MusicSys.setSessionSeed(0);
+  t.MusicSys.reseed();
+  const roots = [];
+  for (let p = 0; p < 18; p++) {
+    t.MusicSys.startPhrase(100 + p * 10, 60 / 56, p);
+    roots.push(t.MusicSys.curChord.r);
+  }
+  // deco prog: Am9 Fmaj9 Dm9 E7 (roots 0,8,5,7); bridge: Dm9 E7 (5,7)
+  assert.deepEqual(roots.slice(0, 12), [0, 8, 5, 7, 0, 8, 5, 7, 0, 8, 5, 7],
+    'three straight cycles of the composed progression');
+  assert.deepEqual(roots.slice(12, 16), [5, 7, 5, 7], 'the 4th cycle vamps the 2-chord bridge turnaround');
+  assert.deepEqual(roots.slice(16, 18), [0, 8], 'then the progression returns');
+});
+
+test('the motif is established twice before any development', async () => {
+  const { t } = await loadGame();
+  const calls = quietSys(t);
+  t.MusicSys.key = 'deco'; t.MusicSys.pendingKey = 'deco';
+  t.MusicSys.setSessionSeed(0);
+  t.MusicSys.reseed();
+  const mf = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  // deco motif q = [[4,1],[5,1],[6,2]] over A melodic minor [0,2,3,5,7,9,10]
+  // -> degrees 7,9,10 semitones -> midi 64, 66, 67 an octave above root 45
+  const want = [64, 66, 67].map(mf);
+  t.MusicSys.scheduleMotif(100, 60 / 56, 0);
+  const first = calls.splice(0).map(o => o.f);
+  t.MusicSys.scheduleMotif(200, 60 / 56, 1);
+  const second = calls.splice(0).map(o => o.f);
+  assert.deepEqual(first, want, 'phrase 0 states the motif exactly');
+  assert.deepEqual(second, want, 'phrase 1 repeats it: identity before development');
+  // phrase 2 sequences it up a diatonic step -> 66, 67, 69
+  t.MusicSys.scheduleMotif(300, 60 / 56, 2);
+  const seq = calls.splice(0).map(o => o.f);
+  assert.deepEqual(seq, [66, 67, 69].map(mf), 'phrase 2 is the diatonic sequence up');
+});
+
+test('the same session seed schedules the same sequence on two instances', async () => {
+  const run = async (seed) => {
+    const { t } = await loadGame();
+    const calls = quietSys(t);
+    t.MusicSys.key = 'bau'; t.MusicSys.pendingKey = 'bau';
+    t.MusicSys.setSessionSeed(seed);
+    t.MusicSys.reseed();
+    const spb = 60 / 120;
+    for (let n = 0; n < 64; n++) t.MusicSys.scheduleBeat(100 + n * spb, n, spb);
+    return calls.map(o => [Math.round(o.f || 0), Math.round((o.t || 0) * 1000), Math.round((o.vol || 0) * 1000)]);
+  };
+  const a = await run(987654321), b = await run(987654321), c = await run(111111111);
+  assert.ok(a.length > 40, `expected a busy 4-phrase run, got ${a.length} voices`);
+  assert.deepEqual(a, b, 'same session seed must schedule identical notes (the online sync contract)');
+  assert.notDeepEqual(a, c, 'different session seeds must diverge');
+});
+
+test('setSessionSeed reseeds a running scheduler without rebuilding the bus', async () => {
+  const { t } = await loadGame();
+  quietSys(t);
+  t.MusicSys.key = 'deco'; t.MusicSys.pendingKey = 'deco';
+  t.MusicSys.timer = 123; // pretend the scheduler is running
+  const bus = (t.MusicSys.nodes = { tag: 'bus' });
+  t.MusicSys.setSessionSeed(4242);
+  assert.equal(t.MusicSys.sessionSeed, 4242, 'seed recorded');
+  assert.equal(t.MusicSys.beat, 0, 'the running sequence restarts on the new seed');
+  assert.equal(t.MusicSys.nodes.tag, 'bus', 'the bus is not rebuilt');
+  t.MusicSys.timer = 0;
 });

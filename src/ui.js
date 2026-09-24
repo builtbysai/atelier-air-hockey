@@ -27,7 +27,7 @@ function setTheme(id, silent) {
   root.setProperty('--ghost', css.ghost);
   root.setProperty('--display', THEME.font.display);
   root.setProperty('--body', THEME.font.body);
-  document.title = THEME.name + ' — Atelier Air Hockey';
+  document.title = THEME.name + ': Atelier Air Hockey';
   paintRoom();
   AudioSys.ambience(id); // room ambience follows the room (deferred pre-gesture)
   MusicSys.setTable(id); // generative music follows the room too (crossfades)
@@ -78,16 +78,16 @@ function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
   // Lock them during an online match so peers can't desynchronize.
   if ((key === 'firstTo' || key === 'pace' || key === 'goalW') && G.mode === 'online' && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) return;
-  if (key === 'sound' || key === 'haptics' || key === 'music') val = (val === 'true');
+  if (key === 'sound' || key === 'haptics' || key === 'music' || key === 'masterMuted') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
   if (key === 'musicVolume') val = clamp(Math.round(Number(val) || 0), 0, 100);
   Settings[key] = val; saveSettings(); applySettingsToUI();
-  // music volume re-aims the live bus — no restart, no re-prime
+  // music volume re-aims the live bus - no restart, no re-prime
   if (key === 'musicVolume') MusicSys.applyVolume();
-  // the menu's table thumbnails draw the goal mouth — repaint so the
+  // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
-  // board orientation re-fits the view immediately (visual only — physics,
+  // board orientation re-fits the view immediately (visual only - physics,
   // AI, and net sync are untouched, so it's safe mid-match)
   if (key === 'orientation') { try { resize(); } catch (e) {} }
 }
@@ -103,15 +103,16 @@ function applySettingsToUI() {
     btn.title = canVibrate ? '' : 'Haptics are not available on this device';
   });
   AudioSys.muted = !Settings.sound;
-  AudioSys.syncMute(); // Sound gates the SFX bus only — music is independent
-  AudioSys.syncMusic(); // Music gates the music bus only — SFX are independent
+  AudioSys.syncMute(); // Sound gates the SFX bus only - music is independent
+  AudioSys.syncMusic(); // Music gates the music bus only - SFX are independent
+  AudioSys.syncMaster(); // HUD icon gates BOTH buses at once - toggles underneath are untouched
   MusicSys.syncEnabled(); // the music toggle starts/stops the scheduler (no runaway timers)
   const sb = $('btnSound');
   if (sb) {
-    sb.classList.toggle('off', !Settings.sound);
-    sb.innerHTML = Settings.sound ? '&#9834;' : '&#215;';
-    sb.setAttribute('aria-label', Settings.sound ? 'Mute sound' : 'Unmute sound');
-    sb.title = Settings.sound ? 'Mute sound (M)' : 'Unmute sound (M)';
+    sb.classList.toggle('off', Settings.masterMuted);
+    sb.innerHTML = Settings.masterMuted ? '&#215;' : '&#9834;';
+    sb.setAttribute('aria-label', Settings.masterMuted ? 'Unmute all audio' : 'Mute all audio');
+    sb.title = Settings.masterMuted ? 'Unmute all (M)' : 'Mute all (M)';
   }
   const ff = $('footFirst');
   if (ff) ff.innerHTML = 'First to <b>' + Settings.firstTo + '</b> takes the table';
@@ -266,7 +267,7 @@ function carGo(i) {
   setTheme(THEME_ORDER[i]);
 }
 function carStep(d) { carGo(carIndex() + d); }
-/* called by setTheme — scrolls the track when the theme changed
+/* called by setTheme - scrolls the track when the theme changed
    from anywhere else (deep link, settings restore). */
 function carSync(id) {
   const i = THEME_ORDER.indexOf(id);
@@ -369,7 +370,7 @@ function settleConfirm(val) {
   const r = confirmResolve; confirmResolve = null;
   const ret = confirmReturn; confirmReturn = null;
   AudioSys.ui();
-  // Always dismiss the overlay, even when no return panel was named —
+  // Always dismiss the overlay, even when no return panel was named -
   // otherwise a ret-less confirm (or a future caller that omits ret) leaves
   // a stuck dialog that Escape can never clear.
   hideAll();
@@ -397,7 +398,7 @@ function wireUI() {
     if (MenuSel.mode === 'watch') startGame('watch', MenuSel.watch);
     else startGame(MenuSel.mode, MenuSel.diff);
   });
-  // ONLINE: the only entry point that touches the network — the Trystero
+  // ONLINE: the only entry point that touches the network - the Trystero
   // import happens inside, on the tap, never before.
   $('btnOnline').addEventListener('click', () => Net.openLobby());
   selectRival('ai', G.difficulty); // paint the initial selection + start label
@@ -410,7 +411,7 @@ function wireUI() {
   // music volume slider: live gain change on every tick of the drag
   const mv = $('musicVol');
   if (mv) mv.addEventListener('input', () => {
-    AudioSys.init(); // the drag is a gesture — start audio so the change is heard at once
+    AudioSys.init(); // the drag is a gesture - start audio so the change is heard at once
     setSetting('musicVolume', mv.value);
   });
   // focus-loss veil: any tap is the resume gesture (autoplay policy)
@@ -453,14 +454,14 @@ function wireUI() {
     }
     quitToMenu();
   });
-  // ONLINE: rival-left overlay — back to the menu (leave() runs inside quitToMenu)
+  // ONLINE: rival-left overlay - back to the menu (leave() runs inside quitToMenu)
   $('dropMenu').addEventListener('click', quitToMenu);
   // in-game confirm dialog buttons
   $('confirmOk').addEventListener('click', () => settleConfirm(true));
   $('confirmCancel').addEventListener('click', () => settleConfirm(false));
   $('btnRematch').addEventListener('click', () => {
     AudioSys.ui();
-    // ONLINE: a rematch needs the rival's accept — the host restarts on accept
+    // ONLINE: a rematch needs the rival's accept - the host restarts on accept
     if (G.mode === 'online') Net.offerRematch();
     else if (G.mode === 'watch') startGame('watch', G.watch); // EXHIBITION: preserve the AI matchup
     else startGame(G.mode, G.difficulty);
@@ -474,7 +475,9 @@ function wireUI() {
   });
   $('btnSound').addEventListener('click', () => {
     AudioSys.init();
-    setSetting('sound', String(!Settings.sound)); // persists; button UI syncs via applySettingsToUI
+    // HUD icon is the MASTER mute: silences music AND sound at once.
+    // The Settings screen keeps its separate Sound and Music toggles.
+    setSetting('masterMuted', String(!Settings.masterMuted)); // persists; button UI syncs via applySettingsToUI
   });
   window.addEventListener('keydown', e => {
     // the focus-loss veil owns the keyboard: only Escape dismisses it
@@ -506,7 +509,7 @@ function wireUI() {
   }, { passive: false });
   window.addEventListener('keyup', e => keyDrive.delete(e.code));
   // focus loss pauses everything: sim, net, and audio freeze; the veil (or
-  // the pause card) then waits for a tap. Never auto-resumes — the resume
+  // the pause card) then waits for a tap. Never auto-resumes - the resume
   // must be a user gesture or the AudioContext stays suspended (policy).
   document.addEventListener('visibilitychange', () => {
     keyDrive.clear();
@@ -536,7 +539,7 @@ function boot() {
   refreshRecordLines(); // paint any stored records under the menu buttons
   refreshTour(); // tour counter + conquered-table pips
   // accessibility: prefers-reduced-motion drops Shake to Subtle for the
-  // session — unless the player explicitly chose a shake level — and
+  // session - unless the player explicitly chose a shake level - and
   // fxFlash() kills flashes, confetti, and room reactivity from then on.
   try {
     if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -557,7 +560,8 @@ function boot() {
   try {
     const q = new URLSearchParams(location.search);
     if (q.get('table') && THEMES[q.get('table')]) setTheme(q.get('table'), true);
-    if (q.get('join')) { Net.openLobby(); Net.join(q.get('join')); try { const u = new URL(location.href); u.searchParams.delete('join'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {} }
+    const joinCode = q.get('join') || q.get('room'); // ?room= is an alias for ?join=
+    if (joinCode) { Net.openLobby(); Net.join(joinCode); try { const u = new URL(location.href); u.searchParams.delete('join'); u.searchParams.delete('room'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {} }
     else if (q.has('play')) startGame('ai', G.difficulty);
     else if (q.has('2p')) startGame('2p');
     else if (q.has('demo')) { G.idleT = 99; }

@@ -344,3 +344,114 @@ test('sends no-op safely with no wire or no live match', async () => {
   G.m2.tx = 500; // untouched world, no throw is the assertion
   assert.equal(G.m2.tx, 500);
 });
+
+// ---------- knock retry burst ----------
+
+test('knock burst retries a few times, then stops on its own', async () => {
+  const w = await loadNetWorld();
+  const { Net } = w;
+  const sent = liveWire(w);
+  Net.role = 'guest'; Net.active = false;
+  Net.KNOCK_RETRY_MS = 25; // shrink the burst for the test
+  Net.knockBurst();
+  await sleep(150);
+  const knocks = sent.filter((d) => d.t === 'knock').length;
+  assert.equal(knocks, Net.KNOCK_RETRIES, `expected ${Net.KNOCK_RETRIES} knocks, got ${knocks}`);
+  await sleep(80);
+  assert.equal(sent.filter((d) => d.t === 'knock').length, knocks, 'the burst must stop by itself');
+  Net.KNOCK_RETRY_MS = 1500;
+});
+
+test('knock burst stops the moment the match goes live', async () => {
+  const w = await loadNetWorld();
+  const { Net } = w;
+  const sent = liveWire(w);
+  Net.role = 'guest'; Net.active = false;
+  Net.KNOCK_RETRY_MS = 25;
+  Net.knockBurst();
+  await sleep(40);
+  Net.active = true; // hello landed mid-burst
+  const knocks = sent.filter((d) => d.t === 'knock').length;
+  await sleep(100);
+  assert.equal(sent.filter((d) => d.t === 'knock').length, knocks, 'no more knocks once active');
+  Net.active = false; Net.KNOCK_RETRY_MS = 1500;
+  clearTimeout(Net.knockTimer);
+});
+
+// ---------- music session seed handshake ----------
+
+test('hello carries the music seed; the guest applies it', async () => {
+  const h = await loadNetWorld(), g = await loadNetWorld();
+  link(h, g, 20);
+  g.Net.active = false; g.Net.role = 'guest'; // the hello must find a waiting guest
+  const hSeeds = [], gSeeds = [];
+  h.context.MusicSys = { setSessionSeed(s) { hSeeds.push(s); } };
+  g.context.MusicSys = { setSessionSeed(s) { gSeeds.push(s); } };
+  h.Net.role = 'host'; h.Net.active = false; h.Net.waitingForRival = true; h.Net.code = 'ABC123';
+  h.Net.startHostMatch();
+  assert.equal(hSeeds.length, 1, 'host seeds its own MusicSys at match start');
+  assert.ok(Number.isInteger(hSeeds[0]) && hSeeds[0] >= 0, 'seed is a uint32');
+  await sleep(120); // hello crosses the wire
+  assert.equal(gSeeds.length, 1, 'guest applies the seed from the hello');
+  assert.equal(gSeeds[0], hSeeds[0], 'guest plays the host\u2019s sequence');
+});
+
+// ---------- guest prediction ----------
+
+test('guestApply predicts from snapshot velocity instead of hugging stale data', async () => {
+  const w = await loadNetWorld();
+  const { Net, G } = w;
+  Net.role = 'guest'; Net.active = true;
+  // a snapshot that arrived 100ms ago: puck at x=400 moving right at 500/s
+  Net.rsnap = { px: 400, py: 300, pvx: 500, pvy: 0, s0: 0, s1: 0, top: 0, br: 0, sv0: 0, sv1: 0, m1x: 100, m1y: 300 };
+  Net.snapT = performance.now() - 100;
+  Net.gview = { px: 400, py: 300, pvx: 500, pvy: 0 };
+  G.state = 'play';
+  Net.guestApply(1 / 60);
+  // predicted target = 400 + 500*0.1 = 450; exponential ease must move toward it
+  assert.ok(G.puck.x > 400 && G.puck.x <= 450, `puck eases toward the predicted 450, got ${G.puck.x}`);
+});
+
+test('guestApply ease is time-based: one big step equals many small ones', async () => {
+  const mk = async () => {
+    const w = await loadNetWorld();
+    const { Net, G } = w;
+    Net.role = 'guest'; Net.active = true;
+    Net.rsnap = { px: 400, py: 300, pvx: 500, pvy: 0, s0: 0, s1: 0, top: 0, br: 0, sv0: 0, sv1: 0, m1x: 100, m1y: 300 };
+    Net.gview = { px: 300, py: 300, pvx: 500, pvy: 0 };
+    G.state = 'play';
+    return w;
+  };
+  const a = await mk(), b = await mk();
+  // freeze snapshot age so both runs predict the same target
+  const fixed = performance.now();
+  a.Net.snapT = fixed; b.Net.snapT = fixed;
+  a.Net.guestApply(1 / 60);
+  for (let i = 0; i < 4; i++) { b.Net.snapT = fixed; b.Net.guestApply(1 / 240); }
+  assert.ok(Math.abs(a.G.puck.x - b.G.puck.x) < 1,
+    `1/60 step (${a.G.puck.x}) must match 4x 1/240 steps (${b.G.puck.x})`);
+});
+
+// ---------- input delta suppression ----------
+
+test('stationary mallet input is suppressed, moves and heartbeats send', async () => {
+  const w = await loadNetWorld();
+  const { Net, G } = w;
+  const sent = [];
+  Net.wire = { sendIn: (d) => { sent.push(d); return Promise.resolve(); } };
+  Net.role = 'guest'; Net.active = true;
+  Net.lastIn = null;
+  G.m2.tx = 500; G.m2.ty = 300;
+  Net.sendInput();
+  assert.equal(sent.length, 1, 'first send always goes');
+  Net.sendInput();
+  assert.equal(sent.length, 1, 'unchanged target is suppressed');
+  G.m2.tx = 520;
+  Net.sendInput();
+  assert.equal(sent.length, 2, 'a moved mallet sends');
+  Net.sendInput();
+  assert.equal(sent.length, 2, 'then holds still again');
+  Net.lastInT = performance.now() - 600; // heartbeat window lapsed
+  Net.sendInput();
+  assert.equal(sent.length, 3, 'heartbeat re-sends even when still');
+});

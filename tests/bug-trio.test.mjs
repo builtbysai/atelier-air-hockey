@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
 /* Load src/game.js in a sandbox with stubbed globals. Only the pure logic
-   under test (sideLabel) is exercised — no DOM or canvas needed. */
+   under test (sideLabel) is exercised - no DOM or canvas needed. */
 async function loadGame(overrides = {}) {
   const sb = await readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
@@ -199,7 +199,7 @@ test('bug 2: rally chip lives in the left margin, clear of the scoreboard band',
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
   // the old colliding slot must be gone
   assert.doesNotMatch(source, /fillText\('RALLY ×' \+ G\.stats\.rally, CX, 108\)/);
-  // the chip anchors at x=150 via the shared plaque renderer — every
+  // the chip anchors at x=150 via the shared plaque renderer - every
   // scoreboard device is centered ~CX±200 (CX=720, so devices span
   // 520..920); assert the pill for a long rally label stays inside the
   // margin with room to spare. drawPlaque sizes pw = tw + 34, centered on cx.

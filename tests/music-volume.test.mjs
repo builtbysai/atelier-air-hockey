@@ -181,9 +181,16 @@ test('voice gains are raised: the scheduler programs audible peaks', async () =>
   const pads = ac.calls.filter(c => c[0] === 'setTarget').map(c => c[1]);
   assert.ok(pads.some(v => Math.abs(v - 0.090) < 1e-9), `pad bed must bloom to 0.090, saw [${[...new Set(pads)].join(', ')}]`);
   const peaks = ac.calls.filter(c => c[0] === 'expRamp').map(c => c[1]);
-  const maxPeak = Math.max(...peaks);
-  assert.ok(maxPeak >= 0.225 - 1e-9, `bass plucks must peak at 0.225, max saw ${maxPeak}`);
   assert.ok(peaks.some(v => Math.abs(v - 0.102) < 1e-9), 'triangle melody notes must peak at 0.102');
+  // bass: deco's enter section is pad+motif only, so run into the settle
+  // section (phrase 2+) where the euclidean bass line enters
+  ac.calls.length = 0;
+  t.MusicSys.reseed();
+  for (let n = 0; n < 48; n++) t.MusicSys.scheduleBeat(100 + n * spb, n, spb);
+  const bassPeaks = ac.calls.filter(c => c[0] === 'expRamp').map(c => c[1]);
+  const vol = t.MUSIC.deco.bass.vol;
+  assert.ok(bassPeaks.some(v => v >= vol * 0.84 && v <= vol * 1.16),
+    `deco bass must peak near its configured ${vol} (velocity 0.85..1.15), saw max ${Math.max(...bassPeaks)}`);
 });
 
 test('raised gains on the conditional voices (drone/pulse/drum/shimmer/swell)', async () => {
@@ -201,11 +208,13 @@ test('raised gains on the conditional voices (drone/pulse/drum/shimmer/swell)', 
   t.MusicSys.scheduleBeat(100, 0, 60 / t.MUSIC.mem.bpm);
   assert.ok(setValues().some(v => Math.abs(v - 0.090) < 1e-9), 'match-point pulse must peak at 0.090');
   t.MusicSys.intensity = 0;
-  // zel frame drum
+  // zel drums: euclidean kick/snare/hat layers now (the old frame-drum tap is gone)
   ac.calls.length = 0;
   t.MusicSys.key = 'zel'; t.MusicSys.reseed();
   t.MusicSys.scheduleBeat(100, 0, 60 / t.MUSIC.zel.bpm);
-  assert.ok(setValues().some(v => Math.abs(v - 0.15) < 1e-9), 'riad drum must peak at 0.15');
+  const kickVol = t.MUSIC.zel.drums.kick.vol;
+  assert.ok(setValues().some(v => v >= kickVol * 0.84 && v <= kickVol * 1.16),
+    `zel kick must peak near its configured ${kickVol} on the downbeat`);
   // swi shimmer: sparse, so run several phrases
   ac.calls.length = 0;
   t.MusicSys.key = 'swi'; t.MusicSys.reseed();
