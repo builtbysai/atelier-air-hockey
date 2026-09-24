@@ -214,6 +214,10 @@
   .setrow{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:13px 0; text-align:left; }
   .setlabel{ font-size:14px; letter-spacing:1px; flex:0 0 auto; }
   .setrow .seg{ flex:1 1 auto; max-width:310px; }
+  /* music volume slider: theme-tinted range with a numeric readout */
+  .seg.musvol{ align-items:center; gap:10px; }
+  .seg.musvol input[type=range]{ flex:1 1 auto; min-width:0; height:34px; accent-color:var(--btnbg); cursor:pointer; }
+  .seg.musvol output{ flex:0 0 auto; min-width:2.2em; text-align:right; font-size:14px; color:var(--sub); font-variant-numeric:tabular-nums; }
   .btn:disabled{ opacity:0.45; cursor:default; }
   .btn:disabled:active{ transform:none; background:transparent; }
   .winstats{ color:var(--sub); font-size:13px; letter-spacing:1px; margin:-6px 0 18px; }
