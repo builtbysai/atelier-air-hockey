@@ -605,6 +605,7 @@ function mkMallet(side) {
     touching: false,          // set per substep by collideMallet
     whooshT: 0, saveCd: 0,    // juice cooldowns
     trail: [],                // recent positions on fast flicks
+    hitSq: 1, hitSqA: 0,      // impact squash amount / angle (mirrors G.puckSq)
   };
 }
 function resetPositions() {
@@ -612,7 +613,7 @@ function resetPositions() {
   m1.x = m1.tx = PX + 170; m1.y = m1.ty = CY;
   m2.x = m2.tx = PX + PW - 170; m2.y = m2.ty = CY;
   m1.vx = m1.vy = m2.vx = m2.vy = 0;
-  for (const m of [m1, m2]) { m.glueT = 0; m.ghostT = 0; m.touching = false; m.trail.length = 0; }
+  for (const m of [m1, m2]) { m.glueT = 0; m.ghostT = 0; m.touching = false; m.trail.length = 0; m.hitSq = 1; m.hitSqA = 0; }
   G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R, w: 0, ang: 0 };
   G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
   G.stallX = CX; G.stallY = CY; G.anchorT = 0;
@@ -847,6 +848,7 @@ function collideMallet(p, m, dt) {
     if (!railed) {
       p.x = m.x + nx * minD; p.y = m.y + ny * minD;
       p.vx = nx * 560; p.vy = ny * 560;
+      m.hitSq = 0.8; m.hitSqA = Math.atan2(ny, nx);
       onMalletHit(p.x, p.y, 500, nx, ny);
     } else {
       if (nearT || nearB) {
@@ -860,6 +862,7 @@ function collideMallet(p, m, dt) {
       }
       p.vx = rx * 950; p.vy = ry * 950;
       m.ghostT = 0.30;
+      m.hitSq = 0.72; m.hitSqA = Math.atan2(ry, rx);
       onMalletHit(p.x, p.y, 750, rx, ry);
     }
     m.glueT = 0; G.lastTouch = m.side;
@@ -913,6 +916,10 @@ function collideMallet(p, m, dt) {
     m.whooshT = 0.3;
     AudioSys.whoosh(msp0 / 3000);
   }
+  // the mallet takes a bit of the recoil too — a driven strike compresses
+  // it along the contact normal for a couple frames before it springs back
+  m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
+  m.hitSqA = Math.atan2(ny, nx);
   onMalletHit(p.x, p.y, impact, nx, ny);
 }
 
@@ -951,6 +958,7 @@ function stepPhysics(dt) {
     if (m.saveCd > 0) m.saveCd -= dt;
     if (!m.touching) m.glueT = Math.max(0, m.glueT - dt * 2);
     m.touching = false;
+    m.hitSq += (1 - m.hitSq) * Math.min(1, dt * 10); // recoil recovery
   }
   collideMallet(p, G.m1, dt);
   collideMallet(p, G.m2, dt);
@@ -2230,24 +2238,38 @@ function drawPuck(c) {
 function drawMallet(c, m) {
   const S = THEME.mallet, r = m.r;
   c.save();
-  // shadow
+  // shadow (drawn in world space, unaffected by squash so it doesn't swim)
   c.fillStyle = 'rgba(0,0,0,0.4)';
   c.beginPath(); c.ellipse(m.x + 6, m.y + 10, r, r * 0.9, 0, 0, TAU); c.fill();
+  c.translate(m.x, m.y);
+  // squash/stretch: a fast-driven mallet leans into its own travel
+  // (exaggeration/appeal), and a strike compresses it along the contact
+  // normal for a couple frames before springing back (recoil) — same
+  // visual language as the puck's deformation for a consistent feel.
+  const msp = hyp(m.vx, m.vy);
+  if (msp > 900 && m.hitSq > 0.97) {
+    const ma = Math.atan2(m.vy, m.vx), st = clamp((msp - 900) / 3300, 0, 1) * 0.16;
+    c.rotate(ma); c.scale(1 + st, 1 - 0.5 * st); c.rotate(-ma);
+  }
+  const sq = m.hitSq;
+  if (sq < 0.999) {
+    c.rotate(m.hitSqA); c.scale(sq, 1 + (1 - sq) * 0.6); c.rotate(-m.hitSqA);
+  }
   // body
-  const g = c.createRadialGradient(m.x - r * 0.3, m.y - r * 0.35, r * 0.1, m.x, m.y, r);
+  const g = c.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r);
   g.addColorStop(0, S.hi); g.addColorStop(0.6, S.base); g.addColorStop(1, S.edge);
   c.fillStyle = g;
-  c.beginPath(); c.arc(m.x, m.y, r, 0, TAU); c.fill();
+  c.beginPath(); c.arc(0, 0, r, 0, TAU); c.fill();
   c.lineWidth = 3; c.strokeStyle = S.ring; c.stroke();
   // dish
-  const dg = c.createRadialGradient(m.x - 6, m.y - 8, 2, m.x, m.y, r * 0.62);
+  const dg = c.createRadialGradient(-6, -8, 2, 0, 0, r * 0.62);
   dg.addColorStop(0, S.dishHi); dg.addColorStop(1, S.dish);
   c.fillStyle = dg;
-  c.beginPath(); c.arc(m.x, m.y, r * 0.62, 0, TAU); c.fill();
+  c.beginPath(); c.arc(0, 0, r * 0.62, 0, TAU); c.fill();
   // knob
-  const kg = c.createRadialGradient(m.x - 4, m.y - 5, 1, m.x, m.y, r * 0.30);
+  const kg = c.createRadialGradient(-4, -5, 1, 0, 0, r * 0.30);
   kg.addColorStop(0, S.knobHi); kg.addColorStop(1, S.knob);
   c.fillStyle = kg;
-  c.beginPath(); c.arc(m.x, m.y, r * 0.30, 0, TAU); c.fill();
+  c.beginPath(); c.arc(0, 0, r * 0.30, 0, TAU); c.fill();
   c.restore();
 }
