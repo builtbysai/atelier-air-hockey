@@ -65,7 +65,8 @@ async function loadGame() {
   // inject the mock AudioContext into the source's own AudioSys, and give it
   // a master bus so buildBus() can wire up
   context.__t.AudioSys.ctx = ac;
-  context.__t.AudioSys.master = { gain: { value: 0.5 }, connect() {} };
+  context.__t.AudioSys.sfxBus = { gain: { value: 0.5 }, connect() {} };
+  context.__t.AudioSys.musicBus = { gain: { value: 1 }, connect() {} };
   return { t: context.__t, ac };
 }
 

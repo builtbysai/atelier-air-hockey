@@ -1544,4 +1544,118 @@ THEMES.bau = THEME_BAUHAUS;
 THEMES.zel = THEME_ZEL;
 THEMES.swi = THEME_SUISSE;
 
+/* ================= 10. NEON MIDNIGHT =================
+   Classic neon / glow-in-the-dark: near-black felt, neon-tube rails,
+   a glowing puck with a light-tube trail. Neon is painted as layered
+   strokes (wide faint halo + bright core) — cheaper than shadowBlur
+   and truer to a real tube. */
+function neonTube(ctx, draw, color, core) {
+  ctx.save();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.strokeStyle = color; ctx.globalAlpha = 0.22; ctx.lineWidth = (core || 3) + 9;
+  draw(); ctx.stroke();
+  ctx.globalAlpha = 0.45; ctx.lineWidth = (core || 3) + 4;
+  draw(); ctx.stroke();
+  ctx.globalAlpha = 1; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(1, (core || 3) * 0.45);
+  draw(); ctx.stroke();
+  ctx.restore();
+}
+const THEME_NEON = {
+  id: 'neon', name: 'Neon Midnight', tagline: 'Black glass · neon tubes · the after-hours arcade',
+  font: { display: 'Impact, "Arial Black", "Helvetica Neue", sans-serif', body: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
+  ink: '#e8fbff', accent: '#00f0ff', gold: '#ffe14d', particle: '#7df9ff', trail: '#00f0ff', trailGlow: '#00f0ff',
+  flash: 'rgba(0,240,255,1)', vignette: 'rgba(0,0,0,0.55)',
+  goalChord: [110.0, 130.81, 164.81, 220.0],
+  scoreboard: 'neon',
+  board: { housing: '#0a0c12', housingHi: '#161b28', digit: '#00f0ff', digitDim: '#ff2fb3',
+           ink: '#bfefff', accent: '#ff2fb3', plate: '#10141f', plateInk: '#ffe14d' },
+  puck: { hi: '#2a3a5c', body: '#0b0e18', edge: '#02030a', ring: '#00f0ff', glow: '#00e5ff' },
+  mallet: { hi: '#3a4666', base: '#12151f', edge: '#05060c', ring: '#00f0ff', dish: '#0a0d16', dishHi: '#232c44', knob: '#ff2fb3', knobHi: '#ff7ad4' },
+  css: { pageBg: '#030408', panelBg: 'rgba(8,12,22,0.96)', panelBorder: '#00f0ff', btnBg: '#00f0ff', btnInk: '#02141a', title: '#e8fbff', sub: '#5f7f95', ghost: 'rgba(0,240,255,0.14)' },
+
+  drawRoom(ctx) {
+    const g = ctx.createRadialGradient(VW / 2, VH / 2, 100, VW / 2, VH / 2, 780);
+    g.addColorStop(0, '#0a0d18'); g.addColorStop(0.55, '#05070e'); g.addColorStop(1, '#020308');
+    ctx.fillStyle = g; ctx.fillRect(-200, -200, VW + 400, VH + 400);
+    // sparse starfield — faint, classy, never busy
+    const R = mulberry32(1983);
+    ctx.save();
+    for (let i = 0; i < 90; i++) {
+      const x = R() * (VW + 400) - 200, y = R() * (VH + 400) - 200, r = R() * 1.3 + 0.3;
+      ctx.fillStyle = 'rgba(160,220,255,' + (0.05 + R() * 0.10).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  },
+  paintRoom(g, W, H) {
+    // The arcade after hours — near-black room, neon spill from offscreen signs
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#070a12'); bg.addColorStop(1, '#03040a');
+    g.fillStyle = bg; g.fillRect(0, 0, W, H);
+    const spill = (x, color) => {
+      const sg = g.createRadialGradient(x, H * 0.12, 10, x, H * 0.12, W * 0.28);
+      sg.addColorStop(0, color); sg.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = sg; g.fillRect(0, 0, W, H * 0.5);
+    };
+    spill(W * 0.16, 'rgba(0,240,255,0.10)');
+    spill(W * 0.84, 'rgba(255,47,179,0.10)');
+    // faint floor grid fading into the dark
+    g.save(); g.strokeStyle = 'rgba(0,240,255,0.05)'; g.lineWidth = 1;
+    for (let x = 0; x < W; x += 56) { g.beginPath(); g.moveTo(x, H * 0.55); g.lineTo(x, H); g.stroke(); }
+    for (let y = H * 0.55; y < H; y += 34) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+    g.restore();
+  },
+  drawRails(ctx) {
+    // dark rail body
+    const g = ctx.createLinearGradient(TX0, TY0, TX0, TY0 + PH + RAIL * 2);
+    g.addColorStop(0, '#141824'); g.addColorStop(0.5, '#0a0d16'); g.addColorStop(1, '#05070d');
+    rr(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 26); ctx.fillStyle = g; ctx.fill();
+    // cut out playfield
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 8); ctx.fill();
+    ctx.restore();
+    // neon tubes: cyan outer pinline, magenta inner edge
+    neonTube(ctx, () => { rr(ctx, TX0 + 10, TY0 + 10, PW + RAIL * 2 - 20, PH + RAIL * 2 - 20, 20); }, 'rgba(0,240,255,0.9)', 3);
+    neonTube(ctx, () => { rr(ctx, PX - 4, PY - 4, PW + 8, PH + 8, 8); }, 'rgba(255,47,179,0.9)', 3.5);
+  },
+  drawSurface(ctx) {
+    const g = ctx.createLinearGradient(PX, PY, PX + PW, PY + PH);
+    g.addColorStop(0, '#070a12'); g.addColorStop(0.5, '#04060c'); g.addColorStop(1, '#02040a');
+    ctx.fillStyle = g; ctx.fillRect(PX, PY, PW, PH);
+    // faint glow grid etched in the glass — barely there
+    ctx.save(); ctx.strokeStyle = 'rgba(0,240,255,0.055)'; ctx.lineWidth = 1;
+    for (let x = PX; x <= PX + PW; x += 64) { ctx.beginPath(); ctx.moveTo(x, PY); ctx.lineTo(x, PY + PH); ctx.stroke(); }
+    for (let y = PY; y <= PY + PH; y += 64) { ctx.beginPath(); ctx.moveTo(PX, y); ctx.lineTo(PX + PW, y); ctx.stroke(); }
+    ctx.restore();
+  },
+  drawMarkings(ctx) {
+    ctx.save();
+    neonTube(ctx, () => { ctx.beginPath(); ctx.moveTo(CX, PY + 14); ctx.lineTo(CX, PY + PH - 14); }, 'rgba(0,240,255,0.85)', 2.5);
+    neonTube(ctx, () => { ctx.beginPath(); ctx.arc(CX, CY, 62, 0, TAU); }, 'rgba(255,47,179,0.85)', 2.5);
+    // face-off dots — warm yellow, no tube (contrast beat)
+    ctx.fillStyle = '#ffe14d';
+    ctx.shadowColor = '#ffe14d'; ctx.shadowBlur = 12;
+    for (const fx of [PX + PW * 0.25, PX + PW * 0.75])
+      for (const fy of [PY + PH * 0.28, PY + PH * 0.72]) {
+        ctx.beginPath(); ctx.arc(fx, fy, 5, 0, TAU); ctx.fill();
+      }
+    ctx.shadowBlur = 0;
+    // goal creases
+    neonTube(ctx, () => { ctx.beginPath(); ctx.arc(PX, CY, 74, -0.72, 0.72); }, 'rgba(0,240,255,0.7)', 2);
+    neonTube(ctx, () => { ctx.beginPath(); ctx.arc(PX + PW, CY, 74, Math.PI - 0.72, Math.PI + 0.72); }, 'rgba(0,240,255,0.7)', 2);
+    ctx.restore();
+  },
+  drawGoalTrim(ctx, side, gx, cy, w) {
+    ctx.save();
+    const x = side === 0 ? gx - RAIL + 8 : gx + RAIL - 8;
+    neonTube(ctx, () => { ctx.beginPath(); ctx.moveTo(x, cy - w / 2); ctx.lineTo(x, cy + w / 2); }, 'rgba(255,47,179,0.9)', 4);
+    ctx.fillStyle = '#ffe14d'; ctx.shadowColor = '#ffe14d'; ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(x, cy - w / 2, 5, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(x, cy + w / 2, 5, 0, TAU); ctx.fill();
+    ctx.restore();
+  },
+};
+
+THEMES.neon = THEME_NEON;
+
 let THEME = THEMES['deco'];

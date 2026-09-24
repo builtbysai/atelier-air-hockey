@@ -7,10 +7,10 @@ const game = await readFile('src/game.js', 'utf8');
 const ui = await readFile('src/ui.js', 'utf8');
 const template = await readFile('src/template.html', 'utf8');
 
-// the 9 table ids, from the theme carousel order in ui.js
+// the 10 table ids, from the theme carousel order in ui.js
 const order = ui.match(/const THEME_ORDER = \[([^\]]+)\]/)[1]
   .split(',').map(s => s.trim().replace(/['"]/g, ''));
-assert.equal(order.length, 9, 'expected 9 tables in THEME_ORDER');
+assert.equal(order.length, 10, 'expected 10 tables in THEME_ORDER');
 
 // isolate the MUSIC literal (closing "};" at column 0)
 const mStart = game.indexOf('const MUSIC = {');

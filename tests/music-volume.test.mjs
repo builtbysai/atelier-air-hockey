@@ -90,7 +90,8 @@ async function loadGame(storageSeed) {
     context, { filename: 'src/game.js' });
   const t = context.__t;
   t.AudioSys.ctx = ac;
-  t.AudioSys.master = { gain: { value: 0.5 }, connect() {} };
+  t.AudioSys.sfxBus = { gain: { value: 0.5 }, connect() {} };
+  t.AudioSys.musicBus = { gain: { value: 1 }, connect() {} };
   return { t, ac, storage };
 }
 

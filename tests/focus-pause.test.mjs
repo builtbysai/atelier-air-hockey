@@ -94,7 +94,8 @@ async function loadGame() {
     context, { filename: 'src/game.js' });
   const t = context.__t;
   t.AudioSys.ctx = ac;
-  t.AudioSys.master = { gain: { value: 0.5 }, connect() {} };
+  t.AudioSys.sfxBus = { gain: { value: 0.5 }, connect() {} };
+  t.AudioSys.musicBus = { gain: { value: 1 }, connect() {} };
   // a live match's worth of state for the freeze assertions
   t.G.puck = { x: 500, y: 520, vx: 900, vy: 120, sq: 0, rot: 0, rotV: 0, w: 0, ang: 0 };
   t.G.m1 = { x: 200, y: 520, tx: 200, ty: 520, vx: 0, vy: 0, r: 42, trail: [], hitSq: 0 };

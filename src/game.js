@@ -153,7 +153,7 @@ const FEATS = [
   { id: 'comeback',  name: 'COMEBACK',  desc: 'won from three down' },
   { id: 'hattrick',  name: 'HAT-TRICK', desc: 'three goals on the spin' },
   { id: 'speedster', name: 'SPEEDSTER', desc: 'puck past 60 km/h' },
-  { id: 'grandtour', name: 'GRAND TOUR', desc: 'all nine tables conquered' },
+  { id: 'grandtour', name: 'GRAND TOUR', desc: 'all ten tables conquered' },
 ];
 const Feats = {
   key: 'atelier-ah-feats',
@@ -241,15 +241,21 @@ let interacted = false; // set on first real pointer input (gates vibrate)
 
 // ---------- procedural audio ----------
 const AudioSys = {
-  ctx: null, master: null, muted: false,
+  ctx: null, sfxBus: null, musicBus: null, muted: false,
   init() {
     if (this.ctx) { this._ensureAmbience(); MusicSys.prime(); return; }
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
-      this.master = this.ctx.createGain();
-      this.master.connect(this.ctx.destination);
+      // Two independent buses: SFX/UI voices ride sfxBus (the Sound toggle),
+      // generative music + room ambience ride musicBus (the Music toggle).
+      // Sound off never silences music and Music off never silences SFX.
+      this.sfxBus = this.ctx.createGain();
+      this.sfxBus.connect(this.ctx.destination);
+      this.musicBus = this.ctx.createGain();
+      this.musicBus.connect(this.ctx.destination);
       this.syncMute(); // honor the persisted sound setting (boot w/ sound off)
+      this.syncMusic(); // and the persisted music setting (boot w/ music off)
     } catch (e) { /* silent */ }
     this._ensureAmbience();
     MusicSys.prime(); // generative music also waits for the first user gesture
@@ -263,7 +269,7 @@ const AudioSys = {
   // (browser policy) instead of throwing an unhandled rejection.
   suspend() { try { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
   resume() { try { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
-  toggle() { this.muted = !this.muted; if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; return this.muted; },
+  toggle() { this.muted = !this.muted; if (this.sfxBus) this.sfxBus.gain.value = this.muted ? 0 : 0.5; return this.muted; },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
   // pitchMul climbs ~3% per rally hit so long rallies audibly tighten.
   hit(power, pitchMul = 1) {
@@ -278,7 +284,7 @@ const AudioSys = {
     const src = this.ctx.createBufferSource(); src.buffer = buf;
     const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
     const g1 = this.ctx.createGain(); g1.gain.value = 0.5 * p + 0.08;
-    src.connect(hp); hp.connect(g1); g1.connect(this.master);
+    src.connect(hp); hp.connect(g1); g1.connect(this.sfxBus);
     src.start(t);
     // body
     const o = this.ctx.createOscillator(); o.type = 'triangle';
@@ -286,7 +292,7 @@ const AudioSys = {
     const g2 = this.ctx.createGain();
     g2.gain.setValueAtTime(0.55 * p + 0.06, t);
     g2.gain.exponentialRampToValueAtTime(0.001, t + 0.10);
-    o.connect(g2); g2.connect(this.master);
+    o.connect(g2); g2.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.12);
   },
   // mallet whoosh: fast flicks get an airy sweep before the clack lands
@@ -302,7 +308,7 @@ const AudioSys = {
     bp.frequency.setValueAtTime(2600, t);
     bp.frequency.exponentialRampToValueAtTime(700, t + 0.14);
     const g = this.ctx.createGain(); g.gain.value = 0.10 + p * 0.14;
-    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.connect(bp); bp.connect(g); g.connect(this.sfxBus);
     src.start(t);
   },
   // save thud: a soft low knock for goal-line blocks — felt, not announced
@@ -315,7 +321,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.4, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.2);
   },
   // post ping: the goal frame rings when the puck kisses it
@@ -327,7 +333,7 @@ const AudioSys = {
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(i ? 0.10 : 0.16, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-      o.connect(g); g.connect(this.master);
+      o.connect(g); g.connect(this.sfxBus);
       o.start(t); o.stop(t + 0.24);
     });
   },
@@ -342,7 +348,7 @@ const AudioSys = {
       const g = this.ctx.createGain();
       g.gain.setValueAtTime((i ? 0.08 : 0.20) * p, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.30 + i * 0.05);
-      o.connect(g); g.connect(this.master);
+      o.connect(g); g.connect(this.sfxBus);
       o.start(t); o.stop(t + 0.5);
     });
     // the metal-on-metal knock: a short burst of filtered noise up front
@@ -351,7 +357,7 @@ const AudioSys = {
     const ng = this.ctx.createGain();
     ng.gain.setValueAtTime(0.22 * p, t);
     ng.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-    src.connect(bp); bp.connect(ng); ng.connect(this.master);
+    src.connect(bp); bp.connect(ng); ng.connect(this.sfxBus);
     src.start(t, rnd(1.2)); src.stop(t + 0.1);
   },
   rail(power) {
@@ -363,7 +369,7 @@ const AudioSys = {
     g.gain.setValueAtTime(0.22 * p + 0.03, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
     const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
-    o.connect(lp); lp.connect(g); g.connect(this.master);
+    o.connect(lp); lp.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.1);
   },
   goalChord(notes) {
@@ -376,7 +382,7 @@ const AudioSys = {
       g.gain.setValueAtTime(0.0001, t);
       g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
-      o.connect(g); g.connect(this.master);
+      o.connect(g); g.connect(this.sfxBus);
       o.start(t); o.stop(t + 0.75);
     });
     // air swell
@@ -387,7 +393,7 @@ const AudioSys = {
     const src = this.ctx.createBufferSource(); src.buffer = buf;
     const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 0.7;
     const g = this.ctx.createGain(); g.gain.value = 0.25;
-    src.connect(bp); bp.connect(g); g.connect(this.master);
+    src.connect(bp); bp.connect(g); g.connect(this.sfxBus);
     src.start(t0);
   },
   blip(f, dur = 0.09, vol = 0.3) {
@@ -397,7 +403,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t + dur + 0.02);
   },
   ui() { this.blip(1150, 0.05, 0.18); },
@@ -406,17 +412,18 @@ const AudioSys = {
   // Subtle per-room bed (looped shaped noise) plus sparse random events:
   // jazz-room bass plucks, poolside laps, a concrete-hall wash, felt hush,
   // loft murmur swells with the odd glass clink, machiya rain and wood
-  // creaks. Levels sit well under SFX. Everything routes through master, so
-  // Mute silences it. The bed only ever exists after init(), which runs
-  // solely on real user input (autoplay-safe). Switching rooms crossfades
-  // the bed instead of clicking.
+  // creaks. Levels sit well under SFX. The bed rides the music bus, so it
+  // follows the Music toggle — Sound off leaves it playing. The bed only
+  // ever exists after init(), which runs solely on real user input
+  // (autoplay-safe). Switching rooms crossfades the bed instead of clicking.
   ambKey: null, amb: null, ambTimer: null,
   ambience(id) { // public: called from setTheme()
     if (!ROOM_AMB[id]) id = 'deco';
     this.ambKey = id;
     if (this.ctx && (!this.amb || this.amb.key !== id)) this._startAmbience();
   },
-  syncMute() { if (this.master) this.master.gain.value = this.muted ? 0 : 0.5; },
+  syncMute() { if (this.sfxBus) this.sfxBus.gain.value = this.muted ? 0 : 0.5; }, // SFX/UI only — the music bus is untouched
+  syncMusic() { if (this.musicBus) this.musicBus.gain.value = Settings.music ? 1 : 0; }, // hard gate: Music off silences the whole music bus, never SFX
   _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
     if (this._nb) return this._nb;
     const len = Math.floor(this.ctx.sampleRate * 2);
@@ -445,7 +452,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.setTargetAtTime(cfg.bed.g, t + 0.1, 0.9); // gentle 2s swell-in
-    src.connect(flt); flt.connect(g); g.connect(this.master);
+    src.connect(flt); flt.connect(g); g.connect(this.musicBus);
     const nodes = { key: this.ambKey, src, flt, g, cfg, wet: [] };
     // brut hall: a short feedback delay as a cheap room wash on the bed
     if (cfg.bed.hall) {
@@ -453,7 +460,7 @@ const AudioSys = {
       const fb = this.ctx.createGain(); fb.gain.value = 0.35;
       const wet = this.ctx.createGain(); wet.gain.value = 0.5;
       g.connect(dly); dly.connect(fb); fb.connect(dly);
-      dly.connect(wet); wet.connect(this.master);
+      dly.connect(wet); wet.connect(this.musicBus);
       nodes.wet = [dly, fb, wet];
     }
     // poolside air breathes: slow LFO on the bed gain
@@ -493,7 +500,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.055, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.6);
   },
   _mote() { // faint piano-ish mote, A-minor colour
@@ -503,7 +510,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.028, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t + 1.05);
   },
   _splash() { // soft poolside lap
@@ -514,7 +521,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.03, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-    src.connect(hp); hp.connect(g); g.connect(this.master);
+    src.connect(hp); hp.connect(g); g.connect(this.sfxBus);
     src.start(t, rnd(1.5)); src.stop(t + 0.35);
   },
   _clink() { // distant glass in the loft
@@ -525,7 +532,7 @@ const AudioSys = {
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(i ? 0.014 : 0.02, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-      o.connect(g); g.connect(this.master);
+      o.connect(g); g.connect(this.sfxBus);
       o.start(t); o.stop(t + 0.45);
     });
   },
@@ -538,7 +545,7 @@ const AudioSys = {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(0.032, t + 0.12);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.85);
   },
 };
@@ -562,6 +569,8 @@ const ROOM_AMB = {
            events: [ { p: 0.09, f: '_splash' } ] }, // the courtyard fountain
   swi:   { bed: { type: 'highpass', f: 3000, q: 0.5, g: 0.014 },
            events: [ { p: 0.04, f: '_mote' } ] },    // the gallery hush
+  neon:  { bed: { type: 'bandpass', f: 300,  q: 0.9, g: 0.018, hall: true },
+           events: [ { p: 0.05, f: '_mote' } ] },    // the arcade after hours: electric hum, faint neon buzz
 };
 
 // ---------- generative music ----------
@@ -577,32 +586,35 @@ const ROOM_AMB = {
 // with 0.4s lookahead; musical time is an accumulated ideal clock, never
 // the timer's own firing time, so tab jank can't drift the beat. The RNG is
 // seeded per table (mulberry32), so each room's music is a stable identity
-// across sessions, not a shuffle. Shares AudioSys' context and master bus,
-// so the global Sound toggle silences music too.
+// across sessions, not a shuffle. Music rides AudioSys.musicBus — the Sound
+// toggle (sfxBus) never touches it, and Music off never touches SFX.
 const MUSIC = {
   deco:  { seed: 1929, root: 45, mode: [0, 2, 3, 5, 7, 9, 10], bpm: 56, padCut: 800,  melWave: 'triangle', melDens: 0.30, bassDens: 0.55, pulse: false, drum: false, shimmer: false, level: 1.100,
            chords: [[0, 3, 7, 14], [5, 8, 12, 17], [8, 12, 16, 23], [7, 11, 14, 17]] },   // speakeasy noir: Am9 colours, walking-distance bass
   mid:   { seed: 1962, root: 41, mode: [0, 2, 4, 6, 7, 9, 11], bpm: 72, padCut: 1400, melWave: 'sine',     melDens: 0.40, bassDens: 0.45, pulse: false, drum: false, shimmer: false, level: 1.000,
            chords: [[0, 4, 7, 11], [7, 11, 14, 18], [5, 9, 12, 16], [2, 5, 9, 14]] },     // palm-springs exotica: lydian lift, vibes-like plucks
-  brut:  { seed: 1972, root: 38, mode: [0, 1, 5, 7, 8],         bpm: 48, padCut: 320,  melWave: 'square',   melDens: 0.12, bassDens: 0.65, pulse: false, drum: false, shimmer: false, level: 1.200, drone: true,
+  brut:  { seed: 1972, root: 38, mode: [0, 1, 5, 7, 8],         bpm: 48, padCut: 320,  melWave: 'square',   melDens: 0.12, bassDens: 0.65, bassWave: 'square', pulse: false, drum: false, shimmer: false, level: 1.200, drone: true,
            chords: [[0, 1, 7], [0, 5, 7], [1, 8, 13]] },                                            // bunker: phrygian drone, rare metallic partials
-  bil:   { seed: 1911, root: 48, mode: [0, 2, 4, 5, 7, 9, 11],  bpm: 60, padCut: 700,  melWave: 'triangle', melDens: 0.28, bassDens: 0.60, pulse: false, drum: false, shimmer: false, level: 1.040,
+  bil:   { seed: 1911, root: 48, mode: [0, 2, 4, 5, 7, 9, 11],  bpm: 60, padCut: 700,  melWave: 'triangle', melDens: 0.28, bassDens: 0.60, bassWave: 'triangle', pulse: false, drum: false, shimmer: false, level: 1.040,
            chords: [[0, 4, 7, 12], [5, 9, 12, 16], [7, 11, 14, 19], [9, 12, 16, 21]] },   // members' club: stately major, cello-weight bass
-  mem:   { seed: 1981, root: 48, mode: [0, 2, 4, 7, 9],         bpm: 104, padCut: 1600, melWave: 'square',   melDens: 0.50, bassDens: 0.80, pulse: true,  drum: false, shimmer: false, level: 0.960,
+  mem:   { seed: 1981, root: 48, mode: [0, 2, 4, 7, 9],         bpm: 104, padCut: 1600, melWave: 'square',   melDens: 0.50, bassDens: 0.80, bassWave: 'triangle', pulse: true,  drum: false, shimmer: false, level: 0.960,
            chords: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [9, 12, 16]] },                   // loft party '81: major-pentatonic synth-pop, bouncy
   sashi: { seed: 1603, root: 50, mode: [0, 2, 3, 7, 8],         bpm: 50, padCut: 1100, melWave: 'triangle', melDens: 0.16, bassDens: 0.35, pulse: false, drum: false, shimmer: false, level: 1.000,
            chords: [[0, 7, 12], [3, 10, 15], [5, 12, 17]] },                                 // machiya: hirajoshi koto plucks, lots of ma
-  bau:   { seed: 1923, root: 40, mode: [0, 3, 5, 7, 10],        bpm: 96, padCut: 1000, melWave: 'triangle', melDens: 0.34, bassDens: 0.60, pulse: true,  drum: false, shimmer: false, level: 1.000,
+  bau:   { seed: 1923, root: 40, mode: [0, 3, 5, 7, 10],        bpm: 96, padCut: 1000, melWave: 'triangle', melDens: 0.34, bassDens: 0.60, bassWave: 'square', pulse: true,  drum: false, shimmer: false, level: 1.000,
            chords: [[0, 3, 7, 12], [3, 7, 10, 15], [5, 8, 12, 17]] },                     // workshop: minor-pentatonic motorik, geometric
-  zel:   { seed: 1550, root: 52, mode: [0, 1, 4, 5, 7, 8, 10],  bpm: 84, padCut: 1200, melWave: 'sawtooth', melDens: 0.36, bassDens: 0.55, pulse: false, drum: true,  shimmer: false, level: 1.000,
+  zel:   { seed: 1550, root: 52, mode: [0, 1, 4, 5, 7, 8, 10],  bpm: 84, padCut: 1200, melWave: 'sawtooth', melDens: 0.36, bassDens: 0.55, bassWave: 'sawtooth', pulse: false, drum: true,  shimmer: false, level: 1.000,
            chords: [[0, 4, 7], [1, 5, 8], [5, 8, 12]] },                                     // riad: hijaz, oud-like plucks, frame-drum lilt
   swi:   { seed: 1957, root: 55, mode: [0, 7, 12, 19],          bpm: 44, padCut: 2200, melWave: 'sine',     melDens: 0.08, bassDens: 0.25, pulse: false, drum: false, shimmer: true,  level: 0.900,
            chords: [[0, 12, 19], [7, 19, 26]] },                                            // gallery: fifths and octaves, near-silence
+  neon:  { seed: 1983, root: 33, mode: [0, 2, 3, 5, 7, 8, 10],  bpm: 118, padCut: 900,  melWave: 'sawtooth', melDens: 0.42, bassDens: 0.90, bassWave: 'sawtooth', pulse: true,  drum: true,  shimmer: false, level: 1.000,
+           chords: [[0, 3, 7, 12], [3, 7, 10, 14], [5, 8, 12, 16], [7, 10, 14, 17]] },        // midnight drive: A-minor synthwave, i-III-iv-v, driving saw bass
 };
 const MusicSys = {
   key: 'deco', pendingKey: 'deco', intensity: 0,
   timer: 0, nodes: null, nextT: 0, beat: 0,
   rng: null, chordIdx: 0, melIdx: 3, curChord: null, xfade: 0,
+  voices: [], // live voice gains — killed on room switch so the old room's long pad tail can't bleed into the new room
   mf(m) { return 440 * Math.pow(2, (m - 69) / 12); }, // midi -> hz
   cfg() { return MUSIC[this.key] || MUSIC.deco; },
   ac() { return AudioSys.ctx; },
@@ -638,11 +650,18 @@ const MusicSys = {
     const t = this.ac().currentTime, g = this.nodes.musicG.gain;
     g.cancelScheduledValues(t);
     g.setTargetAtTime(0.0001, t, 0.25);
+    // silence the old room's voices at once (the bus dip masks the cut) so
+    // a 16-beat pad tail can't wash over the new room's entrance
+    this.killVoices();
     setTimeout(() => {
       if (token !== self.xfade || !self.timer || !self.nodes) return;
       self.key = id; self.reseed();
       self.nodes.musicG.gain.setTargetAtTime(self.targetLevel(), self.ac().currentTime, 0.8);
     }, 750);
+  },
+  killVoices() { // disconnect every live generative voice; the bus dip hides the seam
+    for (const v of this.voices) { try { v.disconnect(); } catch (e) {} }
+    this.voices = [];
   },
   reseed() {
     const c = this.cfg();
@@ -666,6 +685,7 @@ const MusicSys = {
   },
   stop() { // full stop: timer cleared, bus fades out, nodes disconnected late
     this.xfade++; // invalidate any in-flight crossfade
+    this.killVoices();
     if (this.timer) { clearInterval(this.timer); this.timer = 0; }
     const n = this.nodes, ac = this.ac();
     this.nodes = null;
@@ -684,7 +704,7 @@ const MusicSys = {
     const ac = this.ac();
     const musicG = ac.createGain(); musicG.gain.value = 0.0001; // per-room level
     const duckG = ac.createGain(); duckG.gain.value = 1;         // goal-ceremony dip
-    musicG.connect(duckG); duckG.connect(AudioSys.master);       // under the Sound toggle
+    musicG.connect(duckG); duckG.connect(AudioSys.musicBus);      // music rides its own bus — the Sound toggle never touches it
     // one shared feedback delay as cheap space for plucks and shimmer
     const dly = ac.createDelay(1); dly.delayTime.value = 0.34;
     const fb = ac.createGain(); fb.gain.value = 0.32;
@@ -717,7 +737,7 @@ const MusicSys = {
     if (pn === 0 || (pn === 8 && this.rng() < c.bassDens)) { // bass punctuation
       const deg = (this.curChord || c.chords[0])[0];
       const f = this.mf(c.root - 12 + (this.rng() < 0.3 ? 7 : deg));
-      this.tone({ f, t, a: 0.02, d: 1.6, vol: 0.225, wave: 'sine', cut: 500 });
+      this.tone({ f, t, a: 0.02, d: 1.6, vol: 0.225, wave: c.bassWave || 'sine', cut: 500 });
     }
     const melP = c.melDens * (this.intensity ? 1.7 : 1);
     if (this.rng() < melP) { // seeded walk over the room's mode — can't play a wrong note
@@ -751,6 +771,7 @@ const MusicSys = {
     let send = null;
     if (o.send) { send = ac.createGain(); send.gain.value = o.send; g.connect(send); send.connect(n.dly); }
     osc.start(o.t); osc.stop(o.t + (o.a || 0.01) + o.d + 0.1);
+    this.voices.push(g); // room switches kill live voices (see killVoices)
     osc.onended = () => { try { osc.disconnect(); flt.disconnect(); g.disconnect(); if (send) send.disconnect(); } catch (e) {} };
   },
   padChord(freqs, t, dur) {
@@ -763,6 +784,7 @@ const MusicSys = {
     g.gain.setTargetAtTime(0.090, t + 0.05, Math.min(2.5, dur / 6)); // slow bloom
     g.gain.setTargetAtTime(0.0001, t + dur * 0.8, 1.0);              // melt out before the next chord
     lp.connect(g); g.connect(n.musicG);
+    this.voices.push(g); // the long pad tail is the main room-switch bleeder
     freqs.forEach((f, i) => {
       const o = ac.createOscillator(); o.type = 'triangle';
       o.frequency.value = f; o.detune.value = i % 2 ? 6 : -6;
@@ -965,7 +987,7 @@ function screenToRink(cx, cy) {
   const u = (cx - ox) / s, v = (cy - oy) / s;
   let x, y;
   if (!portrait) { x = u; y = v; }
-  else { x = VW - v; y = VH - u; }
+  else { x = VW - v; y = u; } // inverse of the true-rotation portrait matrix
   if (G.onlineFlip) x = VW - x; // ONLINE: invert the guest view mirror
   return { x, y };
 }
@@ -2396,7 +2418,7 @@ function easeOutBack(t) { const c = 1.70158; return 1 + (c + 1) * Math.pow(t - 1
 /* ---------- the house plaque ----------
  * One visual language for every canvas announcement: a dark warm pill with a
  * gold hairline and letterspaced small caps. Theme-agnostic by design, so it
- * reads identically on all nine rooms, light or dark. Match-point and the
+ * reads identically on all ten rooms, light or dark. Match-point and the
  * rally counter share one slot through this renderer — only one ever draws. */
 function drawPlaque(ctx, cx, y, text, opts) {
   opts = opts || {};
@@ -2439,7 +2461,11 @@ function render() {
   const sh = shakeOffset();
   ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
   if (!view.portrait) { ctx.translate(view.ox, view.oy); ctx.scale(s, s); }
-  else ctx.transform(0, -s, -s, 0, view.ox + s * VH, view.oy + s * VW);
+  // portrait: a TRUE 90° rotation (determinant +s²). The previous matrix
+  // (0,-s,-s,0) had determinant -s² — a reflection that mirror-reversed
+  // every world-space glyph (scoreboard, countdown, GOAL!, floating text).
+  // P1's goal stays at the bottom of the screen, as before.
+  else ctx.transform(0, -s, s, 0, view.ox, view.oy + s * VW);
 
   // goal zoom: ease toward the mouth during the ceremony (playfield only)
   ctx.save();
@@ -2477,6 +2503,8 @@ function render() {
   const tr = G.trail;
   if (tr.length > 1) {
     ctx.save(); ctx.lineCap = 'round';
+    // neon tables set trailGlow: the streak blooms like a light tube
+    if (THEME.trailGlow) { ctx.shadowColor = THEME.trailGlow; ctx.shadowBlur = 14; }
     for (let i = 1; i < tr.length; i++) {
       const a = (i / tr.length) * 0.35;
       ctx.strokeStyle = THEME.trail;
@@ -2741,10 +2769,13 @@ function drawPuck(c) {
   c.rotate(G.puckSqA);
   const sq = G.puckSq;
   c.scale(sq, 1 / sq); // volume-preserving: the bulge matches the squash
+  // neon tables set puck.glow: a light-tube halo around the puck body
+  if (S.glow) { c.shadowColor = S.glow; c.shadowBlur = 26; }
   const g = c.createRadialGradient(-5, -6, 2, 0, 0, PUCK_R);
   g.addColorStop(0, S.hi); g.addColorStop(0.55, S.body); g.addColorStop(1, S.edge);
   c.fillStyle = g;
   c.beginPath(); c.arc(0, 0, PUCK_R, 0, TAU); c.fill();
+  c.shadowBlur = 0;
   c.lineWidth = 2.5; c.strokeStyle = S.ring; c.stroke();
   c.fillStyle = 'rgba(255,255,255,0.5)';
   c.beginPath(); c.ellipse(-5, -7, 4.5, 3, -0.5, 0, TAU); c.fill();

@@ -365,6 +365,87 @@ const Scoreboards = {
       ctx.restore();
     }
   },
+
+  /* ---------- NEON tube scoreboard ----------
+     Black glass housings, glowing cyan digits, magenta match-point
+     halo, yellow FIRST TO plate text. */
+  neon: {
+    draw(ctx, s0, s1, target, trim, B, labels) {
+      const T = Object.assign({
+        housing: '#0a0c12', housingHi: '#161b28', digit: '#00f0ff',
+        digitDim: '#ff2fb3', ink: '#bfefff', accent: '#ff2fb3',
+        plate: '#10141f', plateInk: '#ffe14d',
+      }, trim || {});
+      const y = 8, modW = 148, modH = 76, gap = 18;
+      const scores = [s0, s1];
+      for (let i = 0; i < 2; i++) {
+        const cx = CX + (i === 0 ? -1 : 1) * (modW / 2 + gap / 2 + 8);
+        const hx = cx - modW / 2 - 9, hy = y, hw = modW + 18, hh = modH + 30;
+        const mp = scores[i] === target - 1;
+        ctx.save();
+        // black glass housing
+        rr(ctx, hx, hy, hw, hh, 10);
+        const hg = ctx.createLinearGradient(hx, hy, hx, hy + hh);
+        hg.addColorStop(0, T.housingHi); hg.addColorStop(0.5, T.housing); hg.addColorStop(1, '#04050a');
+        ctx.fillStyle = hg; ctx.fill();
+        // neon edge pinline
+        ctx.strokeStyle = mp ? T.digitDim : T.digit;
+        ctx.globalAlpha = 0.75; ctx.lineWidth = 2;
+        if (mp) { ctx.shadowColor = T.digitDim; ctx.shadowBlur = 18; }
+        rr(ctx, hx, hy, hw, hh, 10); ctx.stroke();
+        ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+        const A = B.anim[i], shown = B.shown[i], from = A.from;
+        const dig = d => String(Math.max(0, Math.min(99, Math.round(d))));
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const drawDigit = (d, alpha, dy) => {
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.translate(cx, y + 9 + modH / 2 + (dy || 0));
+          ctx.font = '700 62px Impact, "Arial Black", sans-serif';
+          ctx.shadowColor = T.digit; ctx.shadowBlur = 22;
+          ctx.fillStyle = T.digit;
+          ctx.fillText(dig(d), 0, 2);
+          // white-hot core over the glow
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.fillText(dig(d), 0, 2);
+          ctx.restore();
+        };
+        if (A.t < 1 && from !== shown) {
+          const k = clamp(A.t / 0.55, 0, 1);
+          drawDigit(shown, 1);
+          drawDigit(from, 1 - k * 0.5, -k * modH * 0.9);
+        } else {
+          drawDigit(shown, 1);
+        }
+        // label
+        ctx.fillStyle = 'rgba(191,239,255,0.6)';
+        ctx.font = '600 13px "Helvetica Neue", Arial, sans-serif';
+        ctx.fillText(labels[i], cx, hy + hh - 9);
+        if (mp) {
+          ctx.fillStyle = T.digitDim;
+          ctx.shadowColor = T.digitDim; ctx.shadowBlur = 12;
+          ctx.font = '700 12px "Arial Narrow", sans-serif';
+          ctx.textAlign = 'right';
+          ctx.fillText('MP', hx + hw - 8, hy + 13);
+          ctx.textAlign = 'center'; ctx.shadowBlur = 0;
+        }
+        ctx.restore();
+      }
+      // target plate: dark with glowing yellow type
+      const pw = 190, px = CX - pw / 2, py = y + modH + 34;
+      ctx.save();
+      rr(ctx, px, py, pw, 22, 4);
+      ctx.fillStyle = T.plate; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,225,77,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = T.plateInk;
+      ctx.shadowColor = T.plateInk; ctx.shadowBlur = 10;
+      ctx.font = '700 12px "Helvetica Neue", Arial, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('F I R S T   T O   ' + target, CX, py + 12);
+      ctx.restore();
+    }
+  },
 };
 
 /* engine-side animation state */

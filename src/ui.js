@@ -1,5 +1,5 @@
 // ---------- themes ----------
-const THEME_ORDER = ['deco', 'mid', 'brut', 'bil', 'mem', 'sashi', 'bau', 'zel', 'swi'];
+const THEME_ORDER = ['deco', 'mid', 'brut', 'bil', 'mem', 'sashi', 'bau', 'zel', 'swi', 'neon'];
 function setTheme(id, silent) {
   if (!THEMES[id]) id = 'deco';
   THEME = THEMES[id];
@@ -103,7 +103,8 @@ function applySettingsToUI() {
     btn.title = canVibrate ? '' : 'Haptics are not available on this device';
   });
   AudioSys.muted = !Settings.sound;
-  AudioSys.syncMute(); // keep the looped ambience bed under Mute too
+  AudioSys.syncMute(); // Sound gates the SFX bus only — music is independent
+  AudioSys.syncMusic(); // Music gates the music bus only — SFX are independent
   MusicSys.syncEnabled(); // the music toggle starts/stops the scheduler (no runaway timers)
   const sb = $('btnSound');
   if (sb) {
@@ -162,7 +163,7 @@ function keyboardGamepadDrive(now) {
     // (Matches the inverse of the render transform in screenToRink.)
     const toRink = (sx, sy) => {
       let dx, dy;
-      if (typeof view !== 'undefined' && view.portrait) { dx = -sy; dy = -sx; }
+      if (typeof view !== 'undefined' && view.portrait) { dx = -sy; dy = sx; } // matches the true-rotation portrait matrix
       else { dx = sx; dy = sy; }
       if (G.onlineFlip) dx = -dx;
       return [dx, dy];
