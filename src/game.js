@@ -30,6 +30,7 @@ const TAU = Math.PI * 2;
 const Settings = {
   shake: 'full',      // 'off' | 'subtle' | 'full'
   sound: true,
+  music: true,        // generative per-table music (MusicSys) — separate from SFX
   haptics: true,
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
@@ -236,7 +237,7 @@ let interacted = false; // set on first real pointer input (gates vibrate)
 const AudioSys = {
   ctx: null, master: null, muted: false,
   init() {
-    if (this.ctx) { this._ensureAmbience(); return; }
+    if (this.ctx) { this._ensureAmbience(); MusicSys.prime(); return; }
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
@@ -245,6 +246,7 @@ const AudioSys = {
       this.syncMute(); // honor the persisted sound setting (boot w/ sound off)
     } catch (e) { /* silent */ }
     this._ensureAmbience();
+    MusicSys.prime(); // generative music also waits for the first user gesture
   },
   // starts the pending room's bed once a ctx exists (autoplay-safe: only
   // called from init(), which only runs on real user input)
@@ -549,6 +551,257 @@ const ROOM_AMB = {
            events: [ { p: 0.09, f: '_splash' } ] }, // the courtyard fountain
   swi:   { bed: { type: 'highpass', f: 3000, q: 0.5, g: 0.014 },
            events: [ { p: 0.04, f: '_mote' } ] },    // the gallery hush
+};
+
+// ---------- generative music ----------
+// MusicSys: a seeded generative ambient engine — one musical identity per
+// table, 100% synthesized (no assets, so the PWA offline story stays
+// intact). Layers follow the shipped-game hybrid pattern:
+//   * vertical: a pad bed always; at match point a pulse layer joins plus
+//     denser melody and a slightly lifted bed; goals get a soft swell while
+//     the bed ducks under the goal ceremony.
+//   * horizontal: table changes crossfade to the new room's music.
+//   * stingers: none — the goal ceremony owns that moment; music stays back.
+// Scheduling: a 150ms interval schedules against audioContext.currentTime
+// with 0.4s lookahead; musical time is an accumulated ideal clock, never
+// the timer's own firing time, so tab jank can't drift the beat. The RNG is
+// seeded per table (mulberry32), so each room's music is a stable identity
+// across sessions, not a shuffle. Shares AudioSys' context and master bus,
+// so the global Sound toggle silences music too.
+const MUSIC = {
+  deco:  { seed: 1929, root: 45, mode: [0, 2, 3, 5, 7, 9, 10], bpm: 56, padCut: 800,  melWave: 'triangle', melDens: 0.30, bassDens: 0.55, pulse: false, drum: false, shimmer: false, level: 0.055,
+           chords: [[0, 3, 7, 14], [5, 8, 12, 17], [8, 12, 16, 23], [7, 11, 14, 17]] },   // speakeasy noir: Am9 colours, walking-distance bass
+  mid:   { seed: 1962, root: 41, mode: [0, 2, 4, 6, 7, 9, 11], bpm: 72, padCut: 1400, melWave: 'sine',     melDens: 0.40, bassDens: 0.45, pulse: false, drum: false, shimmer: false, level: 0.050,
+           chords: [[0, 4, 7, 11], [7, 11, 14, 18], [5, 9, 12, 16], [2, 5, 9, 14]] },     // palm-springs exotica: lydian lift, vibes-like plucks
+  brut:  { seed: 1972, root: 38, mode: [0, 1, 5, 7, 8],         bpm: 48, padCut: 320,  melWave: 'square',   melDens: 0.12, bassDens: 0.65, pulse: false, drum: false, shimmer: false, level: 0.060, drone: true,
+           chords: [[0, 1, 7], [0, 5, 7], [1, 8, 13]] },                                            // bunker: phrygian drone, rare metallic partials
+  bil:   { seed: 1911, root: 48, mode: [0, 2, 4, 5, 7, 9, 11],  bpm: 60, padCut: 700,  melWave: 'triangle', melDens: 0.28, bassDens: 0.60, pulse: false, drum: false, shimmer: false, level: 0.052,
+           chords: [[0, 4, 7, 12], [5, 9, 12, 16], [7, 11, 14, 19], [9, 12, 16, 21]] },   // members' club: stately major, cello-weight bass
+  mem:   { seed: 1981, root: 48, mode: [0, 2, 4, 7, 9],         bpm: 104, padCut: 1600, melWave: 'square',   melDens: 0.50, bassDens: 0.80, pulse: true,  drum: false, shimmer: false, level: 0.048,
+           chords: [[0, 4, 7], [5, 9, 12], [7, 11, 14], [9, 12, 16]] },                   // loft party '81: major-pentatonic synth-pop, bouncy
+  sashi: { seed: 1603, root: 50, mode: [0, 2, 3, 7, 8],         bpm: 50, padCut: 1100, melWave: 'triangle', melDens: 0.16, bassDens: 0.35, pulse: false, drum: false, shimmer: false, level: 0.050,
+           chords: [[0, 7, 12], [3, 10, 15], [5, 12, 17]] },                                 // machiya: hirajoshi koto plucks, lots of ma
+  bau:   { seed: 1923, root: 40, mode: [0, 3, 5, 7, 10],        bpm: 96, padCut: 1000, melWave: 'triangle', melDens: 0.34, bassDens: 0.60, pulse: true,  drum: false, shimmer: false, level: 0.050,
+           chords: [[0, 3, 7, 12], [3, 7, 10, 15], [5, 8, 12, 17]] },                     // workshop: minor-pentatonic motorik, geometric
+  zel:   { seed: 1550, root: 52, mode: [0, 1, 4, 5, 7, 8, 10],  bpm: 84, padCut: 1200, melWave: 'sawtooth', melDens: 0.36, bassDens: 0.55, pulse: false, drum: true,  shimmer: false, level: 0.050,
+           chords: [[0, 4, 7], [1, 5, 8], [5, 8, 12]] },                                     // riad: hijaz, oud-like plucks, frame-drum lilt
+  swi:   { seed: 1957, root: 55, mode: [0, 7, 12, 19],          bpm: 44, padCut: 2200, melWave: 'sine',     melDens: 0.08, bassDens: 0.25, pulse: false, drum: false, shimmer: true,  level: 0.045,
+           chords: [[0, 12, 19], [7, 19, 26]] },                                            // gallery: fifths and octaves, near-silence
+};
+const MusicSys = {
+  key: 'deco', pendingKey: 'deco', intensity: 0,
+  timer: 0, nodes: null, nextT: 0, beat: 0,
+  rng: null, chordIdx: 0, melIdx: 3, curChord: null, xfade: 0,
+  mf(m) { return 440 * Math.pow(2, (m - 69) / 12); }, // midi -> hz
+  cfg() { return MUSIC[this.key] || MUSIC.deco; },
+  ac() { return AudioSys.ctx; },
+  // --- lifecycle ---
+  prime() { // first-user-gesture path, via AudioSys.init()
+    if (!Settings.music || !this.ac()) return;
+    this.key = this.pendingKey = (MUSIC[G.themeId] ? G.themeId : 'deco');
+    this.start();
+  },
+  syncEnabled() { // the settings toggle calls here
+    if (Settings.music) { if (this.ac() && !this.timer) this.start(); }
+    else this.stop();
+  },
+  setTable(id) { // from setTheme: always records; crossfades when audible
+    if (!MUSIC[id]) id = 'deco';
+    this.pendingKey = id;
+    if (!this.timer || id === this.key || !this.nodes) return;
+    const token = ++this.xfade, self = this;
+    const t = this.ac().currentTime, g = this.nodes.musicG.gain;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(0.0001, t, 0.25);
+    setTimeout(() => {
+      if (token !== self.xfade || !self.timer || !self.nodes) return;
+      self.key = id; self.reseed();
+      self.nodes.musicG.gain.setTargetAtTime(
+        self.cfg().level * (self.intensity ? 1.3 : 1), self.ac().currentTime, 0.8);
+    }, 750);
+  },
+  reseed() {
+    const c = this.cfg();
+    this.rng = mulberry32(c.seed);
+    this.chordIdx = 0; this.curChord = c.chords[0];
+    this.melIdx = 2 + Math.floor(this.rng() * 3);
+    this.beat = 0;
+  },
+  start() {
+    const ac = this.ac();
+    if (!ac || this.timer || !Settings.music) return;
+    try { ac.resume(); } catch (e) {}
+    this.key = this.pendingKey;
+    this.buildBus();
+    this.reseed();
+    const t = ac.currentTime;
+    this.nextT = t + 0.2;
+    this.nodes.musicG.gain.setValueAtTime(0.0001, t);
+    this.nodes.musicG.gain.setTargetAtTime(this.cfg().level, t + 0.1, 1.4);
+    this.timer = setInterval(() => this.tick(), 150);
+  },
+  stop() { // full stop: timer cleared, bus fades out, nodes disconnected late
+    this.xfade++; // invalidate any in-flight crossfade
+    if (this.timer) { clearInterval(this.timer); this.timer = 0; }
+    const n = this.nodes, ac = this.ac();
+    this.nodes = null;
+    if (n && ac) {
+      const t = ac.currentTime;
+      try {
+        n.musicG.gain.cancelScheduledValues(t);
+        n.musicG.gain.setTargetAtTime(0.0001, t, 0.18);
+      } catch (e) {}
+      setTimeout(() => {
+        [n.musicG, n.duckG, n.dly, n.fb, n.wet].forEach(x => { try { x.disconnect(); } catch (e) {} });
+      }, 1400);
+    }
+  },
+  buildBus() {
+    const ac = this.ac();
+    const musicG = ac.createGain(); musicG.gain.value = 0.0001; // per-room level
+    const duckG = ac.createGain(); duckG.gain.value = 1;         // goal-ceremony dip
+    musicG.connect(duckG); duckG.connect(AudioSys.master);       // under the Sound toggle
+    // one shared feedback delay as cheap space for plucks and shimmer
+    const dly = ac.createDelay(1); dly.delayTime.value = 0.34;
+    const fb = ac.createGain(); fb.gain.value = 0.32;
+    const wet = ac.createGain(); wet.gain.value = 0.4;
+    dly.connect(fb); fb.connect(dly); dly.connect(wet); wet.connect(musicG);
+    this.nodes = { musicG, duckG, dly, fb, wet };
+  },
+  // --- scheduler ---
+  tick() {
+    if (!this.timer) return;
+    const ac = this.ac();
+    if (!ac || !this.nodes) return;
+    if (ac.state !== 'running') { this.nextT = ac.currentTime + 0.2; return; } // re-anchor, never burst
+    const spb = 60 / this.cfg().bpm, ahead = ac.currentTime + 0.4;
+    let guard = 0;
+    while (this.nextT < ahead && guard++ < 32) {
+      this.scheduleBeat(this.nextT, this.beat, spb);
+      this.nextT += spb; this.beat++;
+    }
+  },
+  scheduleBeat(t, n, spb) {
+    const c = this.cfg(), phrase = 16, pn = n % phrase;
+    if (pn === 0) { // phrase start: walk the chord progression, bloom a pad
+      const steps = [-1, 1, 1, 2];
+      this.chordIdx = (this.chordIdx + steps[Math.floor(this.rng() * steps.length)] + c.chords.length * 2) % c.chords.length;
+      this.curChord = c.chords[this.chordIdx];
+      this.padChord(this.curChord.map(s => this.mf(c.root + s)), t, spb * phrase);
+      if (c.drone) this.tone({ f: this.mf(c.root - 12), t, a: 2.5, d: spb * phrase, vol: 0.035, wave: 'sine', cut: 200 });
+    }
+    if (pn === 0 || (pn === 8 && this.rng() < c.bassDens)) { // bass punctuation
+      const deg = (this.curChord || c.chords[0])[0];
+      const f = this.mf(c.root - 12 + (this.rng() < 0.3 ? 7 : deg));
+      this.tone({ f, t, a: 0.02, d: 1.6, vol: 0.075, wave: 'sine', cut: 500 });
+    }
+    const melP = c.melDens * (this.intensity ? 1.7 : 1);
+    if (this.rng() < melP) { // seeded walk over the room's mode — can't play a wrong note
+      const steps = [-2, -1, -1, 1, 1, 2];
+      this.melIdx += steps[Math.floor(this.rng() * steps.length)];
+      if (this.melIdx < 0) this.melIdx = 1;
+      if (this.melIdx >= c.mode.length + 2) this.melIdx = c.mode.length;
+      const deg = c.mode[this.melIdx % c.mode.length] + 12 * Math.floor(this.melIdx / c.mode.length);
+      const sq = c.melWave === 'square';
+      this.tone({ f: this.mf(c.root + 12 + deg), t: t + (this.rng() < 0.25 ? spb / 2 : 0),
+                  a: 0.008, d: sq ? 0.5 : 1.1, vol: sq ? 0.020 : 0.034,
+                  wave: c.melWave, cut: sq ? 1800 : 2600, send: 0.5 });
+    }
+    if (this.intensity && c.pulse && pn % 2 === 0) this.pulseTok(t); // match-point motorik
+    if (c.drum && (pn === 0 || pn === 5 || pn === 8 || pn === 13)) this.drumTap(t);
+    if (c.shimmer && this.rng() < 0.10)
+      this.tone({ f: this.mf(c.root + 24 + [0, 7, 12][Math.floor(this.rng() * 3)]),
+                  t, a: 0.6, d: 3.6, vol: 0.016, wave: 'sine', cut: 4000, send: 0.7 });
+  },
+  // --- voices (all cheap: an osc or two, a filter, an envelope) ---
+  tone(o) { // { f, t, a, d, vol, wave, cut, send }
+    const ac = this.ac(), n = this.nodes;
+    if (!n) return;
+    const osc = ac.createOscillator(); osc.type = o.wave || 'triangle'; osc.frequency.value = o.f;
+    const flt = ac.createBiquadFilter(); flt.type = 'lowpass'; flt.frequency.value = o.cut || 2400;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, o.t);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, o.vol), o.t + (o.a || 0.01));
+    g.gain.exponentialRampToValueAtTime(0.0001, o.t + (o.a || 0.01) + o.d);
+    osc.connect(flt); flt.connect(g); g.connect(n.musicG);
+    let send = null;
+    if (o.send) { send = ac.createGain(); send.gain.value = o.send; g.connect(send); send.connect(n.dly); }
+    osc.start(o.t); osc.stop(o.t + (o.a || 0.01) + o.d + 0.1);
+    osc.onended = () => { try { osc.disconnect(); flt.disconnect(); g.disconnect(); if (send) send.disconnect(); } catch (e) {} };
+  },
+  padChord(freqs, t, dur) {
+    const ac = this.ac(), n = this.nodes, c = this.cfg();
+    if (!n) return;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.value = c.padCut * (this.intensity ? 1.2 : 1);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.setTargetAtTime(0.030, t + 0.05, Math.min(2.5, dur / 6)); // slow bloom
+    g.gain.setTargetAtTime(0.0001, t + dur * 0.8, 1.0);              // melt out before the next chord
+    lp.connect(g); g.connect(n.musicG);
+    freqs.forEach((f, i) => {
+      const o = ac.createOscillator(); o.type = 'triangle';
+      o.frequency.value = f; o.detune.value = i % 2 ? 6 : -6;
+      o.connect(lp); o.start(t); o.stop(t + dur + 0.4);
+      o.onended = () => { try { o.disconnect(); } catch (e) {} };
+    });
+    setTimeout(() => { try { lp.disconnect(); g.disconnect(); } catch (e) {} },
+      Math.max(0, (t + dur + 0.6 - ac.currentTime) * 1000) + 400);
+  },
+  pulseTok(t) { // soft motorik tick for the match-point lift
+    const ac = this.ac(), n = this.nodes;
+    if (!n) return;
+    const o = ac.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(210, t);
+    o.frequency.exponentialRampToValueAtTime(105, t + 0.05);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.030, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    o.connect(g); g.connect(n.musicG);
+    o.start(t); o.stop(t + 0.1);
+    o.onended = () => { try { o.disconnect(); g.disconnect(); } catch (e) {} };
+  },
+  drumTap(t) { // frame-drum-ish tap for the riad
+    const ac = this.ac(), n = this.nodes;
+    if (!n) return;
+    const src = ac.createBufferSource(); src.buffer = AudioSys._noiseBuf();
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 1.2;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.05, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    src.connect(bp); bp.connect(g); g.connect(n.musicG);
+    src.start(t, 0.3); src.stop(t + 0.15);
+    src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) {} };
+  },
+  // --- adaptive events ---
+  goalSwell() { // soft lift under the goal ceremony — never a jingle
+    if (!this.timer || !this.ac() || !this.nodes) return;
+    const ac = this.ac(), n = this.nodes, t = ac.currentTime, c = this.cfg();
+    n.duckG.gain.cancelScheduledValues(t);
+    n.duckG.gain.setTargetAtTime(0.5, t, 0.09);    // bed dips under the ceremony
+    n.duckG.gain.setTargetAtTime(1.0, t + 1.1, 0.7);
+    const src = ac.createBufferSource(); src.buffer = AudioSys._noiseBuf(); src.loop = true;
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8;
+    bp.frequency.setValueAtTime(500, t);
+    bp.frequency.exponentialRampToValueAtTime(2600, t + 0.9);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.045, t + 0.55);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    src.connect(bp); bp.connect(g); g.connect(n.musicG);
+    src.start(t); src.stop(t + 1.6);
+    src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) {} };
+    this.padChord((this.curChord || c.chords[0]).map(s => this.mf(c.root + s)), t + 0.05, 2.4);
+  },
+  setIntensity(i) {
+    i = i ? 1 : 0;
+    if (i === this.intensity) return;
+    this.intensity = i;
+    const n = this.nodes, ac = this.ac();
+    if (n && ac) n.musicG.gain.setTargetAtTime(this.cfg().level * (i ? 1.3 : 1), ac.currentTime, 0.8);
+  },
+  // --- structural introspection (headless verification) ---
+  state() { return { key: this.key, pendingKey: this.pendingKey, intensity: this.intensity, running: !!this.timer }; },
 };
 function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
 
@@ -1531,6 +1784,7 @@ function dismissHint(markSeen) {
 }
 function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
+  if (G.score[0] === 0 && G.score[1] === 0) MusicSys.setIntensity(0); // fresh match: the bed at rest
   G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
   G.trail.length = 0;
 }
@@ -1591,6 +1845,8 @@ function onGoal(scorer) {
   // ONLINE: the host owns the simulation; a guest never scores locally.
   if (G.mode === 'online' && Net.role !== 'host') return;
   G.score[scorer]++; // the single place a goal changes the score
+  // match-point lift: the music gains its pulse layer when someone is one away
+  MusicSys.setIntensity(G.score[0] >= Settings.firstTo - 1 || G.score[1] >= Settings.firstTo - 1 ? 1 : 0);
   if (G.mode !== 'online' && G.stats) {
     // streaks + worst-deficit tracking for the v23 fun pass (host-owned in
     // online play would desync the guest's view, so guests never track)
@@ -1657,6 +1913,7 @@ function beginGoalCeremony(scorer) {
   addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
   announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW — UNSTOPPABLE!
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
+  MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   buzz([25, 40, 40]);
 }
 function updateGoal(rdt) {
@@ -1691,6 +1948,7 @@ function updateGoal(rdt) {
 }
 function showWin() {
   clearCeremony(); // defensive: no ceremony visuals leak under the overlay
+  MusicSys.setIntensity(0); // the room exhales — bed back to rest
   $('topbar').classList.add('hidden');
   const you = G.winSide === 0;
   // local rival record — AI rivals per difficulty, P1/P2 for same-screen 2P

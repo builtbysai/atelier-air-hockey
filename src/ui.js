@@ -30,6 +30,7 @@ function setTheme(id, silent) {
   document.title = THEME.name + ' — Atelier Air Hockey';
   paintRoom();
   AudioSys.ambience(id); // room ambience follows the room (deferred pre-gesture)
+  MusicSys.setTable(id); // generative music follows the room too (crossfades)
   if (!silent) AudioSys.ui();
 }
 function paintThumbnails() {
@@ -77,7 +78,7 @@ function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
   // Lock them during an online match so peers can't desynchronize.
   if ((key === 'firstTo' || key === 'pace' || key === 'goalW') && G.mode === 'online' && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) return;
-  if (key === 'sound' || key === 'haptics') val = (val === 'true');
+  if (key === 'sound' || key === 'haptics' || key === 'music') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
   Settings[key] = val; saveSettings(); applySettingsToUI();
   // the menu's table thumbnails draw the goal mouth — repaint so the
@@ -97,6 +98,7 @@ function applySettingsToUI() {
   });
   AudioSys.muted = !Settings.sound;
   AudioSys.syncMute(); // keep the looped ambience bed under Mute too
+  MusicSys.syncEnabled(); // the music toggle starts/stops the scheduler (no runaway timers)
   const sb = $('btnSound');
   if (sb) {
     sb.classList.toggle('off', !Settings.sound);
