@@ -758,6 +758,8 @@ Net.beginMatch = function (role) {
   G._lobbyPausedMode = null;
   G.mode = 'online';
   G.onlineFlip = (role === 'guest'); // ONLINE: guest plays from their own side
+  if (typeof fitCamera === 'function') fitCamera(); // 2.5D: re-seat the camera behind the viewer's end
+  if (typeof paintTableWarp === 'function') paintTableWarp(); // re-warp the static table
   G.score = [0, 0]; G.winSide = 0;
   G.demo = false; G.idleT = 0;
   clearCeremony();
@@ -813,6 +815,8 @@ Net.onHello = function (ev) {
   Net.waitingForRival = false;
   G.mode = 'online';
   G.onlineFlip = true;
+  if (typeof fitCamera === 'function') fitCamera(); // 2.5D: re-seat the camera behind the viewer's end
+  if (typeof paintTableWarp === 'function') paintTableWarp(); // re-warp the static table
   Net.resetConn(); // fresh RTT chip for a fresh match (not on every countdown)
   Net.uiShow('guestwait');
 };
@@ -1066,6 +1070,8 @@ Net.leave = function () {
   Net.code = null;
   Net.offerSent = false;
   G.onlineFlip = false;
+  if (typeof fitCamera === 'function') fitCamera(); // 2.5D: camera back behind the host end
+  if (typeof paintTableWarp === 'function') paintTableWarp(); // re-warp the static table
   if (G.mode === 'online') G.mode = 'ai';
   if (Net.savedSettings) {
     Settings.firstTo = Net.savedSettings.firstTo;

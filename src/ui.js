@@ -29,6 +29,7 @@ function setTheme(id, silent) {
   root.setProperty('--body', THEME.font.body);
   document.title = THEME.name + ': Atelier Air Hockey';
   paintRoom();
+  if (typeof paintTableWarp === 'function') paintTableWarp(); // 2.5D static table re-warp
   AudioSys.ambience(id); // room ambience follows the room (deferred pre-gesture)
   MusicSys.setTable(id); // generative music follows the room too (crossfades)
   if (!silent) AudioSys.ui();
@@ -87,9 +88,9 @@ function setSetting(key, val) {
   // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
-  // board orientation re-fits the view immediately (visual only - physics,
-  // AI, and net sync are untouched, so it's safe mid-match)
-  if (key === 'orientation') { try { resize(); } catch (e) {} }
+  // board orientation and camera re-fit the view immediately (visual only -
+  // physics, AI, and net sync are untouched, so both are safe mid-match)
+  if (key === 'orientation' || key === 'camera') { try { resize(); } catch (e) {} }
 }
 function applySettingsToUI() {
   document.querySelectorAll('[data-set]').forEach(btn => {
