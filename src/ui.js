@@ -120,7 +120,7 @@ function setSetting(key, val) {
   // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
-  if (key === 'orientation') applyScreenOrientationPreference();
+  if (key === 'orientation' || key === 'camera') applyScreenOrientationPreference();
   // Orientation and camera only change presentation. Physics, AI and net
   // state remain in the same flat rink coordinates.
   if (key === 'orientation' || key === 'camera') { try { resize(); } catch (e) {} }
