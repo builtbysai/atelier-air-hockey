@@ -96,3 +96,19 @@ test('match rules summary exposes three scannable values', () => {
   assert.match(css, /rule-summary-grid/);
   assert.match(css, /rule-setting-head/);
 });
+
+
+test('gameplay chrome is hidden whenever an overlay opens', () => {
+  assert.match(game, /function hideAll\(\)[\s\S]*?\$\('topbar'\)\.classList\.add\('hidden'\)/);
+  assert.match(ui, /function openSettings\([\s\S]*?hideAll\(\);[\s\S]*?settings/);
+  assert.match(ui, /function openRules\([\s\S]*?hideAll\(\);[\s\S]*?rules/);
+});
+
+test('Match Rules summary is centered and has no redundant Edit label', () => {
+  const matchRules = template.match(/<div class="seclabel">MATCH RULES<\/div>[\s\S]*?<button class="btn primary bigstart"/)?.[0] || '';
+  assert.doesNotMatch(matchRules, />Edit</);
+  assert.doesNotMatch(template, /class="ruleedit"/);
+  assert.match(css, /\.rulebar\{[\s\S]*?text-align:center/);
+  assert.match(css, /\.rule-summary-grid > span\{[\s\S]*?text-align:center/);
+  assert.match(css, /\.rule-setting-head\{[\s\S]*?text-align:center/);
+});
