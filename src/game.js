@@ -3185,7 +3185,14 @@ function render25(w, h) {
   drawTexts25(cam);
   drawCountdown25(cam);
   ctx.restore();
+  // Screen-space tail uses virtual 1440x900 coordinates (CX=720 etc).
+  // renderTop leaves the view scale active for it; the 2.5D path restored
+  // to baseline, which drew the scoreboard/GOAL! off-screen on narrow
+  // viewports (mobile). Apply the view mapping first.
+  ctx.save();
+  ctx.translate(view.ox, view.oy); ctx.scale(view.s, view.s);
   renderTail(w, h);
+  ctx.restore();
 }
 
 // The table gets a real body: near and side faces extruded below the surface
