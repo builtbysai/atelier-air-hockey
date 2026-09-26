@@ -203,7 +203,7 @@ test('bug 2: rally chip lives in the left margin, clear of the scoreboard band',
   // scoreboard device is centered ~CX±200 (CX=720, so devices span
   // 520..920); assert the pill for a long rally label stays inside the
   // margin with room to spare. drawPlaque sizes pw = tw + 34, centered on cx.
-  assert.match(source, /drawPlaque\(ctx, 150, 71, 'RALLY ×' \+ G\.stats\.rally\)/);
+  assert.match(source, /drawPlaque\([a-zA-Z_$][\\w$]*, 150, 71, 'RALLY ×' \+ G\.stats\.rally\)/);
   const fakeMeasure = (label) => label.length * 8; // generous over-estimate
   const label = 'RALLY ×' + 1234;
   const pw = fakeMeasure(label) + 34;
