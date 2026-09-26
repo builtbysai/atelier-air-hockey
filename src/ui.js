@@ -203,6 +203,7 @@ function applySettingsToUI() {
 let settingsReturn = 'menu';
 function openSettings(from = 'menu') {
   settingsReturn = from;
+  $('topbar').classList.add('hidden');
   AudioSys.ui(); applySettingsToUI(); hideAll(); $('settings').classList.remove('hidden');
 }
 function closeSettings() {
@@ -584,6 +585,8 @@ function wireUI() {
   });
   $('btnWinMenu').addEventListener('click', quitToMenu);
   $('btnShareResult').addEventListener('click', shareResult);
+  $('replayOffer').addEventListener('click', () => Replay.startPending('goal'));
+  $('btnWinReplay').addEventListener('click', () => Replay.startPending('win'));
   $('replaySkip').addEventListener('click', () => Replay.finish());
   $('btnSound').addEventListener('click', () => {
     AudioSys.init();
