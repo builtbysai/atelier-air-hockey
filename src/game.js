@@ -1217,13 +1217,17 @@ function resize() {
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   view.w = w; view.h = h;
-  // Board orientation is a persisted setting and the single source of truth:
-  // 'portrait' forces the rotated presentation on any screen, 'landscape'
-  // (default) keeps the rink unrotated on any screen. No auto-override by
-  // screen shape - the toggle must do what it says on every device. The game
-  // space itself stays landscape; physics and AI never see the rotation
-  // (screenToRink inverts it for input).
-  view.portrait = Settings.orientation === 'portrait';
+  // 2.5D camera: the camera IS the presentation when active.
+  view.camera = ['top', 'elevated', 'surface'].includes(Settings.camera) ? Settings.camera : 'top';
+  // Board orientation is a persisted setting and the single source of truth
+  // for the top-down view: 'portrait' forces the rotated presentation on any
+  // screen, 'landscape' (default) keeps the rink unrotated on any screen. No
+  // auto-override by screen shape - the toggle must do what it says on every
+  // device. In 2.5D the camera is the whole presentation, so the orientation
+  // toggle is parked (the settings UI disables it there) and the affine fit
+  // stays landscape - the game space itself stays landscape either way and
+  // physics and AI never see the rotation (screenToRink inverts it for input).
+  view.portrait = view.camera === 'top' && Settings.orientation === 'portrait';
   if (!view.portrait) {
     view.s = Math.min(w / VW, h / VH);
     view.ox = (w - VW * view.s) / 2; view.oy = (h - VH * view.s) / 2;
@@ -1232,9 +1236,6 @@ function resize() {
     view.ox = (w - VH * view.s) / 2; view.oy = (h - VW * view.s) / 2;
   }
   view.dpr = dpr;
-  // 2.5D camera: the camera IS the presentation when active - the board
-  // orientation toggle only affects the top-down view.
-  view.camera = ['top', 'elevated', 'surface'].includes(Settings.camera) ? Settings.camera : 'top';
   fitCamera();
   paintRoom();
   paintTableWarp(); // 2.5D: re-warp the static table for the new fit
@@ -2693,7 +2694,12 @@ function playStep(rdt) {
       aiDrive(G.ai1, sdt, G.m1);
       aiDrive(G.ai2, sdt, G.m2);
     } else {
-      if (pointers.size > 0) driveMallet(G.m1, sdt, PLAYER_CAP);
+      // 1p: keyboard/gamepad also drive through tx/ty, so only pin the target
+      // to the current position when no input source is active. Pinning
+      // unconditionally wipes keyboard/gamepad targets every substep and
+      // makes keys appear dead unless a pointer is also down.
+      const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
+      if (pointers.size > 0 || kbFresh) driveMallet(G.m1, sdt, PLAYER_CAP);
       else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
       aiDrive(G.ai2, sdt, G.m2);
     }
