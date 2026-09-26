@@ -96,3 +96,22 @@ test('match rules summary exposes three scannable values', () => {
   assert.match(css, /rule-summary-grid/);
   assert.match(css, /rule-setting-head/);
 });
+
+
+test('match rules summary is centered and has no Edit label', () => {
+  const block = template.match(/<button class="rulebar"[\s\S]*?<\/button>/)?.[0] || '';
+  assert.doesNotMatch(block, />Edit</);
+  assert.match(css, /rule-summary-grid > span[^}]*text-align:center/);
+});
+
+test('Pause and Audio are hidden while Preferences or Pause overlays are open', () => {
+  assert.match(ui, /function openSettings[\s\S]*?topbar'\)\.classList\.add\('hidden'\)/);
+  assert.match(game, /G\.state = 'pause';[\s\S]*?topbar'\)\.classList\.add\('hidden'\)/);
+});
+
+test('rally and match-point feedback share one lane below the scoreboard', () => {
+  assert.match(game, /drawPlaque\(c, CX, 136, status/);
+  assert.match(game, /status = 'RALLY ' \+ G\.stats\.rally/);
+  assert.doesNotMatch(game, /RALLY ×/);
+  assert.match(game, /G\.mode === 'ai' \|\| G\.mode === '2p'/);
+});
