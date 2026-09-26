@@ -1572,7 +1572,7 @@ function touchOffsetY(side, cx, cy) {
 function onPointerDown(e) {
   AudioSys.init(); AudioSys.resume();
   interacted = true;
-  if (G.state === 'menu' || G.state === 'win') return; // buttons own the UI
+  if (G.state === 'menu' || G.state === 'win' || G.state === 'replay') return; // buttons/replay own the UI
   if (G.mode === 'watch') return; // EXHIBITION: no human input - both mallets are AI-driven
   const touch = e.pointerType === 'touch';
   // Side assignment uses the raw (unshifted) touch point so the vertical
@@ -1599,7 +1599,7 @@ function onPointerDown(e) {
 }
 function onPointerMove(e) {
   if (!pointers.has(e.pointerId)) return;
-  if (G.state === 'menu' || G.state === 'win') return;
+  if (G.state === 'menu' || G.state === 'win' || G.state === 'replay') return;
   const side = pointers.get(e.pointerId);
   const touch = e.pointerType === 'touch';
   const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side, e.clientX, e.clientY) : 0));
