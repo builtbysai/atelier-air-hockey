@@ -1,7 +1,6 @@
-// Music volume: the Settings.musicVolume slider (0-100, default 70) and its
-// perceptual mapping onto the live music bus, plus the raised voice gains
-// behind Sam's "barely audible" report. Runs the real MusicSys in a vm
-// sandbox with a recording mock AudioContext.
+// Music volume: the Settings.musicVolume slider (0-100, default 70) maps
+// onto AudioSys.musicBus so it scales both the generative score and ambience.
+ // Per-room MusicSys levels remain independent of the user's bus volume.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -115,22 +114,27 @@ test('musicVolume defaults to 70, persists, and clamps', async () => {
   }
 });
 
-test('volGain is a perceptual curve with unity at 70 and 0 = silent', async () => {
+test('music bus uses a perceptual curve with unity at 70 and 0 = silent', async () => {
   const { t } = await loadGame();
-  const g = (v) => { t.Settings.musicVolume = v; return t.MusicSys.volGain(); };
+  const g = (v) => {
+    t.Settings.musicVolume = v;
+    t.Settings.music = v > 0;
+    t.AudioSys.syncMusic();
+    return t.AudioSys.musicBus.gain.value;
+  };
   assert.equal(g(0), 0, '0 must be silent');
   assert.ok(Math.abs(g(70) - 1) < 1e-9, '70 is the unity point');
   assert.ok(Math.abs(g(100) - Math.pow(100 / 70, 1.5)) < 1e-9, '100 lifts ~+4.6 dB');
-  assert.ok(g(35) < 0.5, 'half slider sits well under half gain (perceptual, not linear)');
+  assert.ok(g(35) < 0.5, 'half slider sits well under half gain');
   let prev = -1;
   for (const v of [0, 10, 25, 50, 70, 85, 100]) {
     const cur = g(v);
-    assert.ok(cur > prev, `volGain must rise monotonically (v=${v})`);
+    assert.ok(cur > prev, `music bus gain must rise monotonically (v=${v})`);
     prev = cur;
   }
 });
 
-test('targetLevel composes table level, volume, and intensity', async () => {
+test('targetLevel composes table level and intensity, not user bus volume', async () => {
   const { t } = await loadGame();
   t.MusicSys.key = 'deco'; // level 1.1
   t.Settings.musicVolume = 70; t.MusicSys.intensity = 0;
@@ -138,37 +142,35 @@ test('targetLevel composes table level, volume, and intensity', async () => {
   t.MusicSys.intensity = 1;
   assert.ok(Math.abs(t.MusicSys.targetLevel() - 1.1 * 1.3) < 1e-9, 'intensity lifts 1.3x');
   t.MusicSys.intensity = 0; t.Settings.musicVolume = 0;
-  assert.equal(t.MusicSys.targetLevel(), 0, 'volume 0 silences the target');
+  assert.ok(Math.abs(t.MusicSys.targetLevel() - 1.1) < 1e-9,
+    'user volume is applied at AudioSys.musicBus, not duplicated inside MusicSys');
 });
 
-test('applyVolume re-aims the live bus without a restart', async () => {
-  const { t, ac } = await loadGame();
-  let aimed = null;
-  t.MusicSys.nodes = { musicG: { gain: { setTargetAtTime(v) { aimed = v; } } } };
-  t.MusicSys.key = 'deco'; t.MusicSys.intensity = 0;
+test('applyVolume re-aims the outer music bus without a restart', async () => {
+  const { t } = await loadGame();
   t.Settings.musicVolume = 50;
+  t.Settings.music = true;
   t.MusicSys.applyVolume();
-  const want = 1.1 * Math.pow(50 / 70, 1.5);
-  assert.ok(Math.abs(aimed - want) < 1e-9, `live bus must aim at ${want}, got ${aimed}`);
-  // 0 floors at 0.0001 (exponential ramps can't target true 0)
+  const want = Math.pow(50 / 70, 1.5);
+  assert.ok(Math.abs(t.AudioSys.musicBus.gain.value - want) < 1e-9,
+    `outer music bus must aim at ${want}, got ${t.AudioSys.musicBus.gain.value}`);
   t.Settings.musicVolume = 0;
+  t.Settings.music = false;
   t.MusicSys.applyVolume();
-  assert.equal(aimed, 0.0001, 'volume 0 must floor the bus at 0.0001');
-  // no bus yet (pre-prime): must not throw
-  t.MusicSys.nodes = null;
-  assert.doesNotThrow(() => t.MusicSys.applyVolume(), 'applyVolume with no bus must be a no-op');
+  assert.equal(t.AudioSys.musicBus.gain.value, 0, 'volume 0 fully closes the music bus');
 });
 
-test('start() aims the bus at the volume-aware target', async () => {
+test('start() keeps per-room target independent from the user volume bus', async () => {
   const { t, ac } = await loadGame();
   t.Settings.musicVolume = 80;
+  t.Settings.music = true;
   t.MusicSys.key = 'deco'; t.MusicSys.intensity = 0;
   ac.calls.length = 0;
   t.MusicSys.start();
   t.MusicSys.stop();
   const aimed = Math.max(...ac.calls.filter(c => c[0] === 'setTarget').map(c => c[1]));
-  assert.ok(Math.abs(aimed - 1.1 * Math.pow(80 / 70, 1.5)) < 1e-6,
-    `start() must aim at the volume-aware target, got ${aimed}`);
+  assert.ok(Math.abs(aimed - 1.1) < 1e-6,
+    `room bus must target the room level before outer user volume, got ${aimed}`);
 });
 
 test('voice gains are raised: the scheduler programs audible peaks', async () => {
@@ -228,12 +230,20 @@ test('raised gains on the conditional voices (drone/pulse/drum/shimmer/swell)', 
   assert.ok(expRamps().some(v => Math.abs(v - 0.135) < 1e-9), 'goal swell must peak at 0.135');
 });
 
-test('settings UI wires the volume slider', async () => {
+test('preferences UI wires both audio sliders', async () => {
   const template = await readFile(new URL('../src/template.html', import.meta.url), 'utf8');
-  assert.match(template, /id="musicVol"/, 'settings needs the volume slider');
-  assert.match(template, /id="musicVolVal"/, 'slider needs a numeric readout');
+  assert.match(template, /id="musicVol"/, 'preferences need the music volume slider');
+  assert.match(template, /id="musicVolVal"/, 'music slider needs a readout');
+  assert.match(template, /id="soundVol"/, 'preferences need the sound volume slider');
+  assert.match(template, /id="soundVolVal"/, 'sound slider needs a readout');
+  assert.doesNotMatch(template, /data-set="music"/, 'redundant Music toggle must be gone');
+  assert.doesNotMatch(template, /data-set="sound"/, 'redundant Sound toggle must be gone');
   const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
   assert.match(ui, /key === 'musicVolume'/, 'setSetting must parse musicVolume');
-  assert.match(ui, /MusicSys\.applyVolume\(\)/, 'volume changes must hit the live bus');
-  assert.match(ui, /\$\('musicVol'\)/, 'wireUI must listen to the slider');
+  assert.match(ui, /key === 'soundVolume'/, 'setSetting must parse soundVolume');
+  assert.match(ui, /AudioSys\.syncMusic\(\)/, 'music slider must update the whole music bus');
+  assert.match(ui, /AudioSys\.syncMute\(\)/, 'sound slider must update the SFX bus');
+  assert.match(ui, /\$\('musicVol'\)/, 'wireUI must listen to music slider');
+  assert.match(ui, /\$\('soundVol'\)/, 'wireUI must listen to sound slider');
 });
+
