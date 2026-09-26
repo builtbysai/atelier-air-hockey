@@ -1193,12 +1193,12 @@ function replayMix(a, b, t) {
   };
 }
 const Replay = {
-  frames: [], active: false, prepared: false, requested: false,
+  frames: [], active: false, prepared: false,
   clip: null, acc: 0, elapsed: 0, scorer: -1,
   sourceRate: 0.80,
   reset() {
     this.frames.length = 0; this.clip = null; this.active = false;
-    this.prepared = false; this.requested = false;
+    this.prepared = false;
     this.acc = 0; this.elapsed = 0; this.scorer = -1;
     this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
@@ -1230,36 +1230,30 @@ const Replay = {
     const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
     this.clip = this.frames.slice(-keep);
     this.elapsed = 0; this.scorer = scorer;
-    this.prepared = true; this.requested = false; this.active = false;
+    this.prepared = true; this.active = false;
     this.hideOffer();
     return true;
   },
   offer() {
-    if (!this.prepared || this.active || this.requested) return;
+    if (!this.prepared || this.active || G.state !== 'count') return;
     const b = document.getElementById('replayOffer');
     if (!b) return;
     b.textContent = 'Watch replay';
-    b.classList.remove('queued', 'hidden');
+    b.classList.remove('hidden');
   },
   hideOffer() {
     const b = document.getElementById('replayOffer');
     if (!b) return;
     b.classList.add('hidden');
-    b.classList.remove('queued');
     b.textContent = 'Watch replay';
   },
-  request() {
-    if (!this.prepared || this.active) return;
-    this.requested = true;
-    const b = document.getElementById('replayOffer');
-    if (b) {
-      b.textContent = 'Replay queued';
-      b.classList.add('queued');
-    }
+  beginPoint() {
+    this.frames.length = 0;
+    this.acc = 0;
   },
   playPrepared() {
     if (!this.prepared || !this.clip || !this.clip.length) return false;
-    this.active = true; this.prepared = false; this.requested = false; this.elapsed = 0;
+    this.active = true; this.prepared = false; this.elapsed = 0;
     G.state = 'replay';
     this.hideOffer();
     $('topbar').classList.add('hidden');
@@ -1290,10 +1284,10 @@ const Replay = {
     this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1;
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
-    resumeAfterGoal();
+    resumeAfterReplay();
   },
   discardPrepared() {
-    this.prepared = false; this.requested = false; this.clip = null; this.scorer = -1;
+    this.prepared = false; this.clip = null; this.scorer = -1;
     this.hideOffer();
   },
   applyFrame() {
@@ -2516,6 +2510,7 @@ function dismissHint(markSeen) {
 }
 function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
+  Replay.beginPoint();
   if (G.score[0] === 0 && G.score[1] === 0) MusicSys.setIntensity(0); // fresh match: the bed at rest
   MusicSys.alignBeat(); // both peers start the same phrase on the countdown downbeat
   G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
@@ -2558,6 +2553,7 @@ function updateCount(rdt) {
   if (G.countT >= 1.65 && !G.goPlayed) { G.goPlayed = true; AudioSys.count(true); }
   if (G.countT >= 2.0) {
     G.goPlayed = false;
+    Replay.discardPrepared();
     G.state = 'play';
     // serve the rolled point - the player who was scored on gets the puck
     // (USAA basic rules §4: "the player scored upon receives possession of
@@ -2655,12 +2651,16 @@ function beginGoalCeremony(scorer) {
   buzz([25, 40, 40]);
 }
 function resumeAfterGoal() {
-  Replay.discardPrepared();
   resetPositions();
   rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
   $('topbar').classList.remove('hidden');
   startCount();
   if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
+}
+function resumeAfterReplay() {
+  resetPositions();
+  $('topbar').classList.remove('hidden');
+  startCount();
 }
 function updateGoal(rdt) {
   G.goalT += rdt; G.goalSlowT += rdt;
@@ -2674,10 +2674,9 @@ function updateGoal(rdt) {
   p.x = lerp(p.x, gx, clamp(rdt * 5, 0, 1));
   p.y = lerp(p.y, CY, clamp(rdt * 5, 0, 1));
   p.vx *= 0.9; p.vy *= 0.9;
-  // The celebration owns the moment. Once its initial hit has landed, offer
-  // replay without adding any extra wait; ignoring it flows straight to serve.
+  // The celebration owns the moment completely. Replay is offered only after
+  // the celebration ends, during the normal restart countdown.
   const matchPoint = G.score[G.goalSide] >= Settings.firstTo;
-  if (!matchPoint && Replay.prepared && G.goalT > 0.80) Replay.offer();
   if (G.goalT > (matchPoint ? 2.86 : 2.2)) {
     clearCeremony();
     Replay.hideOffer();
@@ -2686,10 +2685,9 @@ function updateGoal(rdt) {
       G.winSide = G.score[0] > G.score[1] ? 0 : 1;
       G.state = 'win';
       showWin();
-    } else if (Replay.requested && Replay.playPrepared()) {
-      // playback owns the frozen table and returns through resumeAfterGoal()
     } else {
       resumeAfterGoal();
+      Replay.offer();
     }
   }
 }
@@ -2786,6 +2784,7 @@ function togglePause(force, silent) {
     G.state = G.pausedFrom;
     hideAll();
     if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
+    if (G.state === 'count') Replay.offer();
     if (G.hintLive) $('hint').classList.remove('hidden'); // hint survives pause/resume
     if (!silent) {
       // a local resume is always a user gesture, so the context may restart
@@ -2846,6 +2845,7 @@ function quitToMenu() {
   if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first - leave() resets mode
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
+  Replay.reset();
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
