@@ -54,3 +54,10 @@ test('touch instructions are capability-aware', () => {
   assert.match(template, /class="touch-controls"/);
   assert.match(css, /@media \(hover:none\) and \(pointer:coarse\)/);
 });
+
+test('keyboard shortcuts share the same menu routing', () => {
+  assert.match(ui, /rules'\)\.classList\.contains\('hidden'\)[\s\S]*?rulesClose'\)\.click\(\)/,
+    'Escape must close Match Rules');
+  assert.match(ui, /e\.key === 'Enter'[\s\S]*?\$\('btnStart'\)\.click\(\)/,
+    'Enter must route through the primary action');
+});
