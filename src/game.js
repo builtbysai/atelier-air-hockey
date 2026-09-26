@@ -38,6 +38,7 @@ const Settings = {
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
   effects: 'full',     // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics
+  instantReplay: 'goals', // 'goals' | 'off' - local goal replays only
   goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
   orientation: 'auto', // 'auto' | 'landscape' | 'portrait' - persisted display preference
   camera: 'top', // 'top' | 'elevated' | 'surface' - 2.5D camera (v25)
@@ -56,6 +57,7 @@ function loadSettings() {
   if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
+  if (!['goals', 'off'].includes(Settings.instantReplay)) Settings.instantReplay = 'goals';
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
@@ -1160,6 +1162,113 @@ const G = {
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
 G.stats = freshStats();
+
+// ---------- instant replay ----------
+// Local-only visual rewind. The live simulation stays frozen and authoritative
+// while render() temporarily borrows interpolated puck/mallet positions.
+const REPLAY_HZ = 30;
+const REPLAY_MAX = REPLAY_HZ * 5;
+function replayAngle(a, b, t) {
+  let d = (b - a) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return a + d * t;
+}
+function replayLerp(a, b, t) { return a + (b - a) * t; }
+function replayMix(a, b, t) {
+  const mixBody = (x, y) => ({
+    x: replayLerp(x.x, y.x, t), y: replayLerp(x.y, y.y, t),
+    vx: replayLerp(x.vx, y.vx, t), vy: replayLerp(x.vy, y.vy, t),
+  });
+  return {
+    puck: {
+      ...mixBody(a.puck, b.puck),
+      w: replayLerp(a.puck.w, b.puck.w, t),
+      ang: replayAngle(a.puck.ang, b.puck.ang, t),
+    },
+    m1: mixBody(a.m1, b.m1),
+    m2: mixBody(a.m2, b.m2),
+    puckSq: replayLerp(a.puckSq, b.puckSq, t),
+    puckSqA: replayAngle(a.puckSqA, b.puckSqA, t),
+  };
+}
+const Replay = {
+  frames: [], active: false, clip: null, acc: 0, elapsed: 0, scorer: -1,
+  sourceRate: 0.80,
+  reset() {
+    this.frames.length = 0; this.clip = null; this.active = false;
+    this.acc = 0; this.elapsed = 0; this.scorer = -1;
+    const b = document.getElementById('replaySkip'); if (b) b.classList.add('hidden');
+  },
+  snapshot() {
+    const body = m => ({ x:m.x, y:m.y, vx:m.vx, vy:m.vy });
+    return {
+      puck:{ x:G.puck.x, y:G.puck.y, vx:G.puck.vx, vy:G.puck.vy, w:G.puck.w || 0, ang:G.puck.ang || 0 },
+      m1:body(G.m1), m2:body(G.m2), puckSq:G.puckSq, puckSqA:G.puckSqA,
+    };
+  },
+  push() {
+    this.frames.push(this.snapshot());
+    if (this.frames.length > REPLAY_MAX) this.frames.shift();
+  },
+  record(dt) {
+    if (this.active || Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || G.state !== 'play') return;
+    this.acc += dt;
+    const step = 1 / REPLAY_HZ;
+    while (this.acc >= step) { this.acc -= step; this.push(); }
+  },
+  start(scorer) {
+    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) return false;
+    this.push();
+    const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
+    this.clip = this.frames.slice(-keep);
+    this.elapsed = 0; this.scorer = scorer; this.active = true;
+    G.state = 'replay';
+    $('topbar').classList.add('hidden');
+    const b = document.getElementById('replaySkip'); if (b) b.classList.remove('hidden');
+    return true;
+  },
+  duration() {
+    return this.clip && this.clip.length > 1 ? ((this.clip.length - 1) / REPLAY_HZ) / this.sourceRate : 0;
+  },
+  sample() {
+    if (!this.clip || !this.clip.length) return null;
+    if (this.clip.length === 1) return this.clip[0];
+    const src = Math.min(this.clip.length - 1, this.elapsed * this.sourceRate * REPLAY_HZ);
+    const i = Math.floor(src), j = Math.min(this.clip.length - 1, i + 1), t = src - i;
+    return replayMix(this.clip[i], this.clip[j], t);
+  },
+  update(dt) {
+    if (!this.active) return;
+    this.elapsed += dt;
+    if (this.elapsed >= this.duration()) this.finish();
+  },
+  finish() {
+    if (!this.active) return;
+    const scorer = this.scorer;
+    this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1;
+    const b = document.getElementById('replaySkip'); if (b) b.classList.add('hidden');
+    beginGoalCeremony(scorer);
+  },
+  applyFrame() {
+    if (!this.active) return null;
+    const f = this.sample(); if (!f) return null;
+    const saveBody = m => ({ x:m.x, y:m.y, vx:m.vx, vy:m.vy });
+    const saved = {
+      puck:{ x:G.puck.x, y:G.puck.y, vx:G.puck.vx, vy:G.puck.vy, w:G.puck.w, ang:G.puck.ang },
+      m1:saveBody(G.m1), m2:saveBody(G.m2), puckSq:G.puckSq, puckSqA:G.puckSqA,
+      trail:G.trail,
+    };
+    Object.assign(G.puck, f.puck); Object.assign(G.m1, f.m1); Object.assign(G.m2, f.m2);
+    G.puckSq = f.puckSq; G.puckSqA = f.puckSqA; G.trail = [];
+    return saved;
+  },
+  restoreFrame(saved) {
+    if (!saved) return;
+    Object.assign(G.puck, saved.puck); Object.assign(G.m1, saved.m1); Object.assign(G.m2, saved.m2);
+    G.puckSq = saved.puckSq; G.puckSqA = saved.puckSqA; G.trail = saved.trail;
+  },
+};
 const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
 
 function mkMallet(side) {
@@ -2302,6 +2411,7 @@ function startGame(mode, diff) {
   if (mode === 'watch') { G.watch = { a: diff.a, b: diff.b }; G.difficulty = diff.b; }
   else { G.watch = null; G.difficulty = diff == null ? G.difficulty : diff; }
   G.score = [0, 0]; G.winSide = 0;
+  Replay.reset();
   G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
@@ -2422,8 +2532,12 @@ function onGoal(scorer) {
     st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
   }
   if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
-  beginGoalCeremony(scorer); // visuals only - never scores, never sends
-  if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
+  if (G.mode === 'online') {
+    beginGoalCeremony(scorer);
+    Net.sendGoal(scorer); // ONLINE: tell the guest to play it
+  } else if (!Replay.start(scorer)) {
+    beginGoalCeremony(scorer);
+  }
 }
 // ONLINE: start the goal ceremony visuals only - no scoring, no sending.
 // The host scores first in onGoal; the guest's scores arrive final in the
@@ -2781,6 +2895,7 @@ function frame(t) {
       updateParts(rdt);
       break;
     case 'play':
+      Replay.record(rdt);
       // ONLINE: the guest does not simulate - the host owns the physics.
       // The guest only drives their own mallet; puck and rival mallet arrive
       // over the wire (dead-reckoned in Net.pump).
@@ -2792,6 +2907,9 @@ function frame(t) {
       if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
       else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
       updateParts(rdt);
+      break;
+    case 'replay':
+      Replay.update(rdt);
       break;
     case 'goal':
       updateGoal(rdt);
@@ -3041,6 +3159,7 @@ function drawTextsFlat(c) {
 }
 
 function render() {
+  const replaySaved = G.state === 'replay' ? Replay.applyFrame() : null;
   const dpr = view.dpr || 1, w = view.w, h = view.h, s = view.s;
   // the room: pre-rendered on theme change / resize - one drawImage, no shake
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3060,6 +3179,7 @@ function render() {
   // fitted pinhole camera. Physics, AI and netcode never see the difference.
   if (view.camera !== 'top' && view.cam) render25(w, h);
   else renderTop(w, h);
+  if (replaySaved) Replay.restoreFrame(replaySaved);
 }
 
 // Classic top-down view: the affine rink transform, byte-identical to the
@@ -3156,6 +3276,7 @@ function drawGoalTextVirtual(c) {
 function renderTail(w, h) {
   drawGoalTextVirtual(ctx);
   drawHudCore(ctx);
+  if (G.state === 'replay') drawPlaque(ctx, CX, 128, 'REPLAY');
 
   const vg = ctx.createRadialGradient(CX, CY, VH * 0.42, CX, CY, VH * 0.95);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -3194,6 +3315,7 @@ function renderTail25(w, h) {
   ctx.translate(w * 0.5 - CX * hs, Math.max(6, h * 0.012));
   ctx.scale(hs, hs);
   drawHudCore(ctx);
+  if (G.state === 'replay') drawPlaque(ctx, CX, 128, 'REPLAY');
   ctx.restore();
 
   const vg = ctx.createRadialGradient(w * 0.5, h * 0.52, h * 0.28, w * 0.5, h * 0.52, h * 0.82);
