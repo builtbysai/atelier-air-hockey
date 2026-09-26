@@ -1158,6 +1158,8 @@ const G = {
   stats: null,              // per-match stats (top speed, rally, time)
   onlineFlip: false,        // ONLINE: guest view is mirrored - they play from their own side
   hintLive: false,          // first-time hint currently showing on the table
+  rallyHudT: 0, rallyHudN: 0, // brief rally milestones instead of persistent HUD clutter
+  goalStreakLabel: '',       // one centered streak sub-line during goal celebration
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
@@ -1195,10 +1197,12 @@ function replayMix(a, b, t) {
 const Replay = {
   frames: [], active: false, clip: null, pendingClip: null,
   acc: 0, elapsed: 0, scorer: -1, pendingScorer: -1, returnMode: 'goal',
+  requested: false, offerT: 0,
   sourceRate: 0.80,
   reset() {
     this.frames.length = 0; this.clip = null; this.pendingClip = null; this.active = false;
     this.acc = 0; this.elapsed = 0; this.scorer = -1; this.pendingScorer = -1; this.returnMode = 'goal';
+    this.requested = false; this.offerT = 0;
     this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
@@ -1222,7 +1226,7 @@ const Replay = {
     while (this.acc >= step) { this.acc -= step; this.push(); }
   },
   capture(scorer) {
-    this.pendingClip = null; this.pendingScorer = -1;
+    this.pendingClip = null; this.pendingScorer = -1; this.requested = false; this.offerT = 0;
     if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) {
       this.frames.length = 0; this.acc = 0; return false;
     }
@@ -1235,21 +1239,39 @@ const Replay = {
   },
   hasPending() { return !!(this.pendingClip && this.pendingClip.length > 1); },
   showOffer() {
-    if (!this.hasPending() || this.active) return;
+    if (!this.hasPending() || this.active || this.requested) return;
     const b = document.getElementById('replayOffer'); if (b) b.classList.remove('hidden');
   },
   hideOffer() {
     const b = document.getElementById('replayOffer'); if (b) b.classList.add('hidden');
   },
   discardPending() {
-    this.pendingClip = null; this.pendingScorer = -1; this.hideOffer();
+    this.pendingClip = null; this.pendingScorer = -1; this.requested = false; this.offerT = 0; this.hideOffer();
+  },
+  keepOfferDuringCount(seconds = 1.0) {
+    if (!this.hasPending()) return;
+    this.offerT = seconds;
+    this.showOffer();
+  },
+  tickOffer(dt) {
+    if (!this.hasPending() || this.active || this.offerT <= 0 || G.state !== 'count') return;
+    this.offerT = Math.max(0, this.offerT - dt);
+    if (this.offerT <= 0) this.discardPending();
+  },
+  request() {
+    if (!this.hasPending() || this.active) return;
+    this.requested = true; this.offerT = 0; this.hideOffer();
+    // During the celebration, remember the choice but let the emotional beat
+    // land first. During countdown the player has explicitly chosen replay,
+    // so play it immediately and restart countdown afterward.
+    if (G.state === 'count') this.startPending('goal');
   },
   startPending(returnMode = 'goal') {
     if (!this.hasPending()) return false;
     this.clip = this.pendingClip; this.pendingClip = null;
     this.scorer = this.pendingScorer; this.pendingScorer = -1;
     this.elapsed = 0; this.active = true; this.returnMode = returnMode;
-    this.hideOffer();
+    this.requested = false; this.offerT = 0; this.hideOffer();
     const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
     clearCeremony();
     hideAll();
@@ -2454,6 +2476,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
 // restart, or win can never leave GOAL! / slow-mo stuck on screen.
 function clearCeremony() {
   G.letterT = 0; G.flashA = 0; G.goalT = 0; G.goalSlowT = 0;
+  G.goalStreakLabel = '';
   G.timeScale = 1;
 }
 // ---------- game flow ----------
