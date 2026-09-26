@@ -117,9 +117,23 @@
   .seg3 .btn{ padding:8px 4px; font-size:12px; }
   .watchsel{ margin-top:10px; }
   .watchsel .seclabel{ margin-top:8px; }
-  .btn.lablight{ border-style:dashed; opacity:0.75; margin-top:10px; }
   /* v21: the explicit start button - the one primary action on the menu */
   .btn.bigstart{ margin-top:12px; padding:16px 16px; font-size:18px; font-weight:800; letter-spacing:1px; }
+  .rulebar{
+    width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px;
+    margin:6px 0 0; padding:10px 12px; border-radius:10px;
+    border:1px solid var(--pline); background:transparent; color:var(--title);
+    font-family:var(--body); text-align:left; cursor:pointer;
+  }
+  .rulebar strong{ display:block; font-size:13px; letter-spacing:.2px; }
+  .rulebar small{ display:block; margin-top:3px; color:var(--sub); font-size:10px; letter-spacing:1.6px; }
+  .rulebar .ruleedit{ flex:0 0 auto; font-size:11px; text-decoration:underline; text-underline-offset:2px; }
+  .rulebar:active{ transform:scale(.985); background:var(--ghost); }
+  .touch-controls{ display:none; }
+  #tourCount.tourpill{
+    appearance:none; -webkit-appearance:none; background:transparent; font:inherit; cursor:pointer;
+  }
+  #tourCount.tourpill:active{ transform:scale(.96); }
   .menugrid{ display:block; }
   /* the menu carousel is decorative - cap its width on roomy screens so the
      stacked desktop menu (now with the v21 START button) never scrolls */
@@ -150,7 +164,6 @@
     /* v21: the start button stays prominent but compact in short landscape */
     #menu .btn.bigstart{ margin-top:6px; padding:8px 6px; font-size:15px; }
     #menu .btn.bigstart small{ font-size:9px; }
-    #menu .btn.lablight{ margin-top:6px; padding:8px 6px; }
     #menu .foot{ margin-top:4px; text-align:center; }
   }
   .kicker{ display:flex; align-items:center; gap:12px; font-size:11px; letter-spacing:4px; color:var(--sub); margin-bottom:8px; }
@@ -217,10 +230,10 @@
   .setrow{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:13px 0; text-align:left; }
   .setlabel{ font-size:14px; letter-spacing:1px; flex:0 0 auto; }
   .setrow .seg{ flex:1 1 auto; max-width:310px; }
-  /* music volume slider: theme-tinted range with a numeric readout */
-  .seg.musvol{ align-items:center; gap:10px; }
-  .seg.musvol input[type=range]{ flex:1 1 auto; min-width:0; height:34px; accent-color:var(--btnbg); cursor:pointer; }
-  .seg.musvol output{ flex:0 0 auto; min-width:2.2em; text-align:right; font-size:14px; color:var(--sub); font-variant-numeric:tabular-nums; }
+  /* audio volume sliders: use the current room's palette, not a parallel control style */
+  .seg.volrange{ align-items:center; gap:10px; }
+  .seg.volrange input[type=range]{ flex:1 1 auto; min-width:0; height:34px; accent-color:var(--btnbg); cursor:pointer; }
+  .seg.volrange output{ flex:0 0 auto; min-width:3.2em; text-align:right; font-size:14px; color:var(--sub); font-variant-numeric:tabular-nums; }
   .btn:disabled{ opacity:0.45; cursor:default; }
   .btn:disabled:active{ transform:none; background:transparent; }
   .winstats{ color:var(--sub); font-size:13px; letter-spacing:1px; margin:-6px 0 18px; }
@@ -270,8 +283,9 @@
   }
   .foot a{ color:var(--title); }
   .foot b{ color:var(--title); }
-  #settings .card{ max-width:500px; text-align:left; }
-  #settings .kicker, #settings h1, #settings .tagline{ text-align:center; }
+  #settings .card, #rules .card{ max-width:500px; text-align:left; }
+  #settings .kicker, #settings h1, #settings .tagline,
+  #rules .kicker, #rules h1, #rules .tagline{ text-align:center; }
   /* compact menu: narrow phones AND short landscape - nothing may scroll */
   @media (max-width:480px), (max-height:540px){
     .card{ padding:10px 12px; }
@@ -292,6 +306,10 @@
     .btn .rec{ display:none; }
     .btn .rec:not(:empty){ display:block; font-size:9px; letter-spacing:1px; }
     .seg4 .btn{ padding:10px 4px; font-size:13px; }
+    #playModes{ grid-template-columns:repeat(2,1fr); }
+    .rulebar{ padding:8px 10px; }
+    .rulebar strong{ font-size:12px; }
+    .rulebar small{ display:none; }
     .carrow{ width:34px; height:34px; font-size:20px; }
     .ctrack{ padding:4px 26px; }
     .foot{ margin-top:6px; font-size:11px; }
@@ -306,4 +324,10 @@
   }
   @media (max-width:480px){
     .overlay{ padding:10px; }
+  }
+
+
+  @media (hover:none) and (pointer:coarse){
+    .desktop-controls{ display:none !important; }
+    .touch-controls{ display:inline !important; }
   }
