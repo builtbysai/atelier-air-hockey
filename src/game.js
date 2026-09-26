@@ -1264,7 +1264,7 @@ function cameraPresetForViewport(name, w, h) {
   // The original Surface camera is excellent on wide screens but compresses
   // a portrait phone into a thin strip. Lift it only on tall displays.
   if (name === 'surface' && h > w * 1.15)
-    return { c: [-80, CY, 280], look: [920, CY, 0] };
+    return { c: [-90, CY, 360], look: [920, CY, 0] };
   return base;
 }
 const TX1 = TX0 + PW + RAIL * 2, TY1 = TY0 + PH + RAIL * 2; // table footprint
