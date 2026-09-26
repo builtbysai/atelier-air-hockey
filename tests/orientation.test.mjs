@@ -59,12 +59,12 @@ function rinkToScreen(t, x, y, portrait) {
   return { x: v.ox + v.s * y, y: v.oy + v.s * (t.VW - x) };
 }
 
-test('orientation setting defaults to landscape and validates', async () => {
+test('orientation setting defaults to auto and validates', async () => {
   const t = await loadGame();
   t.loadSettings();
   // no saved value -> tested via the Settings literal default in source
   const src = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  assert.match(src, /orientation: 'landscape'/, 'default must be landscape');
+  assert.match(src, /orientation: 'auto'/, 'default must follow the display automatically');
 });
 
 test('resize honors a forced portrait on a wide screen', async () => {
@@ -108,8 +108,9 @@ test('screenToRink inverts the render transform in both orientations', async () 
   }
 });
 
-test('settings UI offers the board orientation control', async () => {
+test('preferences UI offers automatic and explicit orientation controls', async () => {
   const template = await readFile(new URL('../src/template.html', import.meta.url), 'utf8');
+  assert.match(template, /data-set="orientation" data-val="auto"/, 'auto button missing');
   assert.match(template, /data-set="orientation" data-val="landscape"/, 'landscape button missing');
   assert.match(template, /data-set="orientation" data-val="portrait"/, 'portrait button missing');
   const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
@@ -162,4 +163,25 @@ test('a wide desktop screen can no longer undo a forced portrait', async () => {
   t.Settings.orientation = 'portrait';
   t.resize();
   assert.equal(t.view.portrait, true);
+});
+
+
+test('auto orientation follows viewport shape for top-down', async () => {
+  const t = await loadGame();
+  t.Settings.orientation = 'auto';
+  t.win.innerWidth = 390; t.win.innerHeight = 844;
+  t.resize();
+  assert.equal(t.view.portrait, true, 'auto should rotate top-down on a tall phone');
+  t.win.innerWidth = 1280; t.win.innerHeight = 800;
+  t.resize();
+  assert.equal(t.view.portrait, false, 'auto should remain landscape on a wide display');
+});
+
+test('2.5D camera presentation remains camera-driven while orientation is persisted', async () => {
+  const src = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  assert.match(src, /view\.portrait = view\.camera === 'top' && wantsPortrait/,
+    '2.5D should fit the physical viewport rather than applying the top-down rotation twice');
+  const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
+  assert.match(ui, /applyScreenOrientationPreference\(\)/,
+    'installed/fullscreen app should apply the persisted orientation preference');
 });
