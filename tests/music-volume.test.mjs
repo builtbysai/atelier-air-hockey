@@ -1,6 +1,6 @@
 // Music volume: the Settings.musicVolume slider (0-100, default 70) maps
 // onto AudioSys.musicBus so it scales both the generative score and ambience.
- // Per-room MusicSys levels remain independent of the user's bus volume.
+// Per-room MusicSys levels remain independent of the user's bus volume.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
