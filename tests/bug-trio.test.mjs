@@ -195,19 +195,12 @@ test('bug 3: opening the lobby from the menu pauses nothing', async () => {
   assert.equal(G.state, 'menu');
 });
 
-test('bug 2: rally chip lives in the left margin, clear of the scoreboard band', async () => {
+test('bug 2: rally and match-point feedback use one lane below the scoreboard', async () => {
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  // the old colliding slot must be gone
   assert.doesNotMatch(source, /fillText\('RALLY ×' \+ G\.stats\.rally, CX, 108\)/);
-  // the chip anchors at x=150 via the shared plaque renderer - every
-  // scoreboard device is centered ~CX±200 (CX=720, so devices span
-  // 520..920); assert the pill for a long rally label stays inside the
-  // margin with room to spare. drawPlaque sizes pw = tw + 34, centered on cx.
-  assert.match(source, /drawPlaque\([a-zA-Z_$][\\w$]*, 150, 71, 'RALLY ×' \+ G\.stats\.rally\)/);
-  const fakeMeasure = (label) => label.length * 8; // generous over-estimate
-  const label = 'RALLY ×' + 1234;
-  const pw = fakeMeasure(label) + 34;
-  const left = 150 - pw / 2, right = 150 + pw / 2;
-  assert.ok(left > 0, 'chip stays on-screen');
-  assert.ok(right < 520, `chip right edge ${right} stays clear of the scoreboard band (>= 520)`);
+  assert.doesNotMatch(source, /drawPlaque\([^\n]*150, 71/);
+  assert.match(source, /status = 'RALLY ' \+ G\.stats\.rally/);
+  assert.match(source, /drawPlaque\(c, CX, 136, status/);
+  assert.match(source, /if \(m0 \|\| m1\)[\s\S]*?else if \(\(G\.mode === 'ai' \|\| G\.mode === '2p'\)/,
+    'match point should take priority over the local rally status');
 });
