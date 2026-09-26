@@ -2494,7 +2494,6 @@ function startGame(mode, diff) {
   Replay.reset();
   G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
   clearCeremony();
-  Replay.reset();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
   G.scuffs.length = 0; G.texts.length = 0;
@@ -2877,6 +2876,7 @@ function quitToMenu() {
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
   clearCeremony();
+  Replay.reset();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
   pointers.clear();
