@@ -41,7 +41,7 @@
     <h1 class="lobby-title">The tables are waiting.</h1>
     <p class="tagline">Ten rooms. One puck. Neon after dark.</p>
 
-    <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 9</span><span id="tourCount" class="tourpill">TOUR 0/9</span></div>
+    <div class="seclabel">THE TABLE <span class="carcount" id="carCount">1 / 10</span><button id="tourCount" class="tourpill" type="button">TOUR 0/10</button></div>
     <div class="menugrid">
       <div class="mg-tables">
         <div class="carousel">
@@ -52,13 +52,20 @@
         <div class="cdots" id="carDots" aria-hidden="true"></div>
       </div>
       <div class="mg-rivals">
-        <div class="seclabel">THE RIVAL</div>
-        <div class="seg4">
-          <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small><span class="rec" data-rec="ai0"></span></button>
-          <button class="btn" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small><span class="rec" data-rec="ai1"></span></button>
-          <button class="btn" data-diff="2">Champion<small>NO MERCY</small><span class="rec" data-rec="ai2"></span></button>
+        <div class="seclabel">HOW TO PLAY</div>
+        <div class="seg4" id="playModes">
+          <button class="btn" id="btnHouse">Vs House<small>CHOOSE A RIVAL</small></button>
           <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small><span class="rec" data-rec="p2p"></span></button>
-          <button class="btn" id="btnWatch">AI vs AI<small>WATCH EXHIBITION</small></button>
+          <button class="btn" id="btnOnline">Online<small>PLAY A RIVAL ANYWHERE</small></button>
+          <button class="btn" id="btnWatch">Exhibition<small>AI VS AI</small></button>
+        </div>
+        <div id="houseSel">
+          <div class="seclabel">THE RIVAL</div>
+          <div class="seg3">
+            <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small><span class="rec" data-rec="ai0"></span></button>
+            <button class="btn" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small><span class="rec" data-rec="ai1"></span></button>
+            <button class="btn" data-diff="2">Champion<small>NO MERCY</small><span class="rec" data-rec="ai2"></span></button>
+          </div>
         </div>
         <div class="watchsel hidden" id="watchSel">
           <div class="seclabel">LEFT AI</div>
@@ -74,13 +81,17 @@
             <button class="btn" data-watch="2" data-side="b">Champion</button>
           </div>
         </div>
-        <button class="btn primary bigstart" id="btnStart">START MATCH<small id="startSub">CLUB PRO · FIRST TO 7</small></button>
-        <button class="btn lablight" id="btnOnline">Online<small>PLAY A RIVAL ANYWHERE</small></button>
+        <div class="seclabel">MATCH RULES</div>
+        <button class="rulebar" id="btnRules" type="button">
+          <span><strong id="ruleSummary">First to 7 · Classic · Standard</strong><small>SCORE · PUCK PACE · GOAL MOUTH</small></span>
+          <span class="ruleedit">Edit</span>
+        </button>
+        <button class="btn primary bigstart" id="btnStart"><span id="startLabel">START MATCH</span><small id="startSub">CLUB PRO · FIRST TO 7</small></button>
       </div>
     </div>
 
-    <div class="foot"><span id="footFirst">First to <b>7</b> takes the table</span> &middot; WASD / arrows to play &middot; P pause &middot; M mute all &middot; Enter start</div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Settings</button><button id="btnProgress">Progress</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><a href="https://builtbysai.com/" target="_blank" rel="noopener">Built by Sai</a><span class="ver">1.0.0</span></div>
+    <div class="foot"><span class="desktop-controls">WASD / arrows to play · P pause · M mute all · Enter start</span><span class="touch-controls">Drag to move your mallet · Tap pause for match controls</span></div>
+    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Preferences</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><a href="https://builtbysai.com/" target="_blank" rel="noopener">Built by Sai</a><span class="ver">1.0.0</span></div>
   </div>
 </div>
 
@@ -98,67 +109,20 @@
 <div class="overlay hidden" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
   <div class="card">
     <h1 id="helpTitle">How to play</h1>
-    <p><b>Move your mallet</b> with mouse, finger, <b>WASD</b>, or <b>arrow keys</b>; keyboard and gamepads work too. Flick it to <b>smash</b> the puck; ease it to deaden and control.</p>
+    <p class="desktop-controls"><b>Move your mallet</b> with mouse, <b>WASD</b>, arrow keys, or a gamepad. Flick it to <b>smash</b> the puck; ease it to deaden and control.</p>
+    <p class="touch-controls"><b>Drag your mallet</b> directly across your half of the table. Flick quickly to <b>smash</b> the puck; ease it to deaden and control.</p>
     <p>Your mallet can't cross the center line. First to <b id="helpFirst">7</b> goals wins the table.</p>
-    <p><b>Two players:</b> each takes an end. Use two touches, WASD + arrow keys, or two gamepads. Mouse/touch can still control either side directly.</p>
-    <p><b>Effects</b> scales the spectacle: particles, flashes, confetti, room glow, without touching the physics. Minimal also caps screen shake at Subtle.</p>
-    <p><b>Keys:</b> P pause &middot; M mute all &middot; Esc pause/resume. In two-player mode, use WASD and the arrow keys.</p>
+    <p><b>Two players:</b> each takes an end. On touch screens, use two touches. On desktop, use WASD + arrow keys or two gamepads.</p>
+    <p class="desktop-controls"><b>Keys:</b> P pause · M mute all · Esc pause/resume.</p>
     <p style="text-align:center"><button class="btn" id="helpClose" style="width:auto;padding:10px 34px;margin:14px auto 0;">Back</button></p>
   </div>
 </div>
 
-<div class="overlay hidden" id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+<div class="overlay hidden" id="rules" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
   <div class="card">
-    <div class="kicker">TABLE RULES</div>
-    <h1 id="settingsTitle">Settings</h1>
-    <p class="tagline">Tune the room to your liking. Saved on this device.</p>
-    <div class="seclabel">PRESENTATION</div>
-    <div class="setrow">
-      <div class="setlabel">Screen shake</div>
-      <div class="seg">
-        <button data-set="shake" data-val="off">Off</button>
-        <button data-set="shake" data-val="subtle">Subtle</button>
-        <button data-set="shake" data-val="full">Full</button>
-      </div>
-    </div>
-    <div class="setrow">
-      <div class="setlabel">Effects</div>
-      <div class="seg">
-        <button data-set="effects" data-val="full">Full</button>
-        <button data-set="effects" data-val="subtle">Subtle</button>
-        <button data-set="effects" data-val="minimal">Minimal</button>
-      </div>
-    </div>
-    <div class="seclabel">AUDIO</div>
-    <div class="setrow">
-      <div class="setlabel">Sound</div>
-      <div class="seg">
-        <button data-set="sound" data-val="true">On</button>
-        <button data-set="sound" data-val="false">Off</button>
-      </div>
-    </div>
-    <div class="setrow">
-      <div class="setlabel">Music</div>
-      <div class="seg">
-        <button data-set="music" data-val="true">On</button>
-        <button data-set="music" data-val="false">Off</button>
-      </div>
-    </div>
-    <div class="setrow">
-      <div class="setlabel">Music volume</div>
-      <div class="seg musvol">
-        <input type="range" id="musicVol" min="0" max="100" step="1" value="70" aria-label="Music volume">
-        <output id="musicVolVal" for="musicVol">70</output>
-      </div>
-    </div>
-    <div class="seclabel">GAMEPLAY</div>
-    <div class="setrow">
-      <div class="setlabel">Haptics</div>
-      <div class="seg">
-        <button data-set="haptics" data-val="true">On</button>
-        <button data-set="haptics" data-val="false">Off</button>
-      </div>
-    </div>
+    <div class="kicker">MATCH RULES</div>
+    <h1 id="rulesTitle">Set the table.</h1>
+    <p class="tagline">These rules apply to the next match.</p>
     <div class="setrow">
       <div class="setlabel">First to</div>
       <div class="seg">
@@ -183,21 +147,69 @@
         <button data-set="goalW" data-val="wide">Wide</button>
       </div>
     </div>
-    <div class="seclabel">VIEW</div>
+    <button class="btn primary" id="rulesClose" style="margin-top:16px">Done</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+  <div class="card">
+    <div class="kicker">ROOM PREFERENCES</div>
+    <h1 id="settingsTitle">Preferences</h1>
+    <p class="tagline">Tune the room to your liking. Saved on this device.</p>
+    <div class="seclabel">PRESENTATION</div>
     <div class="setrow">
-      <div class="setlabel">Board</div>
+      <div class="setlabel">Screen shake</div>
       <div class="seg">
-        <button data-set="orientation" data-val="landscape">Landscape</button>
-        <button data-set="orientation" data-val="portrait">Portrait</button>
+        <button data-set="shake" data-val="off">Off</button>
+        <button data-set="shake" data-val="subtle">Subtle</button>
+        <button data-set="shake" data-val="full">Full</button>
       </div>
     </div>
-    <div class="setnote hidden" id="boardNote">Board orientation applies to the top-down view only.</div>
+    <div class="setrow">
+      <div class="setlabel">Effects</div>
+      <div class="seg">
+        <button data-set="effects" data-val="full">Full</button>
+        <button data-set="effects" data-val="subtle">Subtle</button>
+        <button data-set="effects" data-val="minimal">Minimal</button>
+      </div>
+    </div>
+    <div class="seclabel">AUDIO</div>
+    <div class="setrow">
+      <div class="setlabel">Sound</div>
+      <div class="seg volrange">
+        <input type="range" id="soundVol" min="0" max="100" step="1" value="100" aria-label="Sound volume">
+        <output id="soundVolVal" for="soundVol">100</output>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Music</div>
+      <div class="seg volrange">
+        <input type="range" id="musicVol" min="0" max="100" step="1" value="70" aria-label="Music volume">
+        <output id="musicVolVal" for="musicVol">70</output>
+      </div>
+    </div>
+    <div class="seclabel">FEEDBACK</div>
+    <div class="setrow">
+      <div class="setlabel">Haptics</div>
+      <div class="seg">
+        <button data-set="haptics" data-val="true">On</button>
+        <button data-set="haptics" data-val="false">Off</button>
+      </div>
+    </div>
+    <div class="seclabel">VIEW</div>
     <div class="setrow">
       <div class="setlabel">Camera</div>
       <div class="seg">
         <button data-set="camera" data-val="top">Top-down</button>
         <button data-set="camera" data-val="elevated">Elevated</button>
         <button data-set="camera" data-val="surface">Surface</button>
+      </div>
+    </div>
+    <div class="setrow" id="boardRow">
+      <div class="setlabel">Board</div>
+      <div class="seg">
+        <button data-set="orientation" data-val="landscape">Landscape</button>
+        <button data-set="orientation" data-val="portrait">Portrait</button>
       </div>
     </div>
     <button class="btn primary" id="settingsClose" style="margin-top:16px">Done</button>
@@ -211,7 +223,7 @@
     <p class="tagline">The puck waits for no one. Except now.</p>
     <p class="notice warn hidden" id="pauseNotice" role="status">Connection lost. Waiting for your rival to rejoin.</p>
     <button class="btn primary" id="btnResume">Resume</button>
-    <button class="btn" id="btnPauseSettings">Settings</button>
+    <button class="btn" id="btnPauseSettings">Preferences</button>
     <button class="btn" id="btnRestart">Restart match</button>
     <button class="btn" id="btnQuit">Quit to menu</button>
   </div>
