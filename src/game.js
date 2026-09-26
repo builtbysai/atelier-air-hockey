@@ -39,7 +39,7 @@ const Settings = {
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
   effects: 'full',     // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics
   goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
-  orientation: 'landscape', // 'landscape' | 'portrait' - board presentation (v24.2)
+  orientation: 'auto', // 'auto' | 'landscape' | 'portrait' - persisted display preference
   camera: 'top', // 'top' | 'elevated' | 'surface' - 2.5D camera (v25)
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
@@ -57,7 +57,7 @@ function loadSettings() {
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
-  if (!['landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'landscape';
+  if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
   // Audio sliders replace the old on/off preferences. Migrate old saves once,
   // then keep the booleans as derived compatibility gates for existing audio paths.
@@ -1226,15 +1226,13 @@ function resize() {
   view.w = w; view.h = h;
   // 2.5D camera: the camera IS the presentation when active.
   view.camera = ['top', 'elevated', 'surface'].includes(Settings.camera) ? Settings.camera : 'top';
-  // Board orientation is a persisted setting and the single source of truth
-  // for the top-down view: 'portrait' forces the rotated presentation on any
-  // screen, 'landscape' (default) keeps the rink unrotated on any screen. No
-  // auto-override by screen shape - the toggle must do what it says on every
-  // device. In 2.5D the camera is the whole presentation, so the orientation
-  // toggle is parked (the settings UI disables it there) and the affine fit
-  // stays landscape - the game space itself stays landscape either way and
-  // physics and AI never see the rotation (screenToRink inverts it for input).
-  view.portrait = view.camera === 'top' && Settings.orientation === 'portrait';
+  // Auto follows the actual viewport shape. Explicit Portrait/Landscape
+  // choices override it and persist. 2.5D cameras fit directly to the physical
+  // viewport; ui.js also offers this preference to the Screen Orientation API
+  // when an installed/fullscreen app supports locking.
+  const wantsPortrait = Settings.orientation === 'portrait' ||
+    (Settings.orientation === 'auto' && h > w);
+  view.portrait = view.camera === 'top' && wantsPortrait;
   if (!view.portrait) {
     view.s = Math.min(w / VW, h / VH);
     view.ox = (w - VW * view.s) / 2; view.oy = (h - VH * view.s) / 2;
@@ -1260,6 +1258,15 @@ const CAM_PRESETS = {
   elevated: { c: [-650, CY, 720], look: [760, CY, 0] },
   surface: { c: [-60, CY, 170], look: [950, CY, 0] },
 };
+function cameraPresetForViewport(name, w, h) {
+  const base = CAM_PRESETS[name];
+  if (!base) return null;
+  // The original Surface camera is excellent on wide screens but compresses
+  // a portrait phone into a thin strip. Lift it only on tall displays.
+  if (name === 'surface' && h > w * 1.15)
+    return { c: [-80, CY, 280], look: [920, CY, 0] };
+  return base;
+}
 const TX1 = TX0 + PW + RAIL * 2, TY1 = TY0 + PH + RAIL * 2; // table footprint
 function v3sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 function v3cross(a, b) {
@@ -1272,7 +1279,7 @@ function v3norm(a) {
 // Build a fitted camera. flip mirrors it behind the other end so the online
 // guest plays from their own side, exactly like the top-down mirror.
 function makeCamera(presetName, w, h, flip) {
-  const pr = CAM_PRESETS[presetName];
+  const pr = cameraPresetForViewport(presetName, w, h);
   if (!pr || !w || !h) return null;
   const mx = flip ? VW : 0, ms = flip ? -1 : 1;
   const C = [mx + ms * pr.c[0], pr.c[1], pr.c[2]];
@@ -1280,7 +1287,8 @@ function makeCamera(presetName, w, h, flip) {
   const fwd = v3norm(v3sub(L, C));
   const right = v3norm(v3cross(fwd, [0, 0, 1]));
   const up = v3cross(right, fwd);
-  // project with f=1, fit the footprint (+ mallet-handle clearance) to the viewport
+  // Fit everything that can visibly extend beyond the surface: table body,
+  // goal pockets and the compact striker grip.
   const p1 = (x, y, z) => {
     const dx = x - C[0], dy = y - C[1], dz = z - C[2];
     const Xc = dx * right[0] + dy * right[1] + dz * right[2];
@@ -1288,16 +1296,19 @@ function makeCamera(presetName, w, h, flip) {
     const Zc = dx * fwd[0] + dy * fwd[1] + dz * fwd[2];
     return [Xc / Zc, Yc / Zc];
   };
-  const pts = [[TX0, TY0, 0], [TX1, TY0, 0], [TX0, TY1, 0], [TX1, TY1, 0], [CX, CY, 130]]
-    .map(([x, y, z]) => p1(x, y, z));
+  const pad = presetName === 'surface' ? 62 : 48;
+  const xL = TX0 - pad, xR = TX1 + pad, yT = TY0 - pad, yB = TY1 + pad;
+  const pts = [
+    [xL, yT, 0], [xR, yT, 0], [xL, yB, 0], [xR, yB, 0],
+    [xL, yT, -50], [xL, yB, -50], [CX, CY, 64]
+  ].map(([x, y, z]) => p1(x, y, z));
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   for (const [px, py] of pts) {
     if (px < x0) x0 = px; if (px > x1) x1 = px;
     if (py < y0) y0 = py; if (py > y1) y1 = py;
   }
-  // The scoreboard, chips and hint bar live in unwarped screen space, so the
-  // footprint is fitted into the clear band below them, not the raw viewport.
-  const bL = 0.03 * w, bT = 0.175 * h, bR = 0.97 * w, bB = 0.955 * h;
+  const bL = 0.025 * w, bT = (h > w ? 0.14 : 0.16) * h;
+  const bR = 0.975 * w, bB = 0.965 * h;
   const f = Math.min((bR - bL) / (x1 - x0), (bB - bT) / (y1 - y0));
   return { C, fwd, right, up, f, cx: (bL + bR) / 2 - f * (x0 + x1) / 2, cy: (bT + bB) / 2 + f * (y0 + y1) / 2 };
 }
