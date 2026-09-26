@@ -29,10 +29,11 @@ const TAU = Math.PI * 2;
 // ---------- user settings (persisted) ----------
 const Settings = {
   shake: 'full',      // 'off' | 'subtle' | 'full'
-  sound: true,
-  masterMuted: false, // HUD audio icon: mutes BOTH buses at once; Settings keeps separate Sound/Music toggles
-  music: true,        // generative per-table music (MusicSys) - separate from SFX
-  musicVolume: 70,    // 0-100 - music bus level; 70 is the calibrated unity point
+  sound: true,        // compatibility gate, derived from soundVolume
+  soundVolume: 100,   // 0-100 - 0 is muted, 100 preserves today's calibrated SFX level
+  masterMuted: false, // HUD audio icon: mutes BOTH buses without changing either saved volume
+  music: true,        // compatibility gate, derived from musicVolume
+  musicVolume: 70,    // 0-100 - whole music/ambience bus; 70 is the calibrated unity point
   haptics: true,
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
@@ -57,9 +58,16 @@ function loadSettings() {
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'landscape';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
-  // music volume: persisted 0-100, 70 = unity. Clamp strays, fall back on garbage.
+  // Audio sliders replace the old on/off preferences. Migrate old saves once,
+  // then keep the booleans as derived compatibility gates for existing audio paths.
+  if (!Object.prototype.hasOwnProperty.call(s, 'soundVolume')) Settings.soundVolume = s.sound === false ? 0 : 100;
+  if (!Number.isFinite(Settings.soundVolume)) Settings.soundVolume = 100;
+  else Settings.soundVolume = clamp(Math.round(Settings.soundVolume), 0, 100);
   if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
   else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
+  if (!Object.prototype.hasOwnProperty.call(s, 'musicVolume') && s.music === false) Settings.musicVolume = 0;
+  Settings.sound = Settings.soundVolume > 0;
+  Settings.music = Settings.musicVolume > 0;
 }
 // Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -250,11 +258,9 @@ const AudioSys = {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
-      // Three gain stages: sfxBus (the Sound toggle), musicBus (the Music
-      // toggle), and masterBus (the HUD icon) in front of both. Sound off
-      // never silences music, Music off never silences SFX, and the HUD
-      // icon's master mute silences everything at once without disturbing
-      // either toggle's own setting underneath.
+      // Three gain stages: sfxBus (Sound volume), musicBus (Music volume,
+      // including room ambience), and masterBus (the HUD mute) in front of both.
+      // The sliders keep their values when the HUD master mute is toggled.
       this.sfxBus = this.ctx.createGain();
       this.musicBus = this.ctx.createGain();
       this.masterBus = this.ctx.createGain();
@@ -277,7 +283,7 @@ const AudioSys = {
   // (browser policy) instead of throwing an unhandled rejection.
   suspend() { try { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
   resume() { try { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
-  toggle() { this.muted = !this.muted; if (this.sfxBus) this.sfxBus.gain.value = this.muted ? 0 : 0.5; return this.muted; },
+  toggle() { this.muted = !this.muted; this.syncMute(); return this.muted; },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
   // pitchMul climbs ~3% per rally hit so long rallies audibly tighten.
   hit(power, pitchMul = 1) {
@@ -430,8 +436,16 @@ const AudioSys = {
     this.ambKey = id;
     if (this.ctx && (!this.amb || this.amb.key !== id)) this._startAmbience();
   },
-  syncMute() { if (this.sfxBus) this.sfxBus.gain.value = this.muted ? 0 : 0.5; }, // SFX/UI only - the music bus is untouched
-  syncMusic() { if (this.musicBus) this.musicBus.gain.value = Settings.music ? 1 : 0; }, // hard gate: Music off silences the whole music bus, never SFX
+  syncMute() {
+    if (!this.sfxBus) return;
+    const v = clamp(Settings.soundVolume, 0, 100) / 100;
+    this.sfxBus.gain.value = (this.muted || v <= 0) ? 0 : 0.5 * Math.pow(v, 1.5);
+  }, // SFX/UI only - 100 preserves the previous calibrated 0.5 gain
+  syncMusic() {
+    if (!this.musicBus) return;
+    const v = clamp(Settings.musicVolume, 0, 100) / 70;
+    this.musicBus.gain.value = (!Settings.music || v <= 0) ? 0 : Math.min(2, Math.pow(v, 1.5));
+  }, // whole music + ambience bus; 70 is unity
   syncMaster() { if (this.masterBus) this.masterBus.gain.value = Settings.masterMuted ? 0 : 1; }, // HUD icon: both buses at once, toggles underneath untouched
   setMasterMuted(m) { Settings.masterMuted = !!m; try { saveSettings(); } catch (e) {} this.syncMaster(); return Settings.masterMuted; },
   _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
@@ -746,20 +760,10 @@ const MusicSys = {
   mf(m) { return 440 * Math.pow(2, (m - 69) / 12); }, // midi -> hz
   cfg() { return MUSIC[this.key] || MUSIC.deco; },
   ac() { return AudioSys.ctx; },
-  // --- user volume (Settings.musicVolume 0-100, default 70) ---
-  // Perceptual-ish curve with unity at the 70 default: 100 gives a +4.6 dB
-  // lift, 0 is fully silent. Applied as a multiplier on the per-room bus
-  // target, so it composes with table levels, the goal duck, and intensity.
-  volGain() {
-    const v = clamp(Settings.musicVolume, 0, 100) / 70;
-    return v <= 0 ? 0 : Math.min(2, Math.pow(v, 1.5));
-  },
-  targetLevel() { return this.cfg().level * this.volGain() * (this.intensity ? 1.3 : 1); },
-  applyVolume() { // slider path: re-aim the live bus, no restart needed
-    const n = this.nodes, ac = this.ac();
-    if (!n || !ac) return;
-    n.musicG.gain.setTargetAtTime(Math.max(0.0001, this.targetLevel()), ac.currentTime, 0.15);
-  },
+  // User music volume lives on AudioSys.musicBus so it scales both the
+  // generative score and room ambience together. Per-room dynamics stay here.
+  targetLevel() { return this.cfg().level * (this.intensity ? 1.3 : 1); },
+  applyVolume() { AudioSys.syncMusic(); },
   // --- lifecycle ---
   prime() { // first-user-gesture path, via AudioSys.init()
     if (!Settings.music || !this.ac()) return;
