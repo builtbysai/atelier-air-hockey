@@ -35,11 +35,12 @@ this.__replay = { replayAngle, replayLerp, replayMix, REPLAY_HZ, REPLAY_MAX };`,
   return context.__replay;
 }
 
-test('instant replay preference defaults to Goals and is persisted with Settings', () => {
+test('goal replay preference defaults to offer and is persisted with Settings', () => {
   assert.match(game, /instantReplay: 'goals'/);
   assert.match(game, /\['goals', 'off'\]\.includes\(Settings\.instantReplay\)/);
+  assert.match(template, />Goal replay<\/div>/);
   assert.match(template, /data-set="instantReplay" data-val="off">Off<\/button>/);
-  assert.match(template, /data-set="instantReplay" data-val="goals">Goals<\/button>/);
+  assert.match(template, /data-set="instantReplay" data-val="goals">Offer<\/button>/);
 });
 
 test('replay buffer is five seconds at 30 Hz', async () => {
@@ -106,4 +107,28 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
   assert.match(ui, /replaySkip'\)\.addEventListener\('click', \(\) => Replay\.finish\(\)\)/);
   assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(\)/);
   assert.doesNotMatch(game, /drawPlaque\(ctx, CX, 128, 'REPLAY'\)/);
+});
+
+
+test('a goal celebrates first and replay is only prepared, never auto-started', () => {
+  assert.match(game, /Replay\.prepare\(scorer\);\s*beginGoalCeremony\(scorer\);/);
+  assert.doesNotMatch(game, /Replay\.start\(scorer\)/);
+  assert.match(game, /G\.goalT >= 1\.05\) Replay\.showOffer\(\)/);
+  assert.match(game, /Replay\.requested && G\.goalT >= 1\.45/);
+});
+
+test('replay offer does not delay the next serve when ignored', () => {
+  assert.match(template, /id="replayOffer"/);
+  assert.match(ui, /replayOffer'\)\.addEventListener\('click', \(\) => Replay\.request\(\)\)/);
+  assert.match(game, /advanceAfterGoal\(G\.goalSide, !winningGoal && Replay\.prepared\)/);
+  assert.match(game, /Replay\.keepOfferDuringCount\(1\.0\)/);
+  assert.match(game, /tickOffer\(dt\)/);
+});
+
+test('finishing a chosen replay resumes the match flow instead of replaying the celebration', () => {
+  const start = game.indexOf('finish() {', game.indexOf('const Replay = {'));
+  const end = game.indexOf('applyFrame()', start);
+  const finish = game.slice(start, end);
+  assert.match(finish, /advanceAfterGoal\(scorer, false\)/);
+  assert.doesNotMatch(finish, /beginGoalCeremony/);
 });
