@@ -1159,6 +1159,7 @@ const G = {
   onlineFlip: false,        // ONLINE: guest view is mirrored - they play from their own side
   hintLive: false,          // first-time hint currently showing on the table
   rallyHudT: 0, rallyHudN: 0, // brief 5/10/15... hit-rally callout, never persistent clutter
+  goalStreakLabel: '',       // compact screen-space goal streak sub-line
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
@@ -2466,6 +2467,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
 // restart, or win can never leave GOAL! / slow-mo stuck on screen.
 function clearCeremony() {
   G.letterT = 0; G.flashA = 0; G.goalT = 0; G.goalSlowT = 0;
+  G.goalStreakLabel = '';
   G.timeScale = 1;
 }
 // ---------- game flow ----------
@@ -2623,15 +2625,15 @@ function confettiColors() {
 // streak state isn't in the snapshot), gated on fxFlash() like the rest of
 // the ceremony juice.
 function announceStreak(scorer) {
+  G.goalStreakLabel = '';
   if (G.mode === 'online' || G.demo) return;
   const st = G.stats;
   if (!st || !goalIsYours(scorer) || !fxFlash()) return;
   const n = st.streak[scorer];
   if (n < 2) return;
-  const label = n === 2 ? 'TWO IN A ROW'
-    : n === 3 ? 'HAT-TRICK!'
-    : n + ' IN A ROW: UNSTOPPABLE!';
-  addText(CX, CY - 200, label, THEME.gold || '#d8a93f', 56);
+  G.goalStreakLabel = n === 2 ? 'TWO IN A ROW'
+    : n === 3 ? 'HAT TRICK'
+    : n + ' IN A ROW';
 }
 function beginGoalCeremony(scorer) {
   boardKick(scorer);
@@ -2657,8 +2659,7 @@ function beginGoalCeremony(scorer) {
     for (let c = 0; c < 3; c++) burst(gx, CY, Math.max(1, Math.round(n / 3)), cols[c % cols.length], 380 + c * 160, 4 + c);
   }
   addTrauma(0.85);
-  addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
-  announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW - UNSTOPPABLE!
+  announceStreak(scorer); // one compact sub-line under GOAL!, never another world-space popup
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   buzz([25, 40, 40]);
@@ -3373,6 +3374,15 @@ function drawGoalTextScreen(c, w, h) {
   c.strokeText('GOAL!', 0, 0);
   c.fillStyle = THEME.gold || '#d8a93f';
   c.fillText('GOAL!', 0, 0);
+  if (G.goalStreakLabel) {
+    c.shadowBlur = 0;
+    c.lineWidth = Math.max(2, fs * 0.035);
+    c.font = '700 ' + Math.max(12, fs * 0.22).toFixed(1) + 'px ' + THEME.font.body;
+    c.strokeStyle = 'rgba(0,0,0,0.58)';
+    c.strokeText(G.goalStreakLabel, 0, fs * 0.72);
+    c.fillStyle = THEME.title || THEME.ink || '#f0ead8';
+    c.fillText(G.goalStreakLabel, 0, fs * 0.72);
+  }
   c.restore();
 }
 
