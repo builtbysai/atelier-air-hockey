@@ -44,6 +44,17 @@
      Shown once on the first local match, dismissed forever after the
      first goal. Non-animated under prefers-reduced-motion. The body is
      dark by design so the type reads on the lightest rooms. */
+  .replay-skip{
+    position:fixed; left:50%; bottom:18px; bottom:calc(18px + env(safe-area-inset-bottom));
+    transform:translateX(-50%); z-index:31;
+    border:1px solid var(--pline); border-radius:999px;
+    background:rgba(12,9,6,0.78); color:var(--title);
+    padding:8px 16px; font-family:var(--body); font-size:12px;
+    letter-spacing:.8px; cursor:pointer;
+    backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  }
+  .replay-skip:active{ transform:translateX(-50%) scale(.96); }
+
   #hint{
     position:fixed; left:50%; bottom:18px; bottom:calc(18px + env(safe-area-inset-bottom));
     transform:translateX(-50%); z-index:25; pointer-events:none;
