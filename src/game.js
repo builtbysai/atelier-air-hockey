@@ -2409,6 +2409,10 @@ function onMalletHit(x, y, impact, nx, ny) {
     G.stats.rally++;
     if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
     rallyN = G.stats.rally;
+    if (G.mode !== 'online' && rallyN >= 5 && rallyN % 5 === 0) {
+      G.rallyHudN = rallyN;
+      G.rallyHudT = 0.9;
+    }
   }
   const v = clamp(impact / 2200, 0, 1);
   const tier = hitTier(impact);
@@ -2490,6 +2494,7 @@ function startGame(mode, diff) {
   Replay.reset();
   G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
   clearCeremony();
+  Replay.reset();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
   G.scuffs.length = 0; G.texts.length = 0;
@@ -2630,20 +2635,21 @@ function confettiColors() {
 // streak state isn't in the snapshot), gated on fxFlash() like the rest of
 // the ceremony juice.
 function announceStreak(scorer) {
+  G.goalStreakLabel = '';
   if (G.mode === 'online' || G.demo) return;
   const st = G.stats;
   if (!st || !goalIsYours(scorer) || !fxFlash()) return;
   const n = st.streak[scorer];
   if (n < 2) return;
-  const label = n === 2 ? 'TWO IN A ROW'
-    : n === 3 ? 'HAT-TRICK!'
-    : n + ' IN A ROW: UNSTOPPABLE!';
-  addText(CX, CY - 200, label, THEME.gold || '#d8a93f', 56);
+  G.goalStreakLabel = n === 2 ? 'TWO IN A ROW'
+    : n === 3 ? 'HAT TRICK'
+    : n + ' IN A ROW';
 }
 function beginGoalCeremony(scorer) {
   boardKick(scorer);
   G.goalSide = scorer;
   if (G.stats) G.stats.rally = 0; // new rally after each goal
+  G.rallyHudT = 0; G.rallyHudN = 0;
   G.state = 'goal';
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
   G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
@@ -2662,8 +2668,9 @@ function beginGoalCeremony(scorer) {
     for (let c = 0; c < 3; c++) burst(gx, CY, Math.max(1, Math.round(n / 3)), cols[c % cols.length], 380 + c * 160, 4 + c);
   }
   addTrauma(0.85);
-  addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
-  announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW - UNSTOPPABLE!
+  // The themed scoreboard already confirms +1. Keep the celebration focused:
+  // GOAL! plus, when earned, one concise streak sub-line.
+  announceStreak(scorer);
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   buzz([25, 40, 40]);
@@ -2682,14 +2689,20 @@ function updateGoal(rdt) {
   p.vx *= 0.9; p.vy *= 0.9;
 
   const winningGoal = G.score[G.goalSide] >= Settings.firstTo;
-  // Replay is an optional reward after the player has already received the
-  // important feedback: goal flash, score update, sound, and GOAL! moment.
-  // It appears late in the ceremony and never delays the next serve if ignored.
-  if (!winningGoal && G.goalT > 0.9 && Replay.hasPending()) Replay.showOffer();
-  if (G.goalT > (winningGoal ? 2.86 : 2.2)) advanceAfterGoal();
+  // Replay is an optional reward after the goal has already landed. A choice
+  // made during celebration waits for the emotional beat; ignoring it never
+  // delays the next serve.
+  if (!winningGoal && G.goalT >= 1.05 && Replay.hasPending()) Replay.showOffer();
+  if (!winningGoal && Replay.requested && G.goalT >= 1.45) {
+    clearCeremony();
+    Replay.startPending('goal');
+    return;
+  }
+  if (G.goalT > (winningGoal ? 2.70 : 1.95)) advanceAfterGoal();
 }
 function advanceAfterGoal() {
   const winningGoal = G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo;
+  const keepOffer = !winningGoal && Replay.hasPending();
   clearCeremony();
   Replay.hideOffer();
   if (winningGoal) {
@@ -2698,11 +2711,12 @@ function advanceAfterGoal() {
     showWin();
     return;
   }
-  Replay.discardPending();
   resetPositions();
   rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
-  $('topbar').classList.remove('hidden');
   startCount();
+  $('topbar').classList.remove('hidden');
+  if (keepOffer) Replay.keepOfferDuringCount(1.0);
+  else Replay.discardPending();
   // ONLINE: the host's countdown mirrors to the guest so both start even
   if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
@@ -2875,8 +2889,11 @@ function quitToMenu() {
   AudioSys.ui();
 }
 function hideAll() {
-  // ONLINE: online overlays are part of the overlay stack too
+  // ONLINE: online overlays are part of the overlay stack too. Gameplay chrome
+  // is hidden centrally so Pause/Audio can never float over a dialog.
   for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer']) $(id).classList.add('hidden');
+  $('topbar').classList.add('hidden');
+  const replayHud = $('replayHud'); if (replayHud) replayHud.classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
@@ -2942,6 +2959,8 @@ function frame(t) {
   G.saveT = Math.max(0, G.saveT - rdt);
   G.nearCd = Math.max(0, G.nearCd - rdt);
   G.dipT = Math.max(0, G.dipT - rdt);
+  G.rallyHudT = Math.max(0, G.rallyHudT - rdt);
+  Replay.tickOffer(rdt);
   if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
   if (G.rattle) { G.rattle.t -= rdt; if (G.rattle.t <= 0) G.rattle = null; }
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
