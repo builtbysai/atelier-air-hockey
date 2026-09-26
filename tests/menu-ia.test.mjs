@@ -96,3 +96,16 @@ test('match rules summary exposes three scannable values', () => {
   assert.match(css, /rule-summary-grid/);
   assert.match(css, /rule-setting-head/);
 });
+
+
+test('match rules summary is centered and does not show redundant Edit text', () => {
+  const block = template.match(/<button class="rulebar"[\s\S]*?<\/button>/)?.[0] || '';
+  assert.doesNotMatch(block, />Edit</);
+  assert.match(css, /\.rule-summary-grid > span\{[^}]*text-align:center/);
+});
+
+test('Pause and Audio controls are gameplay-only, never overlay controls', () => {
+  assert.match(game, /function hideAll\(\)[\s\S]*?\$\('topbar'\)\.classList\.add\('hidden'\)/);
+  assert.match(game, /startGame\([\s\S]*?\$\('topbar'\)\.classList\.remove\('hidden'\)/);
+  assert.match(game, /G\.state === 'pause'[\s\S]*?\$\('topbar'\)\.classList\.remove\('hidden'\)/);
+});
