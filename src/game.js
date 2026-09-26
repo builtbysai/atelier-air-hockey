@@ -3113,69 +3113,96 @@ function renderTop(w, h) {
   renderTail(w, h);
 }
 
-// Screen-space tail shared by every camera: letterbox GOAL ceremony,
-// scoreboard, rally and match-point chips, vignette, menu dim.
-function renderTail(w, h) {
-  // letterbox + GOAL! - the reserved channel (stable screen space, above the zoom).
-  // Under reduced motion the banner arrives without the spring (bars fade in
-  // instead of sliding, GOAL! appears at rest size).
-  if (G.letterT > 0) {
-    const be = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT, 0, 1));
-    const bh = 120 * be;
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.88)';
-    ctx.fillRect(0, 0, VW, bh); ctx.fillRect(0, VH - bh, VW, bh);
-    ctx.globalAlpha = clamp((G.letterT - 0.25) * 2.4, 0, 1);
-    const zp = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.2) * 1.6, 0, 1));
-    ctx.translate(CX, CY); ctx.scale(zp, zp);
-    ctx.font = '800 92px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.gold || '#d8a93f';
-    ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 30;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = '6px';
-    ctx.fillText('GOAL!', 3, -6); // screen space - never flipped (+3 recenters the tracked type)
-    ctx.restore();
-  }
+// Shared top-down HUD. The goal ceremony deliberately leaves the table
+// visible instead of covering it with opaque black letterbox bars.
+function drawHudCore(c) {
+  drawScoreboard(c);
 
-  drawScoreboard(ctx);
+  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4)
+    drawPlaque(c, 150, 71, 'RALLY ×' + G.stats.rally);
 
-  // rally counter: consecutive hits without a goal - shown once it matters.
-  // It lives in the top-left margin as its own pill chip, OUTSIDE the
-  // scoreboard band: every scoreboard device is centered (~CX±200) and draws
-  // labels/plates at its own y, so the old centered slot collided with them
-  // (seen on reels/deco once rally >= 4). The margin slot can never collide
-  // on any theme, device, orientation, or rally count - the pill sizes
-  // itself to the text. Rendered through the shared plaque language so the
-  // room speaks with one visual voice.
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4) {
-    drawPlaque(ctx, 150, 71, 'RALLY ×' + G.stats.rally);
-  }
-
-  // match-point ribbon - theme-agnostic plaque under the scoreboard. It
-  // cannot collide with the rally chip (the chip lives in the left margin).
-  // Labels via sideLabel so exhibition names both AIs instead of "YOU".
   if ((G.state === 'play' || G.state === 'count') && !G.demo) {
     const t = Settings.firstTo;
     const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
     if (m0 || m1) {
       const who = (m0 && m1) ? 'NEXT GOAL WINS'
         : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ': MATCH POINT')
-        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT') // ONLINE
-        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT'); // ai + watch (exhibition names the AI)
-      drawPlaque(ctx, CX, 78, who);
+        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT')
+        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT');
+      drawPlaque(c, CX, 78, who);
     }
   }
+}
 
-  // vignette
+function drawGoalTextVirtual(c) {
+  if (G.letterT <= 0) return;
+  c.save();
+  c.globalAlpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
+  const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
+  c.translate(CX, CY); c.scale(pop, pop);
+  c.font = '800 92px ' + THEME.font.display;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.lineWidth = 8;
+  c.strokeStyle = 'rgba(0,0,0,0.52)';
+  c.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); c.shadowBlur = 32;
+  if ('letterSpacing' in c) c.letterSpacing = '6px';
+  c.strokeText('GOAL!', 3, -6);
+  c.fillStyle = THEME.gold || '#d8a93f';
+  c.fillText('GOAL!', 3, -6);
+  c.restore();
+}
+
+function renderTail(w, h) {
+  drawGoalTextVirtual(ctx);
+  drawHudCore(ctx);
+
   const vg = ctx.createRadialGradient(CX, CY, VH * 0.42, CX, CY, VH * 0.95);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
   vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
 
-  // dim the attract game behind the menu
   if (G.state === 'menu') {
     ctx.fillStyle = 'rgba(0,0,0,0.38)';
     ctx.fillRect(0, 0, VW, VH);
+  }
+}
+
+function renderTail25(w, h) {
+  // The 2.5D scene is already in CSS-pixel screen space. Rendering its HUD
+  // through the top-down rink scale made text tiny and misplaced on phones.
+  if (G.letterT > 0) {
+    const alpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
+    const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
+    const fs = clamp(Math.min(w * 0.16, h * 0.11), 44, 92);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(w * 0.5, h * 0.46); ctx.scale(pop, pop);
+    ctx.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = Math.max(4, fs * 0.08);
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); ctx.shadowBlur = 28;
+    ctx.strokeText('GOAL!', 0, 0);
+    ctx.fillStyle = THEME.gold || '#d8a93f';
+    ctx.fillText('GOAL!', 0, 0);
+    ctx.restore();
+  }
+
+  const hs = Math.min(1, Math.max(0.36, Math.min(w / 900, h / 620)));
+  ctx.save();
+  ctx.translate(w * 0.5 - CX * hs, Math.max(6, h * 0.012));
+  ctx.scale(hs, hs);
+  drawHudCore(ctx);
+  ctx.restore();
+
+  const vg = ctx.createRadialGradient(w * 0.5, h * 0.52, h * 0.28, w * 0.5, h * 0.52, h * 0.82);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
+
+  if (G.state === 'menu') {
+    ctx.fillStyle = 'rgba(0,0,0,0.38)';
+    ctx.fillRect(0, 0, w, h);
   }
 }
 
@@ -3203,14 +3230,7 @@ function render25(w, h) {
   drawTexts25(cam);
   drawCountdown25(cam);
   ctx.restore();
-  // Screen-space tail uses virtual 1440x900 coordinates (CX=720 etc).
-  // renderTop leaves the view scale active for it; the 2.5D path restored
-  // to baseline, which drew the scoreboard/GOAL! off-screen on narrow
-  // viewports (mobile). Apply the view mapping first.
-  ctx.save();
-  ctx.translate(view.ox, view.oy); ctx.scale(view.s, view.s);
-  renderTail(w, h);
-  ctx.restore();
+  renderTail25(w, h);
 }
 
 // The table gets a real body: near and side faces extruded below the surface
