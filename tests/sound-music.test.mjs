@@ -1,6 +1,6 @@
-// Sound vs music independence: Sound off must never silence music and
-// Music off must never silence SFX. Two buses - sfxBus (Sound) and
-// musicBus (Music) - with the ambience bed riding the music bus.
+// Sound vs music independence under slider-only preferences. Sound volume
+// controls sfxBus, Music volume controls musicBus (including ambience), and
+// the HUD master mute gates both without destroying either saved value.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -97,26 +97,28 @@ async function loadGame(storageSeed) {
 
 // the lines applySettingsToUI runs for audio on every settings change
 function applyAudio(t) {
-  t.AudioSys.muted = !t.Settings.sound;
+  t.AudioSys.muted = t.Settings.soundVolume <= 0;
   t.AudioSys.syncMute();
   t.AudioSys.syncMusic();
   t.AudioSys.syncMaster();
 }
 
-test('sound off silences SFX but leaves the music bus at full', async () => {
-  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: false, music: true }) });
+test('sound volume 0 silences SFX but leaves the music bus at unity', async () => {
+  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: false, music: true, musicVolume: 70 }) });
   t.loadSettings();
   applyAudio(t);
+  assert.equal(t.Settings.soundVolume, 0, 'legacy Sound Off migrates to slider 0');
   assert.equal(t.AudioSys.sfxBus.gain.value, 0, 'sfx bus must be muted');
-  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music bus must stay live when sound is off');
+  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music bus must stay live at the 70 unity point');
 });
 
-test('music off silences the music bus but leaves SFX at full', async () => {
-  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: true, music: false }) });
+test('music volume 0 silences music but leaves SFX at full', async () => {
+  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: true, music: false, musicVolume: 70 }) });
   t.loadSettings();
   applyAudio(t);
-  assert.equal(t.AudioSys.sfxBus.gain.value, 0.5, 'sfx bus must stay live when music is off');
-  assert.equal(t.AudioSys.musicBus.gain.value, 0, 'music bus must be gated by the music toggle');
+  assert.equal(t.Settings.musicVolume, 0, 'legacy Music Off migrates to slider 0');
+  assert.equal(t.AudioSys.sfxBus.gain.value, 0.5, 'sfx bus must stay live at Sound 100');
+  assert.equal(t.AudioSys.musicBus.gain.value, 0, 'music bus must be muted at slider 0');
 });
 
 test('muted SFX voices stay silent while the music scheduler keeps targeting levels', async () => {
@@ -151,46 +153,51 @@ test('music duck bus and ambience bed ride the music bus, never sfx', async () =
   assert.ok(!bedLinks.includes('sfxBus'), 'ambience bed must never ride the sfx bus');
 });
 
-test('both toggles persist independently', async () => {
+test('both volume sliders persist independently', async () => {
   const { t, storage } = await loadGame();
   t.loadSettings();
-  t.Settings.sound = false; t.Settings.music = true;
+  t.Settings.soundVolume = 25;
+  t.Settings.musicVolume = 80;
+  t.Settings.sound = true;
+  t.Settings.music = true;
   t.saveSettings();
   const { t: t2 } = await loadGame({ 'atelier-ah-settings': storage._dump()['atelier-ah-settings'] });
   t2.loadSettings();
-  assert.equal(t2.Settings.sound, false, 'sound off persists');
-  assert.equal(t2.Settings.music, true, 'music on persists alongside it');
+  assert.equal(t2.Settings.soundVolume, 25, 'sound volume persists');
+  assert.equal(t2.Settings.musicVolume, 80, 'music volume persists independently');
 });
 
 test('HUD master mute silences both buses at once', async () => {
-  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: true, music: true, masterMuted: true }) });
+  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ soundVolume: 40, musicVolume: 70, masterMuted: true }) });
   t.loadSettings();
   applyAudio(t);
   assert.equal(t.AudioSys.masterBus.gain.value, 0, 'master bus must be muted');
-  assert.equal(t.AudioSys.sfxBus.gain.value, 0.5, 'sfx bus keeps its own setting underneath');
-  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music bus keeps its own setting underneath');
+  assert.ok(t.AudioSys.sfxBus.gain.value > 0, 'sfx bus keeps its own volume underneath');
+  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music bus keeps its own volume underneath');
 });
 
 test('unmuting the master restores each bus to its own setting', async () => {
-  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ sound: false, music: true, masterMuted: true }) });
+  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ soundVolume: 0, musicVolume: 70, masterMuted: true }) });
   t.loadSettings();
   applyAudio(t);
   assert.equal(t.AudioSys.masterBus.gain.value, 0, 'master starts muted');
   t.AudioSys.setMasterMuted(false);
   assert.equal(t.AudioSys.masterBus.gain.value, 1, 'master bus reopens');
-  assert.equal(t.AudioSys.sfxBus.gain.value, 0, 'sfx stays off - its own toggle was off');
-  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music stays on - its own toggle was on');
+  assert.equal(t.AudioSys.sfxBus.gain.value, 0, 'sound volume stays at 0');
+  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music volume stays at its unity setting');
 });
 
-test('master mute never flips the settings toggles', async () => {
+test('master mute never changes saved slider values', async () => {
   const { t, storage } = await loadGame();
   t.loadSettings();
-  t.Settings.sound = true; t.Settings.music = true;
+  t.Settings.soundVolume = 45;
+  t.Settings.musicVolume = 82;
   t.AudioSys.setMasterMuted(true);
-  assert.equal(t.Settings.sound, true, 'sound toggle untouched by master mute');
-  assert.equal(t.Settings.music, true, 'music toggle untouched by master mute');
+  assert.equal(t.Settings.soundVolume, 45, 'sound slider untouched by master mute');
+  assert.equal(t.Settings.musicVolume, 82, 'music slider untouched by master mute');
   const saved = JSON.parse(storage._dump()['atelier-ah-settings']);
   assert.equal(saved.masterMuted, true, 'master mute persists');
-  assert.equal(saved.sound, true, 'sound persists alongside it');
-  assert.equal(saved.music, true, 'music persists alongside it');
+  assert.equal(saved.soundVolume, 45, 'sound slider persists alongside it');
+  assert.equal(saved.musicVolume, 82, 'music slider persists alongside it');
 });
+
