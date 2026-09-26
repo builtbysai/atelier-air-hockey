@@ -195,12 +195,14 @@ test('bug 3: opening the lobby from the menu pauses nothing', async () => {
   assert.equal(G.state, 'menu');
 });
 
-test('bug 2: rally and match-point feedback use one lane below the scoreboard', async () => {
+test('bug 2: rally milestones and match-point feedback use one lane below the scoreboard', async () => {
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(source, /fillText\('RALLY ×' \+ G\.stats\.rally, CX, 108\)/);
+  assert.doesNotMatch(source, /RALLY ×/);
   assert.doesNotMatch(source, /drawPlaque\([^\n]*150, 71/);
-  assert.match(source, /status = 'RALLY ' \+ G\.stats\.rally/);
-  assert.match(source, /drawPlaque\(c, CX, 136, status/);
-  assert.match(source, /if \(m0 \|\| m1\)[\s\S]*?else if \(\(G\.mode === 'ai' \|\| G\.mode === '2p'\)/,
-    'match point should take priority over the local rally status');
+  assert.match(source, /rallyN >= 5 && rallyN % 5 === 0/);
+  assert.match(source, /G\.rallyHudN \+ ' HIT RALLY'/);
+  assert.match(source, /drawPlaque\(c, CX, 164, status/);
+  const status = source.slice(source.indexOf('function hudStatusText'), source.indexOf('function drawHudCore'));
+  assert.ok(status.indexOf('MATCH POINT') < status.indexOf('HIT RALLY'),
+    'match point should take priority over the rally milestone');
 });
