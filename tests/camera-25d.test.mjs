@@ -187,8 +187,8 @@ test('Surface keeps meaningful depth on portrait phones', async () => {
   const cam = C.makeCamera('surface', 390, 844, false);
   const near = C.camProject(cam, C.TX0, C.CY, 0);
   const far = C.camProject(cam, C.TX1, C.CY, 0);
-  assert.ok(near.y - far.y > 90,
-    'Surface should no longer collapse into a thin horizontal strip on portrait');
+  assert.ok(near.y - far.y > 130,
+    'Surface should retain strong visible depth on portrait');
 });
 
 test('Surface goal pockets fit inside the viewport', async () => {
