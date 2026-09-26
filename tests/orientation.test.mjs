@@ -183,6 +183,7 @@ test('2.5D orientation controls are only shown when they can work', async () => 
     '2.5D should fit the physical viewport rather than pretending to rotate internally');
   const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
   assert.match(ui, /function canLockOrientation\(\)/);
+  assert.match(ui, /orientationLockRejected/);
   assert.match(ui, /boardRow\.classList\.toggle\('hidden', !topDown && !lockable25\)/);
   assert.match(ui, /Rotate your device to change orientation in this camera view/);
 });
