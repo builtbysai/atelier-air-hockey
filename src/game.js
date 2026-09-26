@@ -66,7 +66,9 @@ function loadSettings() {
   else Settings.soundVolume = clamp(Math.round(Settings.soundVolume), 0, 100);
   if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
   else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
-  if (!Object.prototype.hasOwnProperty.call(stored, 'musicVolume') && stored.music === false) Settings.musicVolume = 0;
+  // The old UI stored a separate Music Off toggle alongside a remembered
+  // volume. Respect that explicit choice when moving to the slider-only model.
+  if (stored.music === false) Settings.musicVolume = 0;
   Settings.sound = Settings.soundVolume > 0;
   Settings.music = Settings.musicVolume > 0;
 }
