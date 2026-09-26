@@ -109,3 +109,21 @@ test('Pause and Audio controls are gameplay-only, never overlay controls', () =>
   assert.match(game, /startGame\([\s\S]*?\$\('topbar'\)\.classList\.remove\('hidden'\)/);
   assert.match(game, /G\.state === 'pause'[\s\S]*?\$\('topbar'\)\.classList\.remove\('hidden'\)/);
 });
+
+
+test('game controls never float above overlay screens', () => {
+  assert.match(game, /function hideAll\(\)[\s\S]*?topbar'\)\.classList\.add\('hidden'\)/);
+  assert.match(ui, /function openSettings\([\s\S]*?hideAll\(\);[\s\S]*?settings'\)\.classList\.remove\('hidden'\)/);
+});
+
+test('match rules summary is centered and has no redundant Edit label', () => {
+  assert.doesNotMatch(template, /class="ruleedit"/);
+  assert.match(css, /\.rulebar\{[\s\S]*?text-align:center/);
+  assert.match(css, /\.rule-setting-head\{[^}]*text-align:center/);
+});
+
+test('secondary match status uses one centered lane below the scoreboard', () => {
+  assert.match(game, /drawPlaque\(c, CX, 154, status/);
+  assert.doesNotMatch(game, /drawPlaque\(c, 150, 71/);
+  assert.match(game, /status = 'RALLY · ' \+ G\.stats\.rally/);
+});
