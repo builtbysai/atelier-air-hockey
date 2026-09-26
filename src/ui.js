@@ -562,6 +562,7 @@ function wireUI() {
     else if (G.state === 'pause') { hideAll(); $('pauseov').classList.remove('hidden'); }
     else quitToMenu();
   });
+  $('replaySkip').addEventListener('click', () => Replay.finish());
   $('btnSound').addEventListener('click', () => {
     AudioSys.init();
     // HUD icon is the MASTER mute: silences music AND sound at once.
@@ -579,7 +580,8 @@ function wireUI() {
     if (e.key === 'p' || e.key === 'P') togglePause();
     else if (e.key === 'm' || e.key === 'M') $('btnSound').click();
     else if (e.key === 'Escape') {
-      if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
+      if (G.state === 'replay') Replay.finish();
+      else if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
       else if (!$('rules').classList.contains('hidden')) $('rulesClose').click();
