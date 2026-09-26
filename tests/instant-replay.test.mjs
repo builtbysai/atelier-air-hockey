@@ -35,11 +35,11 @@ this.__replay = { replayAngle, replayLerp, replayMix, REPLAY_HZ, REPLAY_MAX };`,
   return context.__replay;
 }
 
-test('instant replay preference defaults to Goals and is persisted with Settings', () => {
+test('goal replay prompt defaults on and is persisted with Settings', () => {
   assert.match(game, /instantReplay: 'goals'/);
   assert.match(game, /\['goals', 'off'\]\.includes\(Settings\.instantReplay\)/);
   assert.match(template, /data-set="instantReplay" data-val="off">Off<\/button>/);
-  assert.match(template, /data-set="instantReplay" data-val="goals">Goals<\/button>/);
+  assert.match(template, /data-set="instantReplay" data-val="goals">After goals<\/button>/);
 });
 
 test('replay buffer is five seconds at 30 Hz', async () => {
@@ -87,7 +87,8 @@ test('v1 replay is local-only and never sends network traffic', () => {
   const replay = game.slice(start,end);
   assert.match(replay, /G\.mode === 'online'/);
   assert.doesNotMatch(replay, /Net\.send|Net\.wire|sendGoal/);
-  assert.match(game, /if \(G\.mode === 'online'\) \{[\s\S]*?beginGoalCeremony\(scorer\);[\s\S]*?Net\.sendGoal\(scorer\)/);
+  assert.match(game, /Replay\.capture\(scorer\);[\s\S]*?beginGoalCeremony\(scorer\);/);
+  assert.match(game, /if \(G\.mode === 'online'\) Net\.sendGoal\(scorer\)/);
 });
 
 test('replay uses an explicit replay state that freezes normal physics', () => {
@@ -106,4 +107,19 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
   assert.match(ui, /replaySkip'\)\.addEventListener\('click', \(\) => Replay\.finish\(\)\)/);
   assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(\)/);
   assert.doesNotMatch(game, /drawPlaque\(ctx, CX, 128, 'REPLAY'\)/);
+});
+
+
+test('a goal celebrates first and only offers replay afterwards', () => {
+  assert.match(game, /Replay\.capture\(scorer\);\s*beginGoalCeremony\(scorer\);/);
+  assert.doesNotMatch(game, /Replay\.start\(scorer\)/);
+  assert.match(game, /G\.goalT > 0\.9 && Replay\.hasPending\(\)/);
+  assert.match(template, /id="replayOffer"[^>]*>Watch replay<\/button>/);
+  assert.match(ui, /replayOffer'\)\.addEventListener\('click', \(\) => Replay\.startPending\('goal'\)\)/);
+});
+
+test('winning goal replay is offered from results instead of interrupting celebration', () => {
+  assert.match(template, /id="btnWinReplay"[^>]*>Watch winning goal<\/button>/);
+  assert.match(game, /btnWinReplay/);
+  assert.match(ui, /btnWinReplay'\)\.addEventListener\('click', \(\) => Replay\.startPending\('win'\)\)/);
 });
