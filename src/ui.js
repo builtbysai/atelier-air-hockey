@@ -541,7 +541,7 @@ function wireUI() {
   $('btnSound').addEventListener('click', () => {
     AudioSys.init();
     // HUD icon is the MASTER mute: silences music AND sound at once.
-    // The Settings screen keeps its separate Sound and Music toggles.
+    // The Preferences sliders keep their saved values underneath.
     setSetting('masterMuted', String(!Settings.masterMuted)); // persists; button UI syncs via applySettingsToUI
   });
   window.addEventListener('keydown', e => {
@@ -558,14 +558,16 @@ function wireUI() {
       if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
+      else if (!$('rules').classList.contains('hidden')) $('rulesClose').click();
       else if (!$('progress').classList.contains('hidden')) $('progressClose').click();
       else if (!$('onlineov').classList.contains('hidden') && !Net.active) Net.cancelLobby();
       else if (G.state === 'pause') togglePause();
       else if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true);
     }
     else if (e.key === 'Enter' && G.state === 'menu' && !$('menu').classList.contains('hidden')) {
-      // v21: Enter on the menu launches the selected matchup
-      AudioSys.init(); AudioSys.ui(); startGame(MenuSel.mode, MenuSel.diff);
+      // Route the keyboard shortcut through the same primary action as a tap.
+      // This keeps Online and Exhibition behavior identical across inputs.
+      $('btnStart').click();
     }
   });
   window.addEventListener('keydown', e => {
