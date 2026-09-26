@@ -70,12 +70,14 @@
     position:fixed; left:50%;
     bottom:calc(18px + env(safe-area-inset-bottom));
     transform:translateX(-50%); z-index:32;
-    min-height:40px; padding:0 16px; border-radius:999px;
-    border:1px solid var(--pline); background:rgba(12,9,6,0.84); color:var(--title);
-    font:700 12px var(--body); letter-spacing:.55px; cursor:pointer;
+    min-height:44px; min-width:152px; padding:7px 16px; border-radius:999px;
+    border:1px solid var(--pline); background:rgba(12,9,6,0.86); color:var(--title);
+    font-family:var(--body); cursor:pointer;
     backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
     box-shadow:0 8px 24px rgba(0,0,0,.24);
   }
+  .replay-offer span{ display:block; font-size:12px; font-weight:700; letter-spacing:.5px; }
+  .replay-offer small{ display:block; margin-top:1px; color:var(--sub); font-size:9px; letter-spacing:1.2px; text-transform:uppercase; }
   .replay-offer:active{ transform:translateX(-50%) scale(.96); }
 
   #hint{
@@ -332,10 +334,10 @@
   #settings .card, #rules .card{ max-width:500px; text-align:left; }
   #rules .rules-card{ max-width:460px; }
   .rules-grid{ margin:10px 0 16px; border-top:1px solid var(--pline); }
-  .rule-setting{ padding:14px 0; border-bottom:1px solid color-mix(in srgb,var(--pline) 62%,transparent); }
-  .rule-setting-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:9px; }
-  .rule-setting-head span{ font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--sub); }
-  .rule-setting-head strong{ color:var(--title); font:700 13px var(--display); letter-spacing:.3px; }
+  .rule-setting{ padding:15px 0; text-align:center; border-bottom:1px solid color-mix(in srgb,var(--pline) 62%,transparent); }
+  .rule-setting-head{ display:block; text-align:center; margin-bottom:10px; }
+  .rule-setting-head span{ display:block; font-size:10px; letter-spacing:2px; text-transform:uppercase; color:var(--sub); }
+  .rule-setting-head strong{ display:block; margin-top:3px; color:var(--title); font:700 14px var(--display); letter-spacing:.3px; }
   #rulesClose{ margin-top:2px; }
   #settings .kicker, #settings h1, #settings .tagline,
   #rules .kicker, #rules h1, #rules .tagline{ text-align:center; }
@@ -362,7 +364,6 @@
     #playModes{ grid-template-columns:repeat(2,1fr); }
     .rulebar{ padding:8px 10px; }
     .rulebar strong{ font-size:12px; }
-    .rulebar small{ display:none; }
     .carrow{ width:34px; height:34px; font-size:20px; }
     .ctrack{ padding:4px 26px; }
     .foot{ margin-top:6px; font-size:11px; }
