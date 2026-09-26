@@ -84,9 +84,11 @@ function appDisplayMode() {
     )) || navigator.standalone === true || !!document.fullscreenElement;
   } catch (e) { return false; }
 }
+let orientationLockRejected = false;
 function canLockOrientation() {
   try {
-    return appDisplayMode() && !!(screen && screen.orientation && typeof screen.orientation.lock === 'function');
+    return !orientationLockRejected && appDisplayMode() &&
+      !!(screen && screen.orientation && typeof screen.orientation.lock === 'function');
   } catch (e) { return false; }
 }
 function applyScreenOrientationPreference() {
@@ -99,8 +101,13 @@ function applyScreenOrientationPreference() {
     }
     if (!appDisplayMode() || typeof so.lock !== 'function') return;
     const p = so.lock(Settings.orientation);
-    if (p && p.catch) p.catch(() => {});
-  } catch (e) {}
+    if (p && p.catch) p.catch(() => {
+      orientationLockRejected = true;
+      try { applySettingsToUI(); } catch (e) {}
+    });
+  } catch (e) {
+    orientationLockRejected = true;
+  }
 }
 
 // ---------- settings ----------
