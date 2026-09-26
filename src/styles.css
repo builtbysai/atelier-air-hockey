@@ -69,26 +69,10 @@
   .replay-offer{
     position:fixed; left:50%;
     bottom:calc(18px + env(safe-area-inset-bottom));
-    transform:translateX(-50%); z-index:32;
-    min-height:40px; padding:0 16px;
-    border:1px solid var(--pline); border-radius:999px;
-    background:rgba(12,9,6,0.86); color:var(--title);
-    font:600 12px var(--body); letter-spacing:.35px; cursor:pointer;
-    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
-    box-shadow:0 8px 24px rgba(0,0,0,.24);
-  }
-  .replay-offer:active{ transform:translateX(-50%) scale(.97); }
-  .replay-offer.queued{
-    background:var(--ghost); border-color:var(--btnbg); color:var(--title);
-  }
-
-  .replay-offer{
-    position:fixed; left:50%;
-    bottom:calc(18px + env(safe-area-inset-bottom));
     transform:translateX(-50%); z-index:31;
+    min-height:38px; padding:9px 16px;
     border:1px solid var(--pline); border-radius:999px;
     background:rgba(12,9,6,0.82); color:var(--title);
-    padding:9px 16px; min-height:38px;
     font:600 12px var(--body); letter-spacing:.35px; cursor:pointer;
     backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
     box-shadow:0 8px 24px rgba(0,0,0,.22);
