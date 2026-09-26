@@ -3279,25 +3279,20 @@ function render() {
 // pre-2.5D render path.
 function renderTop(w, h) {
   const s = view.s;
-  // trauma shake: slight rotation + translation (rotation reads as force)
+  // Keep all rink transforms inside one save/restore. The HUD is rendered
+  // afterward in screen space so its location never changes with board rotation.
+  ctx.save();
   const sh = shakeOffset();
   ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
   if (!view.portrait) { ctx.translate(view.ox, view.oy); ctx.scale(s, s); }
-  // portrait: a TRUE 90° rotation (determinant +s²). The previous matrix
-  // (0,-s,-s,0) had determinant -s² - a reflection that mirror-reversed
-  // every world-space glyph (scoreboard, countdown, GOAL!, floating text).
-  // P1's goal stays at the bottom of the screen, as before.
   else ctx.transform(0, -s, s, 0, view.ox, view.oy + s * VW);
-  // goal zoom: ease toward the mouth during the ceremony (playfield only)
+
   ctx.save();
   if (G.letterT > 0) {
     const gx = G.goalSide === 0 ? PX + PW : PX;
     const z = 1 + 0.10 * easeOutBack(clamp(G.letterT, 0, 1));
     ctx.translate(gx, CY); ctx.scale(z, z); ctx.translate(-gx, -CY);
   }
-  // ONLINE: the guest plays from their own side, so the playfield mirrors -
-  // their mallet and goal sit where the host's do. Everything above the
-  // playfield (scoreboard, ceremony type, ribbon) stays unflipped.
   ctx.save();
   if (G.onlineFlip) { ctx.translate(VW, 0); ctx.scale(-1, 1); }
   drawTableFlat(ctx);
@@ -3306,108 +3301,85 @@ function renderTop(w, h) {
   drawMallet(ctx, G.m2);
   drawFxFlat(ctx);
   drawTextsFlat(ctx);
-  ctx.restore(); // ONLINE flip
-
-  // countdown - anticipation with a pop
-  if (G.state === 'count') {
-    const frac = (G.countT % 0.55) / 0.55;
-    const label = G.countT < 1.65 ? String(3 - Math.floor(G.countT / 0.55)) : 'GO!';
-    const pop = 1 + (1 - frac) * 0.55;
-    ctx.save();
-    ctx.globalAlpha = clamp(1.4 - frac, 0, 1);
-    ctx.translate(CX, CY - 40); ctx.scale(pop, pop);
-    ctx.font = '800 120px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.ink;
-    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24;
-    ctx.fillText(label, 0, 0); // screen space - never flipped
-    ctx.restore();
-  }
-  ctx.restore();
+  ctx.restore(); // online flip
+  ctx.restore(); // goal zoom
+  ctx.restore(); // rink/view transform
   renderTail(w, h);
 }
 
-// Shared top-down HUD. The goal ceremony deliberately leaves the table
-// visible instead of covering it with opaque black letterbox bars.
-function drawHudCore(c) {
-  drawScoreboard(c);
-
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4)
-    drawPlaque(c, 150, 71, 'RALLY ×' + G.stats.rally);
-
-  if ((G.state === 'play' || G.state === 'count') && !G.demo) {
-    const t = Settings.firstTo;
-    const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
-    if (m0 || m1) {
-      const who = (m0 && m1) ? 'NEXT GOAL WINS'
-        : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ': MATCH POINT')
-        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT')
-        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT');
-      drawPlaque(c, CX, 78, who);
-    }
+function hudStatusText() {
+  if (G.demo || (G.state !== 'play' && G.state !== 'count')) return '';
+  const t = Settings.firstTo;
+  const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
+  if (m0 || m1) {
+    if (m0 && m1) return 'NEXT GOAL WINS';
+    if (G.mode === '2p') return (m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ' · MATCH POINT';
+    if (G.mode === 'online') return (m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' · MATCH POINT';
+    return sideLabel(m0 ? 0 : 1) + ' · MATCH POINT';
   }
+  if (G.state === 'play' && G.rallyHudT > 0 && G.rallyHudN >= 5)
+    return G.rallyHudN + ' HIT RALLY';
+  return '';
 }
 
-function drawGoalTextVirtual(c) {
-  if (G.letterT <= 0) return;
+// One stable score/status layer for Top-down, Elevated, Surface, every
+// orientation, and every game mode. The physical scoreboard art remains
+// theme-specific; only its screen position is standardized.
+function drawHudCore(c, w, h) {
+  if (G.demo) return;
+  const reserve = w <= 600 ? 112 : 150; // leave a clean lane for Pause/Audio
+  const maxHudW = Math.max(190, Math.min(460, w - reserve));
+  const hs = clamp(maxHudW / 440, 0.43, 1);
+  const top = Math.max(4, h * 0.008);
   c.save();
-  c.globalAlpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
-  const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
-  c.translate(CX, CY); c.scale(pop, pop);
-  c.font = '800 92px ' + THEME.font.display;
-  c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.lineWidth = 8;
-  c.strokeStyle = 'rgba(0,0,0,0.52)';
-  c.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); c.shadowBlur = 32;
-  if ('letterSpacing' in c) c.letterSpacing = '6px';
-  c.strokeText('GOAL!', 3, -6);
-  c.fillStyle = THEME.gold || '#d8a93f';
-  c.fillText('GOAL!', 3, -6);
+  c.translate(w * 0.5 - CX * hs, top);
+  c.scale(hs, hs);
+  drawScoreboard(c);
+  const status = hudStatusText();
+  if (status) drawPlaque(c, CX, 142, status, { size: 11, h: 25, track: 1.5 });
   c.restore();
 }
 
-function renderTail(w, h) {
-  drawGoalTextVirtual(ctx);
-  drawHudCore(ctx);
-
-  const vg = ctx.createRadialGradient(CX, CY, VH * 0.42, CX, CY, VH * 0.95);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
-
-  if (G.state === 'menu') {
-    ctx.fillStyle = 'rgba(0,0,0,0.38)';
-    ctx.fillRect(0, 0, VW, VH);
-  }
+function drawCountdownScreen(c, w, h) {
+  if (G.state !== 'count') return;
+  const frac = (G.countT % 0.55) / 0.55;
+  const label = G.countT < 1.65 ? String(3 - Math.floor(G.countT / 0.55)) : 'GO!';
+  const pop = 1 + (1 - frac) * 0.55;
+  const fs = clamp(Math.min(w * 0.20, h * 0.16), 54, 120);
+  c.save();
+  c.globalAlpha = clamp(1.4 - frac, 0, 1);
+  c.translate(w * 0.5, h * 0.50); c.scale(pop, pop);
+  c.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillStyle = THEME.ink;
+  c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 24;
+  c.fillText(label, 0, 0);
+  c.restore();
 }
 
-function renderTail25(w, h) {
-  // The 2.5D scene is already in CSS-pixel screen space. Rendering its HUD
-  // through the top-down rink scale made text tiny and misplaced on phones.
-  if (G.letterT > 0) {
-    const alpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
-    const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
-    const fs = clamp(Math.min(w * 0.16, h * 0.11), 44, 92);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(w * 0.5, h * 0.46); ctx.scale(pop, pop);
-    ctx.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.lineWidth = Math.max(4, fs * 0.08);
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); ctx.shadowBlur = 28;
-    ctx.strokeText('GOAL!', 0, 0);
-    ctx.fillStyle = THEME.gold || '#d8a93f';
-    ctx.fillText('GOAL!', 0, 0);
-    ctx.restore();
-  }
+function drawGoalTextScreen(c, w, h) {
+  if (G.letterT <= 0) return;
+  const alpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
+  const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
+  const fs = clamp(Math.min(w * 0.16, h * 0.11), 44, 92);
+  c.save();
+  c.globalAlpha = alpha;
+  c.translate(w * 0.5, h * 0.48); c.scale(pop, pop);
+  c.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.lineWidth = Math.max(4, fs * 0.08);
+  c.strokeStyle = 'rgba(0,0,0,0.55)';
+  c.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); c.shadowBlur = 28;
+  c.strokeText('GOAL!', 0, 0);
+  c.fillStyle = THEME.gold || '#d8a93f';
+  c.fillText('GOAL!', 0, 0);
+  c.restore();
+}
 
-  const hs = Math.min(1, Math.max(0.36, Math.min(w / 900, h / 620)));
-  ctx.save();
-  ctx.translate(w * 0.5 - CX * hs, Math.max(6, h * 0.012));
-  ctx.scale(hs, hs);
-  drawHudCore(ctx);
-  ctx.restore();
+function renderScreenTail(w, h) {
+  drawGoalTextScreen(ctx, w, h);
+  drawCountdownScreen(ctx, w, h);
+  drawHudCore(ctx, w, h);
 
   const vg = ctx.createRadialGradient(w * 0.5, h * 0.52, h * 0.28, w * 0.5, h * 0.52, h * 0.82);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -3419,6 +3391,8 @@ function renderTail25(w, h) {
     ctx.fillRect(0, 0, w, h);
   }
 }
+function renderTail(w, h) { renderScreenTail(w, h); }
+function renderTail25(w, h) { renderScreenTail(w, h); }
 
 // ---------- 2.5D view ----------
 // The playfield is staged flat on the offscreen canvas (affine only, so all
@@ -3442,7 +3416,6 @@ function render25(w, h) {
   drawFx25(cam);
   drawObjects25(cam);
   drawTexts25(cam);
-  drawCountdown25(cam);
   ctx.restore();
   renderTail25(w, h);
 }
