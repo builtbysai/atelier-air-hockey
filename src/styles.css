@@ -44,16 +44,27 @@
      Shown once on the first local match, dismissed forever after the
      first goal. Non-animated under prefers-reduced-motion. The body is
      dark by design so the type reads on the lightest rooms. */
-  .replay-skip{
-    position:fixed; left:50%; bottom:18px; bottom:calc(18px + env(safe-area-inset-bottom));
-    transform:translateX(-50%); z-index:31;
-    border:1px solid var(--pline); border-radius:999px;
-    background:rgba(12,9,6,0.78); color:var(--title);
-    padding:8px 16px; font-family:var(--body); font-size:12px;
-    letter-spacing:.8px; cursor:pointer;
-    backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);
+  .replay-hud{
+    position:fixed;
+    top:calc(12px + env(safe-area-inset-top));
+    left:calc(12px + env(safe-area-inset-left));
+    z-index:32; height:38px; display:flex; align-items:center; gap:9px;
+    padding:0 10px; border:1px solid var(--pline); border-radius:9px;
+    background:rgba(12,9,6,0.82); color:var(--title);
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    box-shadow:0 8px 24px rgba(0,0,0,0.24);
   }
-  .replay-skip:active{ transform:translateX(-50%) scale(.96); }
+  .replay-word{ font-size:10px; font-weight:800; letter-spacing:2.4px; white-space:nowrap; }
+  .replay-progress{ width:52px; height:2px; overflow:hidden; background:var(--ghost); }
+  .replay-progress i{
+    display:block; width:100%; height:100%; background:var(--btnbg);
+    transform:scaleX(0); transform-origin:left center;
+  }
+  .replay-hud button{
+    border:0; background:none; color:var(--title); padding:5px 2px;
+    font:600 11px var(--body); text-decoration:underline; text-underline-offset:3px; cursor:pointer;
+  }
+  .replay-hud button:active{ opacity:.65; }
 
   #hint{
     position:fixed; left:50%; bottom:18px; bottom:calc(18px + env(safe-area-inset-bottom));
@@ -141,9 +152,16 @@
     border:1px solid var(--pline); background:transparent; color:var(--title);
     font-family:var(--body); text-align:left; cursor:pointer;
   }
-  .rulebar strong{ display:block; font-size:13px; letter-spacing:.2px; }
-  .rulebar small{ display:block; margin-top:3px; color:var(--sub); font-size:10px; letter-spacing:1.6px; }
-  .rulebar .ruleedit{ flex:0 0 auto; font-size:11px; text-decoration:underline; text-underline-offset:2px; }
+  .rule-summary-grid{ flex:1 1 auto; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .rule-summary-grid > span{ min-width:0; padding:0 10px; border-right:1px solid color-mix(in srgb,var(--pline) 55%,transparent); }
+  .rule-summary-grid > span:first-child{ padding-left:0; }
+  .rule-summary-grid > span:last-child{ border-right:0; }
+  .rule-summary-grid small{ display:block; color:var(--sub); font-size:9px; letter-spacing:1.7px; }
+  .rule-summary-grid strong{
+    display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    font-size:13px; font-weight:700; letter-spacing:.15px;
+  }
+  .rulebar .ruleedit{ flex:0 0 auto; margin-left:4px; font-size:11px; text-decoration:underline; text-underline-offset:2px; }
   .rulebar:active{ transform:scale(.985); background:var(--ghost); }
   .touch-controls{ display:none; }
   #tourCount.tourpill{
@@ -300,6 +318,13 @@
   .foot a{ color:var(--title); }
   .foot b{ color:var(--title); }
   #settings .card, #rules .card{ max-width:500px; text-align:left; }
+  #rules .rules-card{ max-width:460px; }
+  .rules-grid{ margin:10px 0 16px; border-top:1px solid var(--pline); }
+  .rule-setting{ padding:14px 0; border-bottom:1px solid color-mix(in srgb,var(--pline) 62%,transparent); }
+  .rule-setting-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:9px; }
+  .rule-setting-head span{ font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--sub); }
+  .rule-setting-head strong{ color:var(--title); font:700 13px var(--display); letter-spacing:.3px; }
+  #rulesClose{ margin-top:2px; }
   #settings .kicker, #settings h1, #settings .tagline,
   #rules .kicker, #rules h1, #rules .tagline{ text-align:center; }
   /* compact menu: narrow phones AND short landscape - nothing may scroll */
@@ -356,4 +381,22 @@
   @media (display-mode: fullscreen), (display-mode: standalone){
     body{ min-height:100dvh; }
     #game{ width:100vw; height:100dvh; }
+  }
+
+  @media (max-width:600px){
+    #topbar{
+      flex-direction:column; align-items:flex-end; gap:6px;
+      top:calc(8px + env(safe-area-inset-top));
+      right:calc(8px + env(safe-area-inset-right));
+    }
+    #topbar .iconbtn{ width:40px; height:40px; font-size:15px; }
+    #topbar .connchip{ order:-1; }
+    .replay-hud{
+      top:calc(9px + env(safe-area-inset-top));
+      left:calc(9px + env(safe-area-inset-left));
+      height:36px; gap:7px; padding:0 9px;
+    }
+    .replay-progress{ width:38px; }
+    .rule-summary-grid > span{ padding:0 7px; }
+    .rule-summary-grid strong{ font-size:12px; }
   }
