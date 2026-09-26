@@ -1129,7 +1129,7 @@ const DIFFS = [
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
 
 const G = {
-  state: 'menu',            // menu | count | play | goal | win | pause
+  state: 'menu',            // menu | count | play | replay | goal | win | pause
   mode: 'ai', difficulty: 1,
   score: [0, 0], winSide: 0,
   m1: null, m2: null, puck: null,
