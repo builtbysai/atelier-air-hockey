@@ -2593,7 +2593,8 @@ function onGoal(scorer) {
   if (G.mode === 'online') {
     beginGoalCeremony(scorer);
     Net.sendGoal(scorer); // ONLINE: tell the guest to play it
-  } else if (!Replay.start(scorer)) {
+  } else {
+    Replay.prepare(scorer);
     beginGoalCeremony(scorer);
   }
 }
@@ -2653,6 +2654,14 @@ function beginGoalCeremony(scorer) {
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   buzz([25, 40, 40]);
 }
+function resumeAfterGoal() {
+  Replay.discardPrepared();
+  resetPositions();
+  rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
+  $('topbar').classList.remove('hidden');
+  startCount();
+  if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
+}
 function updateGoal(rdt) {
   G.goalT += rdt; G.goalSlowT += rdt;
   G.letterT = clamp(G.letterT + rdt * 3.2, 0, 1);
@@ -2665,21 +2674,22 @@ function updateGoal(rdt) {
   p.x = lerp(p.x, gx, clamp(rdt * 5, 0, 1));
   p.y = lerp(p.y, CY, clamp(rdt * 5, 0, 1));
   p.vx *= 0.9; p.vy *= 0.9;
-  // the winning goal gets ~30% more ceremony
+  // The celebration owns the moment. Once its initial hit has landed, offer
+  // replay without adding any extra wait; ignoring it flows straight to serve.
   const matchPoint = G.score[G.goalSide] >= Settings.firstTo;
+  if (!matchPoint && Replay.prepared && G.goalT > 0.80) Replay.offer();
   if (G.goalT > (matchPoint ? 2.86 : 2.2)) {
     clearCeremony();
+    Replay.hideOffer();
     if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
+      Replay.discardPrepared();
       G.winSide = G.score[0] > G.score[1] ? 0 : 1;
       G.state = 'win';
       showWin();
+    } else if (Replay.requested && Replay.playPrepared()) {
+      // playback owns the frozen table and returns through resumeAfterGoal()
     } else {
-      resetPositions();
-      rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
-      $('topbar').classList.remove('hidden');
-      startCount();
-      // ONLINE: the host's countdown mirrors to the guest so both start even
-      if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
+      resumeAfterGoal();
     }
   }
 }
@@ -2849,8 +2859,11 @@ function quitToMenu() {
   AudioSys.ui();
 }
 function hideAll() {
-  // ONLINE: online overlays are part of the overlay stack too
+  // ONLINE: online overlays are part of the overlay stack too. The HUD controls
+  // are gameplay-only and never float above Preferences, pause, help, or results.
   for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint']) $(id).classList.add('hidden');
+  $('topbar').classList.add('hidden');
+  Replay.hideOffer();
 }
 function $(id) { return document.getElementById(id); }
 
@@ -3296,20 +3309,18 @@ function renderTop(w, h) {
 // visible instead of covering it with opaque black letterbox bars.
 function drawHudCore(c) {
   drawScoreboard(c);
+  if ((G.state !== 'play' && G.state !== 'count') || G.demo) return;
 
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4)
-    drawPlaque(c, 150, 71, 'RALLY ×' + G.stats.rally);
-
-  if ((G.state === 'play' || G.state === 'count') && !G.demo) {
-    const t = Settings.firstTo;
-    const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
-    if (m0 || m1) {
-      const who = (m0 && m1) ? 'NEXT GOAL WINS'
-        : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ': MATCH POINT')
-        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT')
-        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT');
-      drawPlaque(c, CX, 78, who);
-    }
+  // One status lane under the physical scoreboard. Match point has priority;
+  // otherwise a meaningful rally count can occupy the same centered slot.
+  const t = Settings.firstTo;
+  const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
+  if (m0 || m1) {
+    const who = (m0 && m1) ? 'NEXT GOAL WINS'
+      : 'MATCH POINT · ' + sideLabel(m0 ? 0 : 1);
+    drawPlaque(c, CX, 154, who, { size:11, h:24, track:1.5 });
+  } else if (G.stats && G.stats.rally >= 4) {
+    drawPlaque(c, CX, 154, 'RALLY ' + G.stats.rally, { size:11, h:24, track:1.5 });
   }
 }
 
