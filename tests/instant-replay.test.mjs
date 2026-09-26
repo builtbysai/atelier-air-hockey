@@ -125,3 +125,17 @@ test('optional replay offer is explicit and playback returns directly to next se
   assert.match(game, /finish\(\) \{[\s\S]*?resumeAfterGoal\(\)/);
   assert.doesNotMatch(game, /finish\(\) \{[\s\S]*?beginGoalCeremony\(scorer\)/);
 });
+
+
+test('goal celebration happens before replay is offered', () => {
+  assert.match(game, /Replay\.prepare\(scorer\);[\s\S]*?beginGoalCeremony\(scorer\)/);
+  assert.doesNotMatch(game, /G\.goalT > 0\.80[\s\S]*?Replay\.offer/);
+  assert.match(game, /resumeAfterGoal\(\);[\s\S]*?Replay\.offer\(\)/);
+});
+
+test('replay only starts after the player explicitly chooses Watch replay', () => {
+  assert.match(template, /id="replayOffer"[^>]*>Watch replay<\/button>/);
+  assert.match(ui, /replayOffer'\)\.addEventListener\('click', \(\) => Replay\.playPrepared\(\)\)/);
+  assert.match(game, /playPrepared\(\)[\s\S]*?G\.state = 'replay'/);
+  assert.match(game, /function resumeAfterReplay\(\)[\s\S]*?startCount\(\)/);
+});
