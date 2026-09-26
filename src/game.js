@@ -1158,6 +1158,8 @@ const G = {
   stats: null,              // per-match stats (top speed, rally, time)
   onlineFlip: false,        // ONLINE: guest view is mirrored - they play from their own side
   hintLive: false,          // first-time hint currently showing on the table
+  rallyHudT: 0, rallyHudN: 0, // brief rally milestones instead of persistent HUD clutter
+  goalStreakLabel: '',       // one centered streak sub-line during goal celebration
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
@@ -1195,10 +1197,12 @@ function replayMix(a, b, t) {
 const Replay = {
   frames: [], active: false, clip: null, pendingClip: null,
   acc: 0, elapsed: 0, scorer: -1, pendingScorer: -1, returnMode: 'goal',
+  requested: false, offerT: 0,
   sourceRate: 0.80,
   reset() {
     this.frames.length = 0; this.clip = null; this.pendingClip = null; this.active = false;
     this.acc = 0; this.elapsed = 0; this.scorer = -1; this.pendingScorer = -1; this.returnMode = 'goal';
+    this.requested = false; this.offerT = 0;
     this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
@@ -1222,7 +1226,7 @@ const Replay = {
     while (this.acc >= step) { this.acc -= step; this.push(); }
   },
   capture(scorer) {
-    this.pendingClip = null; this.pendingScorer = -1;
+    this.pendingClip = null; this.pendingScorer = -1; this.requested = false; this.offerT = 0;
     if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) {
       this.frames.length = 0; this.acc = 0; return false;
     }
@@ -1235,21 +1239,39 @@ const Replay = {
   },
   hasPending() { return !!(this.pendingClip && this.pendingClip.length > 1); },
   showOffer() {
-    if (!this.hasPending() || this.active) return;
+    if (!this.hasPending() || this.active || this.requested) return;
     const b = document.getElementById('replayOffer'); if (b) b.classList.remove('hidden');
   },
   hideOffer() {
     const b = document.getElementById('replayOffer'); if (b) b.classList.add('hidden');
   },
   discardPending() {
-    this.pendingClip = null; this.pendingScorer = -1; this.hideOffer();
+    this.pendingClip = null; this.pendingScorer = -1; this.requested = false; this.offerT = 0; this.hideOffer();
+  },
+  keepOfferDuringCount(seconds = 1.0) {
+    if (!this.hasPending()) return;
+    this.offerT = seconds;
+    this.showOffer();
+  },
+  tickOffer(dt) {
+    if (!this.hasPending() || this.active || this.offerT <= 0 || G.state !== 'count') return;
+    this.offerT = Math.max(0, this.offerT - dt);
+    if (this.offerT <= 0) this.discardPending();
+  },
+  request() {
+    if (!this.hasPending() || this.active) return;
+    this.requested = true; this.offerT = 0; this.hideOffer();
+    // During the celebration, remember the choice but let the emotional beat
+    // land first. During countdown the player has explicitly chosen replay,
+    // so play it immediately and restart countdown afterward.
+    if (G.state === 'count') this.startPending('goal');
   },
   startPending(returnMode = 'goal') {
     if (!this.hasPending()) return false;
     this.clip = this.pendingClip; this.pendingClip = null;
     this.scorer = this.pendingScorer; this.pendingScorer = -1;
     this.elapsed = 0; this.active = true; this.returnMode = returnMode;
-    this.hideOffer();
+    this.requested = false; this.offerT = 0; this.hideOffer();
     const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
     clearCeremony();
     hideAll();
@@ -2387,6 +2409,10 @@ function onMalletHit(x, y, impact, nx, ny) {
     G.stats.rally++;
     if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
     rallyN = G.stats.rally;
+    if (G.mode !== 'online' && rallyN >= 5 && rallyN % 5 === 0) {
+      G.rallyHudN = rallyN;
+      G.rallyHudT = 0.9;
+    }
   }
   const v = clamp(impact / 2200, 0, 1);
   const tier = hitTier(impact);
@@ -2454,6 +2480,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
 // restart, or win can never leave GOAL! / slow-mo stuck on screen.
 function clearCeremony() {
   G.letterT = 0; G.flashA = 0; G.goalT = 0; G.goalSlowT = 0;
+  G.goalStreakLabel = '';
   G.timeScale = 1;
 }
 // ---------- game flow ----------
@@ -2607,20 +2634,21 @@ function confettiColors() {
 // streak state isn't in the snapshot), gated on fxFlash() like the rest of
 // the ceremony juice.
 function announceStreak(scorer) {
+  G.goalStreakLabel = '';
   if (G.mode === 'online' || G.demo) return;
   const st = G.stats;
   if (!st || !goalIsYours(scorer) || !fxFlash()) return;
   const n = st.streak[scorer];
   if (n < 2) return;
-  const label = n === 2 ? 'TWO IN A ROW'
-    : n === 3 ? 'HAT-TRICK!'
-    : n + ' IN A ROW: UNSTOPPABLE!';
-  addText(CX, CY - 200, label, THEME.gold || '#d8a93f', 56);
+  G.goalStreakLabel = n === 2 ? 'TWO IN A ROW'
+    : n === 3 ? 'HAT TRICK'
+    : n + ' IN A ROW';
 }
 function beginGoalCeremony(scorer) {
   boardKick(scorer);
   G.goalSide = scorer;
   if (G.stats) G.stats.rally = 0; // new rally after each goal
+  G.rallyHudT = 0; G.rallyHudN = 0;
   G.state = 'goal';
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
   G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
@@ -2639,8 +2667,9 @@ function beginGoalCeremony(scorer) {
     for (let c = 0; c < 3; c++) burst(gx, CY, Math.max(1, Math.round(n / 3)), cols[c % cols.length], 380 + c * 160, 4 + c);
   }
   addTrauma(0.85);
-  addText(gx + (scorer === 0 ? -130 : 130), CY - 120, '+1', THEME.gold || '#d8a93f', 52);
-  announceStreak(scorer); // TWO IN A ROW / HAT-TRICK / N IN A ROW - UNSTOPPABLE!
+  // The themed scoreboard already confirms +1. Keep the celebration focused:
+  // GOAL! plus, when earned, one concise streak sub-line.
+  announceStreak(scorer);
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   buzz([25, 40, 40]);
@@ -2659,14 +2688,20 @@ function updateGoal(rdt) {
   p.vx *= 0.9; p.vy *= 0.9;
 
   const winningGoal = G.score[G.goalSide] >= Settings.firstTo;
-  // Replay is an optional reward after the player has already received the
-  // important feedback: goal flash, score update, sound, and GOAL! moment.
-  // It appears late in the ceremony and never delays the next serve if ignored.
-  if (!winningGoal && G.goalT > 0.9 && Replay.hasPending()) Replay.showOffer();
-  if (G.goalT > (winningGoal ? 2.86 : 2.2)) advanceAfterGoal();
+  // Replay is an optional reward after the goal has already landed. A choice
+  // made during celebration waits for the emotional beat; ignoring it never
+  // delays the next serve.
+  if (!winningGoal && G.goalT >= 1.05 && Replay.hasPending()) Replay.showOffer();
+  if (!winningGoal && Replay.requested && G.goalT >= 1.45) {
+    clearCeremony();
+    Replay.startPending('goal');
+    return;
+  }
+  if (G.goalT > (winningGoal ? 2.70 : 1.95)) advanceAfterGoal();
 }
 function advanceAfterGoal() {
   const winningGoal = G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo;
+  const keepOffer = !winningGoal && Replay.hasPending();
   clearCeremony();
   Replay.hideOffer();
   if (winningGoal) {
@@ -2675,11 +2710,12 @@ function advanceAfterGoal() {
     showWin();
     return;
   }
-  Replay.discardPending();
   resetPositions();
   rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
-  $('topbar').classList.remove('hidden');
   startCount();
+  $('topbar').classList.remove('hidden');
+  if (keepOffer) Replay.keepOfferDuringCount(1.0);
+  else Replay.discardPending();
   // ONLINE: the host's countdown mirrors to the guest so both start even
   if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
@@ -2840,6 +2876,7 @@ function quitToMenu() {
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
   clearCeremony();
+  Replay.reset();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
   pointers.clear();
@@ -2852,8 +2889,11 @@ function quitToMenu() {
   AudioSys.ui();
 }
 function hideAll() {
-  // ONLINE: online overlays are part of the overlay stack too
+  // ONLINE: online overlays are part of the overlay stack too. Gameplay chrome
+  // is hidden centrally so Pause/Audio can never float over a dialog.
   for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer']) $(id).classList.add('hidden');
+  $('topbar').classList.add('hidden');
+  const replayHud = $('replayHud'); if (replayHud) replayHud.classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
@@ -2919,6 +2959,8 @@ function frame(t) {
   G.saveT = Math.max(0, G.saveT - rdt);
   G.nearCd = Math.max(0, G.nearCd - rdt);
   G.dipT = Math.max(0, G.dipT - rdt);
+  G.rallyHudT = Math.max(0, G.rallyHudT - rdt);
+  Replay.tickOffer(rdt);
   if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
   if (G.rattle) { G.rattle.t -= rdt; if (G.rattle.t <= 0) G.rattle = null; }
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
@@ -3247,25 +3289,21 @@ function render() {
 // pre-2.5D render path.
 function renderTop(w, h) {
   const s = view.s;
-  // trauma shake: slight rotation + translation (rotation reads as force)
+  // The rink may rotate for portrait, but the score/status HUD never does.
+  // Keep every world transform inside this save/restore and render UI after it
+  // in CSS-pixel screen space.
+  ctx.save();
   const sh = shakeOffset();
   ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
   if (!view.portrait) { ctx.translate(view.ox, view.oy); ctx.scale(s, s); }
-  // portrait: a TRUE 90° rotation (determinant +s²). The previous matrix
-  // (0,-s,-s,0) had determinant -s² - a reflection that mirror-reversed
-  // every world-space glyph (scoreboard, countdown, GOAL!, floating text).
-  // P1's goal stays at the bottom of the screen, as before.
   else ctx.transform(0, -s, s, 0, view.ox, view.oy + s * VW);
-  // goal zoom: ease toward the mouth during the ceremony (playfield only)
+
   ctx.save();
   if (G.letterT > 0) {
     const gx = G.goalSide === 0 ? PX + PW : PX;
     const z = 1 + 0.10 * easeOutBack(clamp(G.letterT, 0, 1));
     ctx.translate(gx, CY); ctx.scale(z, z); ctx.translate(-gx, -CY);
   }
-  // ONLINE: the guest plays from their own side, so the playfield mirrors -
-  // their mallet and goal sit where the host's do. Everything above the
-  // playfield (scoreboard, ceremony type, ribbon) stays unflipped.
   ctx.save();
   if (G.onlineFlip) { ctx.translate(VW, 0); ctx.scale(-1, 1); }
   drawTableFlat(ctx);
@@ -3275,110 +3313,95 @@ function renderTop(w, h) {
   drawFxFlat(ctx);
   drawTextsFlat(ctx);
   ctx.restore(); // ONLINE flip
+  ctx.restore(); // goal zoom
+  ctx.restore(); // rink transform
 
-  // countdown - anticipation with a pop
-  if (G.state === 'count') {
-    const frac = (G.countT % 0.55) / 0.55;
-    const label = G.countT < 1.65 ? String(3 - Math.floor(G.countT / 0.55)) : 'GO!';
-    const pop = 1 + (1 - frac) * 0.55;
-    ctx.save();
-    ctx.globalAlpha = clamp(1.4 - frac, 0, 1);
-    ctx.translate(CX, CY - 40); ctx.scale(pop, pop);
-    ctx.font = '800 120px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.ink;
-    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24;
-    ctx.fillText(label, 0, 0); // screen space - never flipped
-    ctx.restore();
-  }
-  ctx.restore();
-  renderTail(w, h);
+  renderScreenTail(w, h);
 }
 
-// Shared top-down HUD. The goal ceremony deliberately leaves the table
-// visible instead of covering it with opaque black letterbox bars.
-function drawHudCore(c) {
-  drawScoreboard(c);
-  if ((G.state !== 'play' && G.state !== 'count') || G.demo) return;
-
-  // One calm status lane below the physical scoreboard. Match point has
-  // priority; otherwise local human matches can surface a rally milestone.
-  // Keeping both out of the scoreboard body prevents the old visual collision.
-  const t = Settings.firstTo;
-  const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
-  let status = '';
+function hudStatusText() {
+  if (G.demo || (G.state !== 'play' && G.state !== 'count')) return '';
+  const target = Settings.firstTo;
+  const m0 = G.score[0] === target - 1, m1 = G.score[1] === target - 1;
   if (m0 || m1) {
-    status = (m0 && m1) ? 'NEXT GOAL WINS'
-      : G.mode === '2p' ? ((m0 ? 'P1' : 'P2') + ' · MATCH POINT')
-      : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' · MATCH POINT')
-      : (sideLabel(m0 ? 0 : 1) + ' · MATCH POINT');
-  } else if ((G.mode === 'ai' || G.mode === '2p') && G.stats && G.stats.rally >= 4) {
-    status = 'RALLY ' + G.stats.rally;
+    if (m0 && m1) return 'NEXT GOAL WINS';
+    if (G.mode === '2p') return (m0 ? 'P1' : 'P2') + ' · MATCH POINT';
+    if (G.mode === 'online') return (m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' · MATCH POINT';
+    return sideLabel(m0 ? 0 : 1) + ' · MATCH POINT';
   }
-  if (status) drawPlaque(c, CX, 136, status, { size: 11, h: 24, track: 1.5, alpha: 0.9 });
+  if (G.state === 'play' && G.rallyHudT > 0 && G.rallyHudN >= 5)
+    return G.rallyHudN + ' HIT RALLY';
+  return '';
 }
 
-function drawGoalTextVirtual(c) {
-  if (G.letterT <= 0) return;
+// All game modes and camera views share this screen-space score/status layer.
+// The scoreboard device still comes from the active room; only its placement
+// is standardized so controls, labels, and camera transforms cannot collide.
+function drawHudCore(c, w, h) {
+  if (G.demo) return;
+  const controlLane = w <= 600 ? 112 : 150;
+  const maxHudW = Math.max(190, Math.min(440, w - controlLane));
+  const hs = clamp(maxHudW / 440, 0.43, 1);
+  const top = Math.max(5, h * 0.008);
   c.save();
-  c.globalAlpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
-  const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
-  c.translate(CX, CY); c.scale(pop, pop);
-  c.font = '800 92px ' + THEME.font.display;
-  c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.lineWidth = 8;
-  c.strokeStyle = 'rgba(0,0,0,0.52)';
-  c.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); c.shadowBlur = 32;
-  if ('letterSpacing' in c) c.letterSpacing = '6px';
-  c.strokeText('GOAL!', 3, -6);
-  c.fillStyle = THEME.gold || '#d8a93f';
-  c.fillText('GOAL!', 3, -6);
+  c.translate(w * 0.5 - CX * hs, top);
+  c.scale(hs, hs);
+  drawScoreboard(c);
+  const status = hudStatusText();
+  // Every themed scoreboard fits above ~150 virtual px. y=164 leaves a
+  // deliberate breathing gap under even the tallest target plate.
+  if (status) drawPlaque(c, CX, 164, status, { size: 11, h: 25, track: 1.5, alpha: 0.92 });
   c.restore();
 }
 
-function renderTail(w, h) {
-  drawGoalTextVirtual(ctx);
-  drawHudCore(ctx);
-
-  const vg = ctx.createRadialGradient(CX, CY, VH * 0.42, CX, CY, VH * 0.95);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
-
-  if (G.state === 'menu') {
-    ctx.fillStyle = 'rgba(0,0,0,0.38)';
-    ctx.fillRect(0, 0, VW, VH);
-  }
+function drawCountdownScreen(c, w, h) {
+  if (G.state !== 'count') return;
+  const frac = (G.countT % 0.55) / 0.55;
+  const label = G.countT < 1.65 ? String(3 - Math.floor(G.countT / 0.55)) : 'GO!';
+  const pop = 1 + (1 - frac) * 0.55;
+  const fs = clamp(Math.min(w * 0.20, h * 0.16), 54, 120);
+  c.save();
+  c.globalAlpha = clamp(1.4 - frac, 0, 1);
+  c.translate(w * 0.5, h * 0.50); c.scale(pop, pop);
+  c.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillStyle = THEME.ink;
+  c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 24;
+  c.fillText(label, 0, 0);
+  c.restore();
 }
 
-function renderTail25(w, h) {
-  // The 2.5D scene is already in CSS-pixel screen space. Rendering its HUD
-  // through the top-down rink scale made text tiny and misplaced on phones.
-  if (G.letterT > 0) {
-    const alpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
-    const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
-    const fs = clamp(Math.min(w * 0.16, h * 0.11), 44, 92);
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(w * 0.5, h * 0.46); ctx.scale(pop, pop);
-    ctx.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.lineWidth = Math.max(4, fs * 0.08);
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-    ctx.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); ctx.shadowBlur = 28;
-    ctx.strokeText('GOAL!', 0, 0);
-    ctx.fillStyle = THEME.gold || '#d8a93f';
-    ctx.fillText('GOAL!', 0, 0);
-    ctx.restore();
+function drawGoalTextScreen(c, w, h) {
+  if (G.letterT <= 0) return;
+  const alpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
+  const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
+  const fs = clamp(Math.min(w * 0.16, h * 0.11), 44, 92);
+  c.save();
+  c.globalAlpha = alpha;
+  c.translate(w * 0.5, h * 0.48); c.scale(pop, pop);
+  c.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.lineWidth = Math.max(4, fs * 0.08);
+  c.strokeStyle = 'rgba(0,0,0,0.55)';
+  c.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); c.shadowBlur = 28;
+  c.strokeText('GOAL!', 0, 0);
+  c.fillStyle = THEME.gold || '#d8a93f';
+  c.fillText('GOAL!', 0, 0);
+  if (G.goalStreakLabel) {
+    c.shadowBlur = 0;
+    c.lineWidth = Math.max(2, fs * 0.035);
+    c.font = '700 ' + Math.max(12, fs * 0.22).toFixed(1) + 'px ' + THEME.font.body;
+    c.strokeStyle = 'rgba(0,0,0,0.60)';
+    c.strokeText(G.goalStreakLabel, 0, fs * 0.72);
+    c.fillStyle = THEME.ink;
+    c.fillText(G.goalStreakLabel, 0, fs * 0.72);
   }
+  c.restore();
+}
 
-  const hs = Math.min(1, Math.max(0.36, Math.min(w / 900, h / 620)));
-  ctx.save();
-  ctx.translate(w * 0.5 - CX * hs, Math.max(6, h * 0.012));
-  ctx.scale(hs, hs);
-  drawHudCore(ctx);
-  ctx.restore();
-
+function renderScreenTail(w, h) {
+  // Vignette belongs to the room, not the HUD. Draw it first so the score and
+  // status text remain crisp on every light/dark table.
   const vg = ctx.createRadialGradient(w * 0.5, h * 0.52, h * 0.28, w * 0.5, h * 0.52, h * 0.82);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
   vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
@@ -3388,7 +3411,13 @@ function renderTail25(w, h) {
     ctx.fillStyle = 'rgba(0,0,0,0.38)';
     ctx.fillRect(0, 0, w, h);
   }
+
+  drawGoalTextScreen(ctx, w, h);
+  drawCountdownScreen(ctx, w, h);
+  drawHudCore(ctx, w, h);
 }
+function renderTail(w, h) { renderScreenTail(w, h); }
+function renderTail25(w, h) { renderScreenTail(w, h); }
 
 // ---------- 2.5D view ----------
 // The playfield is staged flat on the offscreen canvas (affine only, so all
@@ -3412,7 +3441,6 @@ function render25(w, h) {
   drawFx25(cam);
   drawObjects25(cam);
   drawTexts25(cam);
-  drawCountdown25(cam);
   ctx.restore();
   renderTail25(w, h);
 }

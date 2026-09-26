@@ -585,7 +585,7 @@ function wireUI() {
   });
   $('btnWinMenu').addEventListener('click', quitToMenu);
   $('btnShareResult').addEventListener('click', shareResult);
-  $('replayOffer').addEventListener('click', () => Replay.startPending('goal'));
+  $('replayOffer').addEventListener('click', () => Replay.request());
   $('btnWinReplay').addEventListener('click', () => Replay.startPending('win'));
   $('replaySkip').addEventListener('click', () => Replay.finish());
   $('btnSound').addEventListener('click', () => {

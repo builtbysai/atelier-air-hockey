@@ -109,9 +109,20 @@ test('Pause and Audio are hidden while Preferences or Pause overlays are open', 
   assert.match(game, /G\.state = 'pause';[\s\S]*?topbar'\)\.classList\.add\('hidden'\)/);
 });
 
-test('rally and match-point feedback share one lane below the scoreboard', () => {
-  assert.match(game, /drawPlaque\(c, CX, 136, status/);
-  assert.match(game, /status = 'RALLY ' \+ G\.stats\.rally/);
+test('rally and match-point feedback share one calm lane below the scoreboard', () => {
+  assert.match(game, /drawPlaque\(c, CX, 164, status/);
+  assert.match(game, /G\.rallyHudN \+ ' HIT RALLY'/);
+  assert.match(game, /rallyN >= 5 && rallyN % 5 === 0/);
   assert.doesNotMatch(game, /RALLY ×/);
-  assert.match(game, /G\.mode === 'ai' \|\| G\.mode === '2p'/);
+});
+
+
+test('Match Rules detail is centered and compact labels remain visible on phones', () => {
+  assert.match(css, /\.rule-setting\{[^}]*text-align:center/);
+  assert.match(css, /\.rule-setting-head\{[^}]*text-align:center/);
+  assert.doesNotMatch(css, /\.rulebar small\{ display:none; \}/);
+});
+
+test('all overlays centrally hide gameplay chrome', () => {
+  assert.match(game, /function hideAll\(\)[\s\S]*?\$\('topbar'\)\.classList\.add\('hidden'\)/);
 });
