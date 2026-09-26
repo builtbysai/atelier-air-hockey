@@ -2,14 +2,49 @@
   "id": "./",
   "name": "Atelier Air Hockey",
   "short_name": "Air Hockey",
-  "description": "A handcrafted browser air-hockey game with nine art-directed tables.",
+  "description": "A handcrafted browser air-hockey game with ten art-directed tables, local rivals, two-player play, and peer-to-peer online matches.",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "any",
   "background_color": "#070606",
   "theme_color": "#070606",
+  "categories": ["games", "entertainment"],
   "prefer_related_applications": false,
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "shortcuts": [
+    {
+      "name": "Play vs House",
+      "short_name": "Vs House",
+      "description": "Start a local match against the house.",
+      "url": "./?play"
+    },
+    {
+      "name": "Two Players",
+      "short_name": "2 Players",
+      "description": "Start a same-screen two-player match.",
+      "url": "./?2p"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "./docs/screenshots/d10-v7-gameplay.png",
+      "sizes": "1440x900",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Atelier Air Hockey gameplay"
+    },
+    {
+      "src": "./docs/screenshots/m3-play.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "label": "Atelier Air Hockey on mobile"
+    }
+  ],
   "icons": [
     {
       "src": "./assets/icon-192.png",
@@ -24,9 +59,9 @@
       "purpose": "any"
     },
     {
-      "src": "./assets/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "./assets/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "maskable"
     },
     {

@@ -39,7 +39,7 @@ const Settings = {
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
   effects: 'full',     // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics
   goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
-  orientation: 'landscape', // 'landscape' | 'portrait' - board presentation (v24.2)
+  orientation: 'auto', // 'auto' | 'landscape' | 'portrait' - persisted display preference
   camera: 'top', // 'top' | 'elevated' | 'surface' - 2.5D camera (v25)
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
@@ -57,7 +57,7 @@ function loadSettings() {
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
-  if (!['landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'landscape';
+  if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
   // Audio sliders replace the old on/off preferences. Migrate old saves once,
   // then keep the booleans as derived compatibility gates for existing audio paths.
@@ -1226,15 +1226,13 @@ function resize() {
   view.w = w; view.h = h;
   // 2.5D camera: the camera IS the presentation when active.
   view.camera = ['top', 'elevated', 'surface'].includes(Settings.camera) ? Settings.camera : 'top';
-  // Board orientation is a persisted setting and the single source of truth
-  // for the top-down view: 'portrait' forces the rotated presentation on any
-  // screen, 'landscape' (default) keeps the rink unrotated on any screen. No
-  // auto-override by screen shape - the toggle must do what it says on every
-  // device. In 2.5D the camera is the whole presentation, so the orientation
-  // toggle is parked (the settings UI disables it there) and the affine fit
-  // stays landscape - the game space itself stays landscape either way and
-  // physics and AI never see the rotation (screenToRink inverts it for input).
-  view.portrait = view.camera === 'top' && Settings.orientation === 'portrait';
+  // Auto follows the actual viewport shape. Explicit Portrait/Landscape
+  // choices override it and persist. 2.5D cameras fit directly to the physical
+  // viewport; ui.js also offers this preference to the Screen Orientation API
+  // when an installed/fullscreen app supports locking.
+  const wantsPortrait = Settings.orientation === 'portrait' ||
+    (Settings.orientation === 'auto' && h > w);
+  view.portrait = view.camera === 'top' && wantsPortrait;
   if (!view.portrait) {
     view.s = Math.min(w / VW, h / VH);
     view.ox = (w - VW * view.s) / 2; view.oy = (h - VH * view.s) / 2;
@@ -1260,6 +1258,15 @@ const CAM_PRESETS = {
   elevated: { c: [-650, CY, 720], look: [760, CY, 0] },
   surface: { c: [-60, CY, 170], look: [950, CY, 0] },
 };
+function cameraPresetForViewport(name, w, h) {
+  const base = CAM_PRESETS[name];
+  if (!base) return null;
+  // The original Surface camera is excellent on wide screens but compresses
+  // a portrait phone into a thin strip. Lift it only on tall displays.
+  if (name === 'surface' && h > w * 1.15)
+    return { c: [-90, CY, 360], look: [920, CY, 0] };
+  return base;
+}
 const TX1 = TX0 + PW + RAIL * 2, TY1 = TY0 + PH + RAIL * 2; // table footprint
 function v3sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 function v3cross(a, b) {
@@ -1272,7 +1279,7 @@ function v3norm(a) {
 // Build a fitted camera. flip mirrors it behind the other end so the online
 // guest plays from their own side, exactly like the top-down mirror.
 function makeCamera(presetName, w, h, flip) {
-  const pr = CAM_PRESETS[presetName];
+  const pr = cameraPresetForViewport(presetName, w, h);
   if (!pr || !w || !h) return null;
   const mx = flip ? VW : 0, ms = flip ? -1 : 1;
   const C = [mx + ms * pr.c[0], pr.c[1], pr.c[2]];
@@ -1280,7 +1287,8 @@ function makeCamera(presetName, w, h, flip) {
   const fwd = v3norm(v3sub(L, C));
   const right = v3norm(v3cross(fwd, [0, 0, 1]));
   const up = v3cross(right, fwd);
-  // project with f=1, fit the footprint (+ mallet-handle clearance) to the viewport
+  // Fit everything that can visibly extend beyond the surface: table body,
+  // goal pockets and the compact striker grip.
   const p1 = (x, y, z) => {
     const dx = x - C[0], dy = y - C[1], dz = z - C[2];
     const Xc = dx * right[0] + dy * right[1] + dz * right[2];
@@ -1288,16 +1296,20 @@ function makeCamera(presetName, w, h, flip) {
     const Zc = dx * fwd[0] + dy * fwd[1] + dz * fwd[2];
     return [Xc / Zc, Yc / Zc];
   };
-  const pts = [[TX0, TY0, 0], [TX1, TY0, 0], [TX0, TY1, 0], [TX1, TY1, 0], [CX, CY, 130]]
-    .map(([x, y, z]) => p1(x, y, z));
+  const pad = presetName === 'surface' ? 62 : 48;
+  const xL = TX0 - pad, xR = TX1 + pad, yT = TY0 - pad, yB = TY1 + pad;
+  const pts = [
+    [xL, yT, 0], [xR, yT, 0], [xL, yB, 0], [xR, yB, 0],
+    [xL, yT, -50], [xL, yB, -50], [xR, yT, -50], [xR, yB, -50],
+    [CX, CY, 64]
+  ].map(([x, y, z]) => p1(x, y, z));
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   for (const [px, py] of pts) {
     if (px < x0) x0 = px; if (px > x1) x1 = px;
     if (py < y0) y0 = py; if (py > y1) y1 = py;
   }
-  // The scoreboard, chips and hint bar live in unwarped screen space, so the
-  // footprint is fitted into the clear band below them, not the raw viewport.
-  const bL = 0.03 * w, bT = 0.175 * h, bR = 0.97 * w, bB = 0.955 * h;
+  const bL = 0.025 * w, bT = (h > w ? 0.14 : 0.16) * h;
+  const bR = 0.975 * w, bB = 0.965 * h;
   const f = Math.min((bR - bL) / (x1 - x0), (bB - bT) / (y1 - y0));
   return { C, fwd, right, up, f, cx: (bL + bR) / 2 - f * (x0 + x1) / 2, cy: (bT + bB) / 2 + f * (y0 + y1) / 2 };
 }
@@ -3102,69 +3114,96 @@ function renderTop(w, h) {
   renderTail(w, h);
 }
 
-// Screen-space tail shared by every camera: letterbox GOAL ceremony,
-// scoreboard, rally and match-point chips, vignette, menu dim.
-function renderTail(w, h) {
-  // letterbox + GOAL! - the reserved channel (stable screen space, above the zoom).
-  // Under reduced motion the banner arrives without the spring (bars fade in
-  // instead of sliding, GOAL! appears at rest size).
-  if (G.letterT > 0) {
-    const be = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT, 0, 1));
-    const bh = 120 * be;
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.88)';
-    ctx.fillRect(0, 0, VW, bh); ctx.fillRect(0, VH - bh, VW, bh);
-    ctx.globalAlpha = clamp((G.letterT - 0.25) * 2.4, 0, 1);
-    const zp = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.2) * 1.6, 0, 1));
-    ctx.translate(CX, CY); ctx.scale(zp, zp);
-    ctx.font = '800 92px ' + THEME.font.display;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = THEME.gold || '#d8a93f';
-    ctx.shadowColor = 'rgba(0,0,0,0.7)'; ctx.shadowBlur = 30;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = '6px';
-    ctx.fillText('GOAL!', 3, -6); // screen space - never flipped (+3 recenters the tracked type)
-    ctx.restore();
-  }
+// Shared top-down HUD. The goal ceremony deliberately leaves the table
+// visible instead of covering it with opaque black letterbox bars.
+function drawHudCore(c) {
+  drawScoreboard(c);
 
-  drawScoreboard(ctx);
+  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4)
+    drawPlaque(c, 150, 71, 'RALLY ×' + G.stats.rally);
 
-  // rally counter: consecutive hits without a goal - shown once it matters.
-  // It lives in the top-left margin as its own pill chip, OUTSIDE the
-  // scoreboard band: every scoreboard device is centered (~CX±200) and draws
-  // labels/plates at its own y, so the old centered slot collided with them
-  // (seen on reels/deco once rally >= 4). The margin slot can never collide
-  // on any theme, device, orientation, or rally count - the pill sizes
-  // itself to the text. Rendered through the shared plaque language so the
-  // room speaks with one visual voice.
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4) {
-    drawPlaque(ctx, 150, 71, 'RALLY ×' + G.stats.rally);
-  }
-
-  // match-point ribbon - theme-agnostic plaque under the scoreboard. It
-  // cannot collide with the rally chip (the chip lives in the left margin).
-  // Labels via sideLabel so exhibition names both AIs instead of "YOU".
   if ((G.state === 'play' || G.state === 'count') && !G.demo) {
     const t = Settings.firstTo;
     const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
     if (m0 || m1) {
       const who = (m0 && m1) ? 'NEXT GOAL WINS'
         : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ': MATCH POINT')
-        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT') // ONLINE
-        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT'); // ai + watch (exhibition names the AI)
-      drawPlaque(ctx, CX, 78, who);
+        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT')
+        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT');
+      drawPlaque(c, CX, 78, who);
     }
   }
+}
 
-  // vignette
+function drawGoalTextVirtual(c) {
+  if (G.letterT <= 0) return;
+  c.save();
+  c.globalAlpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
+  const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
+  c.translate(CX, CY); c.scale(pop, pop);
+  c.font = '800 92px ' + THEME.font.display;
+  c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.lineWidth = 8;
+  c.strokeStyle = 'rgba(0,0,0,0.52)';
+  c.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); c.shadowBlur = 32;
+  if ('letterSpacing' in c) c.letterSpacing = '6px';
+  c.strokeText('GOAL!', 3, -6);
+  c.fillStyle = THEME.gold || '#d8a93f';
+  c.fillText('GOAL!', 3, -6);
+  c.restore();
+}
+
+function renderTail(w, h) {
+  drawGoalTextVirtual(ctx);
+  drawHudCore(ctx);
+
   const vg = ctx.createRadialGradient(CX, CY, VH * 0.42, CX, CY, VH * 0.95);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
   vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
 
-  // dim the attract game behind the menu
   if (G.state === 'menu') {
     ctx.fillStyle = 'rgba(0,0,0,0.38)';
     ctx.fillRect(0, 0, VW, VH);
+  }
+}
+
+function renderTail25(w, h) {
+  // The 2.5D scene is already in CSS-pixel screen space. Rendering its HUD
+  // through the top-down rink scale made text tiny and misplaced on phones.
+  if (G.letterT > 0) {
+    const alpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
+    const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
+    const fs = clamp(Math.min(w * 0.16, h * 0.11), 44, 92);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(w * 0.5, h * 0.46); ctx.scale(pop, pop);
+    ctx.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = Math.max(4, fs * 0.08);
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); ctx.shadowBlur = 28;
+    ctx.strokeText('GOAL!', 0, 0);
+    ctx.fillStyle = THEME.gold || '#d8a93f';
+    ctx.fillText('GOAL!', 0, 0);
+    ctx.restore();
+  }
+
+  const hs = Math.min(1, Math.max(0.36, Math.min(w / 900, h / 620)));
+  ctx.save();
+  ctx.translate(w * 0.5 - CX * hs, Math.max(6, h * 0.012));
+  ctx.scale(hs, hs);
+  drawHudCore(ctx);
+  ctx.restore();
+
+  const vg = ctx.createRadialGradient(w * 0.5, h * 0.52, h * 0.28, w * 0.5, h * 0.52, h * 0.82);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, THEME.vignette || 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
+
+  if (G.state === 'menu') {
+    ctx.fillStyle = 'rgba(0,0,0,0.38)';
+    ctx.fillRect(0, 0, w, h);
   }
 }
 
@@ -3192,14 +3231,7 @@ function render25(w, h) {
   drawTexts25(cam);
   drawCountdown25(cam);
   ctx.restore();
-  // Screen-space tail uses virtual 1440x900 coordinates (CX=720 etc).
-  // renderTop leaves the view scale active for it; the 2.5D path restored
-  // to baseline, which drew the scoreboard/GOAL! off-screen on narrow
-  // viewports (mobile). Apply the view mapping first.
-  ctx.save();
-  ctx.translate(view.ox, view.oy); ctx.scale(view.s, view.s);
-  renderTail(w, h);
-  ctx.restore();
+  renderTail25(w, h);
 }
 
 // The table gets a real body: near and side faces extruded below the surface
@@ -3382,7 +3414,7 @@ function drawObjects25(cam) {
 }
 
 const PUCK_H25 = 20;   // puck thickness in rink units
-const HANDLE_H25 = 110; // mallet handle height in rink units
+const HANDLE_H25 = 48; // compact air-hockey grip height in rink units
 
 // The puck as a short cylinder: dark wall, theme-dressed top, spin cue.
 function drawPuck25(cam) {
@@ -3435,36 +3467,62 @@ function drawPuck25(cam) {
 // wooden handle with a knob, like a real air hockey mallet.
 function drawMallet25(cam, m) {
   const S = THEME.mallet, r = m.r;
-  const b = tableEll25(cam, m.x, m.y, 0, r);
-  const t = camProject(cam, m.x, m.y, HANDLE_H25);
-  if (!b || !t) return;
-  // base disc keeps the theme's full mallet identity
-  const brx = b.rx, bry = b.ry;
-  const g = ctx.createRadialGradient(b.x - brx * 0.3, b.y - bry * 0.35, brx * 0.1, b.x, b.y, brx);
+  const base = tableEll25(cam, m.x, m.y, 0, r);
+  const neck = tableEll25(cam, m.x, m.y, 18, r * 0.34);
+  const cap = tableEll25(cam, m.x, m.y, HANDLE_H25, r * 0.24);
+  if (!base || !neck || !cap) return;
+
+  const g = ctx.createRadialGradient(base.x - base.rx * 0.3, base.y - base.ry * 0.35, base.rx * 0.1, base.x, base.y, base.rx);
   g.addColorStop(0, S.hi); g.addColorStop(0.6, S.base); g.addColorStop(1, S.edge);
   ctx.fillStyle = g;
-  ctx.beginPath(); ctx.ellipse(b.x, b.y, brx, bry, 0, 0, TAU); ctx.fill();
-  ctx.lineWidth = Math.max(1.5, 3 * b.s);
+  ctx.beginPath(); ctx.ellipse(base.x, base.y, base.rx, base.ry, 0, 0, TAU); ctx.fill();
+  ctx.lineWidth = Math.max(1.5, 3 * base.s);
   ctx.strokeStyle = S.ring; ctx.stroke();
-  // dish
-  const dg = ctx.createRadialGradient(b.x - brx * 0.13, b.y - bry * 0.17, 2, b.x, b.y, brx * 0.62);
+
+  const dg = ctx.createRadialGradient(base.x - base.rx * 0.13, base.y - base.ry * 0.17, 2, base.x, base.y, base.rx * 0.62);
   dg.addColorStop(0, S.dishHi); dg.addColorStop(1, S.dish);
   ctx.fillStyle = dg;
-  ctx.beginPath(); ctx.ellipse(b.x, b.y, brx * 0.62, bry * 0.62, 0, 0, TAU); ctx.fill();
-  // handle: a tapered post rising from the disc to the knob
-  const w0 = brx * 0.30, w1 = Math.max(2, brx * 0.22 * (t.s / b.s));
-  const hg = ctx.createLinearGradient(t.x, t.y, b.x, b.y);
-  hg.addColorStop(0, '#7a5638'); hg.addColorStop(1, '#4a3220');
-  ctx.fillStyle = hg;
+  ctx.beginPath(); ctx.ellipse(base.x, base.y, base.rx * 0.62, base.ry * 0.62, 0, 0, TAU); ctx.fill();
+
+  // A real air-hockey pusher has a short molded grip. The old tall post
+  // became a long visual obstruction in the low Surface camera.
+  ctx.fillStyle = S.knob || S.edge;
   ctx.beginPath();
-  ctx.moveTo(t.x - w1, t.y); ctx.lineTo(t.x + w1, t.y);
-  ctx.lineTo(b.x + w0, b.y); ctx.lineTo(b.x - w0, b.y);
+  ctx.moveTo(neck.x - neck.rx, neck.y);
+  ctx.lineTo(cap.x - cap.rx, cap.y);
+  ctx.lineTo(cap.x + cap.rx, cap.y);
+  ctx.lineTo(neck.x + neck.rx, neck.y);
   ctx.closePath(); ctx.fill();
-  // knob
-  const kg = ctx.createRadialGradient(t.x - w1 * 0.3, t.y - w1 * 0.3, 1, t.x, t.y, w1 * 1.3);
-  kg.addColorStop(0, '#8a6544'); kg.addColorStop(1, '#4a3220');
+
+  const kg = ctx.createRadialGradient(cap.x - cap.rx * 0.28, cap.y - cap.ry * 0.3, 1, cap.x, cap.y, cap.rx * 1.2);
+  kg.addColorStop(0, S.knobHi || S.hi); kg.addColorStop(1, S.knob || S.edge);
   ctx.fillStyle = kg;
-  ctx.beginPath(); ctx.ellipse(t.x, t.y, w1 * 1.3, w1 * 1.15, 0, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cap.x, cap.y, cap.rx * 1.15, Math.max(2, cap.ry * 1.15), 0, 0, TAU); ctx.fill();
+  ctx.lineWidth = Math.max(1, 1.6 * cap.s); ctx.strokeStyle = S.ring; ctx.stroke();
+}
+
+function drawGoalPocket25(cam, side) {
+  const frontX = side === 0 ? PX : PX + PW;
+  const backX = frontX + (side === 0 ? -72 : 72);
+  const half = goalW() / 2;
+  const pts = [
+    camProject(cam, frontX, CY - half, 0),
+    camProject(cam, backX, CY - half, -14),
+    camProject(cam, backX, CY + half, -14),
+    camProject(cam, frontX, CY + half, 0),
+  ];
+  if (pts.some(p => !p)) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,4,7,0.76)';
+  ctx.strokeStyle = THEME.gold || '#d8a93f';
+  ctx.globalAlpha = 0.9;
+  ctx.lineWidth = Math.max(1, 2 * (pts[0].s + pts[3].s) / 2);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 0.42; ctx.stroke();
+  ctx.restore();
 }
 
 // Table-bound dynamics in the 2.5D view: everything drawTableFlat draws
@@ -3524,9 +3582,9 @@ function drawDynTable25(cam) {
       ctx.restore();
     }
   }
-  // goal trim: theme art staged small and warped per frame (cheap: the mouth
-  // region needs only a handful of strips). The rattle jitter bakes into the
-  // staging, exactly like the flat view.
+  // Recessed goal pockets keep both mouths legible in low-angle views.
+  for (let side = 0; side < 2; side++) drawGoalPocket25(cam, side);
+  // Theme trim remains on top so every room keeps its identity.
   for (let side = 0; side < 2; side++) drawTrim25(cam, side);
   // goal-frame flash: the scored-on frame lights up in theme gold
   if (G.goalFrameT > 0 && fxFlash()) {
@@ -3666,9 +3724,11 @@ function drawCountdown25(cam) {
   const pop = 1 + (1 - frac) * 0.55;
   const p = camProject(cam, CX, CY - 40, 120);
   if (!p) return;
+  const minPx = view.camera === 'surface' ? 46 : 40;
+  const fontPx = clamp(120 * p.s * pop, minPx, 118);
   ctx.save();
   ctx.globalAlpha = clamp(1.4 - frac, 0, 1);
-  ctx.font = '800 ' + (120 * p.s * pop).toFixed(1) + 'px ' + THEME.font.display;
+  ctx.font = '800 ' + fontPx.toFixed(1) + 'px ' + THEME.font.display;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = THEME.ink;
   ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24;
@@ -3683,14 +3743,17 @@ function drawTexts25(cam) {
     const a = 1 - t.t / 1.1;
     const p = camProject(cam, t.x, t.y, 50);
     if (!p) continue;
-    const size = Math.max(8, t.size * p.s);
+    const minPx = view.camera === 'surface' ? 17 : 14;
+    const size = clamp(t.size * p.s * 1.08, minPx, 64);
     ctx.save();
     ctx.globalAlpha = clamp(a, 0, 1);
     ctx.font = '800 ' + size.toFixed(1) + 'px ' + THEME.font.display;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = 'rgba(15,10,5,0.85)';
-    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 12;
-    ctx.fillText(t.str, p.x, p.y);
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(2.5, size * 0.085);
+    ctx.strokeStyle = 'rgba(7,5,4,0.72)';
+    ctx.shadowColor = 'rgba(0,0,0,0.68)'; ctx.shadowBlur = Math.max(8, size * 0.28);
+    ctx.strokeText(t.str, p.x, p.y);
     ctx.shadowBlur = 0;
     ctx.fillStyle = t.color;
     ctx.fillText(t.str, p.x, p.y);

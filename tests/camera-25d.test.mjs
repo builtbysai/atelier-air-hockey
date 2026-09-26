@@ -180,3 +180,40 @@ test('tableEll25 gives exact per-axis depth scales', async () => {
     }
   }
 });
+
+
+test('Surface keeps meaningful depth on portrait phones', async () => {
+  const C = await loadCamera();
+  const cam = C.makeCamera('surface', 390, 844, false);
+  const near = C.camProject(cam, C.TX0, C.CY, 0);
+  const far = C.camProject(cam, C.TX1, C.CY, 0);
+  assert.ok(near.y - far.y > 90,
+    'Surface should no longer collapse into a thin horizontal strip on portrait');
+});
+
+test('Surface goal pockets fit inside the viewport', async () => {
+  const C = await loadCamera();
+  for (const [w, h] of [[390, 844], [1440, 900]]) {
+    const cam = C.makeCamera('surface', w, h, false);
+    const half = 100; // standard goal mouth
+    for (const side of [0, 1]) {
+      const frontX = side === 0 ? C.PX : C.PX + C.PW;
+      const backX = frontX + (side === 0 ? -72 : 72);
+      for (const [x, y, z] of [
+        [frontX, C.CY - half, 0], [frontX, C.CY + half, 0],
+        [backX, C.CY - half, -14], [backX, C.CY + half, -14],
+      ]) {
+        const p = C.camProject(cam, x, y, z);
+        assert.ok(p && p.x > 0 && p.x < w && p.y > 0 && p.y < h,
+          `goal pocket point should remain visible at ${w}x${h}`);
+      }
+    }
+  }
+});
+
+test('2.5D mallet uses a compact grip rather than a tall post', async () => {
+  const src = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  assert.match(src, /const HANDLE_H25 = 48;/);
+  assert.match(src, /function drawGoalPocket25/);
+  assert.doesNotMatch(src, /#7a5638/, 'old wooden handle styling should be removed');
+});

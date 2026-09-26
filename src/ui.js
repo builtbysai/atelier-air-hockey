@@ -74,6 +74,30 @@ function paintThumbnails() {
   });
 }
 
+// Orientation locking is best-effort. It is most consistently available in
+// installed/fullscreen experiences; normal browser tabs keep responsive Auto.
+function appDisplayMode() {
+  try {
+    return (window.matchMedia && (
+      matchMedia('(display-mode: fullscreen)').matches ||
+      matchMedia('(display-mode: standalone)').matches
+    )) || navigator.standalone === true || !!document.fullscreenElement;
+  } catch (e) { return false; }
+}
+function applyScreenOrientationPreference() {
+  try {
+    const so = screen && screen.orientation;
+    if (!so) return;
+    if (Settings.orientation === 'auto') {
+      if (typeof so.unlock === 'function') so.unlock();
+      return;
+    }
+    if (!appDisplayMode() || typeof so.lock !== 'function') return;
+    const p = so.lock(Settings.orientation);
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+
 // ---------- settings ----------
 function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
@@ -91,8 +115,9 @@ function setSetting(key, val) {
   // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
-  // board orientation and camera re-fit the view immediately (visual only -
-  // physics, AI, and net sync are untouched, so both are safe mid-match)
+  if (key === 'orientation') applyScreenOrientationPreference();
+  // Orientation and camera only change presentation. Physics, AI and net
+  // state remain in the same flat rink coordinates.
   if (key === 'orientation' || key === 'camera') { try { resize(); } catch (e) {} }
 }
 function applySettingsToUI() {
@@ -106,10 +131,9 @@ function applySettingsToUI() {
     btn.disabled = !canVibrate;
     btn.title = canVibrate ? '' : 'Haptics are not available on this device';
   });
-  // Board orientation only affects top-down. Hide the whole row while it is
-  // irrelevant; the stored choice returns unchanged when top-down is restored.
-  const boardRow = $('boardRow');
-  if (boardRow) boardRow.classList.toggle('hidden', Settings.camera !== 'top');
+  // Orientation is meaningful for every camera. Top-down rotates the board
+  // internally; installed/fullscreen PWAs can also request device orientation
+  // for the 2.5D cameras through the Screen Orientation API.
   // ONLINE: match rules are agreed at match start - lock them mid-match so
   // peers can't desynchronize. setSetting also refuses these; the disabled
   // state makes the lock visible instead of a silent no-op.
@@ -602,6 +626,7 @@ function wireUI() {
 // ---------- boot ----------
 function boot() {
   loadSettings();
+  applyScreenOrientationPreference();
   Record.load(); Best.load(); Feats.load(); Tour.load();
   refreshRecordLines(); // paint any stored records under the menu buttons
   refreshTour(); // tour counter + conquered-table pips
@@ -635,6 +660,10 @@ function boot() {
   } catch (e) {}
   requestAnimationFrame(frame);
   requestAnimationFrame(keyboardGamepadDrive);
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(e => console.warn('Service worker registration failed', e));
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => { try { reg.update(); } catch (e) {} })
+      .catch(e => console.warn('Service worker registration failed', e));
+  }
 }
 document.addEventListener('DOMContentLoaded', boot);
