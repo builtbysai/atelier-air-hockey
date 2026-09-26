@@ -66,6 +66,18 @@
   }
   .replay-hud button:active{ opacity:.65; }
 
+  .replay-offer{
+    position:fixed; left:50%;
+    bottom:calc(18px + env(safe-area-inset-bottom));
+    transform:translateX(-50%); z-index:32;
+    min-height:40px; padding:0 16px; border-radius:999px;
+    border:1px solid var(--pline); background:rgba(12,9,6,0.84); color:var(--title);
+    font:700 12px var(--body); letter-spacing:.55px; cursor:pointer;
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    box-shadow:0 8px 24px rgba(0,0,0,.24);
+  }
+  .replay-offer:active{ transform:translateX(-50%) scale(.96); }
+
   #hint{
     position:fixed; left:50%; bottom:18px; bottom:calc(18px + env(safe-area-inset-bottom));
     transform:translateX(-50%); z-index:25; pointer-events:none;
@@ -147,21 +159,21 @@
   /* v21: the explicit start button - the one primary action on the menu */
   .btn.bigstart{ margin-top:12px; padding:16px 16px; font-size:18px; font-weight:800; letter-spacing:1px; }
   .rulebar{
-    width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px;
-    margin:6px 0 0; padding:10px 12px; border-radius:10px;
+    width:100%; display:block; margin:6px 0 0; padding:11px 10px; border-radius:10px;
     border:1px solid var(--pline); background:transparent; color:var(--title);
-    font-family:var(--body); text-align:left; cursor:pointer;
+    font-family:var(--body); cursor:pointer;
   }
-  .rule-summary-grid{ flex:1 1 auto; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
-  .rule-summary-grid > span{ min-width:0; padding:0 10px; border-right:1px solid color-mix(in srgb,var(--pline) 55%,transparent); }
-  .rule-summary-grid > span:first-child{ padding-left:0; }
+  .rule-summary-grid{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); width:100%; }
+  .rule-summary-grid > span{
+    min-width:0; padding:0 10px; text-align:center;
+    border-right:1px solid color-mix(in srgb,var(--pline) 55%,transparent);
+  }
   .rule-summary-grid > span:last-child{ border-right:0; }
   .rule-summary-grid small{ display:block; color:var(--sub); font-size:9px; letter-spacing:1.7px; }
   .rule-summary-grid strong{
     display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
     font-size:13px; font-weight:700; letter-spacing:.15px;
   }
-  .rulebar .ruleedit{ flex:0 0 auto; margin-left:4px; font-size:11px; text-decoration:underline; text-underline-offset:2px; }
   .rulebar:active{ transform:scale(.985); background:var(--ghost); }
   .touch-controls{ display:none; }
   #tourCount.tourpill{
