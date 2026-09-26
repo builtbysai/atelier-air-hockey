@@ -38,6 +38,7 @@
 
 <!-- first-time hint: one line on the first local match, gone forever after the first goal -->
 <div id="hint" class="hidden">Drag to move your mallet</div>
+<button id="replaySkip" class="replay-skip hidden" type="button">Skip replay</button>
 
 <div class="overlay" id="menu">
   <div class="card menusheet">
@@ -175,6 +176,13 @@
         <button data-set="effects" data-val="minimal">Minimal</button>
         <button data-set="effects" data-val="subtle">Subtle</button>
         <button data-set="effects" data-val="full">Full</button>
+      </div>
+    </div>
+    <div class="setrow">
+      <div class="setlabel">Instant replay</div>
+      <div class="seg">
+        <button data-set="instantReplay" data-val="off">Off</button>
+        <button data-set="instantReplay" data-val="goals">Goals</button>
       </div>
     </div>
     <div class="seclabel">AUDIO</div>
