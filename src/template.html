@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v26-pwa-25d">
+<html lang="en" data-build="v27-regression-qa">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -33,12 +33,15 @@
   <span class="connchip hidden" id="connChip" title="Connection quality"><i class="unknown"></i><em>–ms</em></span>
   <button class="iconbtn" id="btnPause" title="Pause (P)" aria-label="Pause">&#10074;&#10074;</button>
   <button class="iconbtn" id="btnSound" title="Mute all (M)" aria-label="Mute all audio">&#9834;</button>
-  <button class="iconbtn" id="btnMenu2" title="Pause menu" aria-label="Pause menu">&equiv;</button>
 </div>
 
 <!-- first-time hint: one line on the first local match, gone forever after the first goal -->
 <div id="hint" class="hidden">Drag to move your mallet</div>
-<button id="replaySkip" class="replay-skip hidden" type="button">Skip replay</button>
+<div id="replayHud" class="replay-hud hidden" role="status" aria-live="polite">
+  <span class="replay-word">REPLAY</span>
+  <span class="replay-progress" aria-hidden="true"><i id="replayProgress"></i></span>
+  <button id="replaySkip" type="button">Skip</button>
+</div>
 
 <div class="overlay" id="menu">
   <div class="card menusheet">
@@ -87,8 +90,12 @@
           </div>
         </div>
         <div class="seclabel">MATCH RULES</div>
-        <button class="rulebar" id="btnRules" type="button">
-          <span><strong id="ruleSummary">First to 7 · Classic · Standard</strong><small>SCORE · PUCK PACE · GOAL MOUTH</small></span>
+        <button class="rulebar" id="btnRules" type="button" aria-label="Edit match rules">
+          <span class="rule-summary-grid">
+            <span><small>SCORE</small><strong id="ruleSumScore">7</strong></span>
+            <span><small>PACE</small><strong id="ruleSumPace">Classic</strong></span>
+            <span><small>GOAL</small><strong id="ruleSumGoal">Standard</strong></span>
+          </span>
           <span class="ruleedit">Edit</span>
         </button>
         <button class="btn primary bigstart" id="btnStart"><span id="startLabel">START MATCH</span><small id="startSub">CLUB PRO · FIRST TO 7</small></button>
@@ -124,35 +131,37 @@
 </div>
 
 <div class="overlay hidden" id="rules" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
-  <div class="card">
+  <div class="card rules-card">
     <div class="kicker">MATCH RULES</div>
     <h1 id="rulesTitle">Set the table.</h1>
-    <p class="tagline">These rules apply to the next match.</p>
-    <div class="setrow">
-      <div class="setlabel">First to</div>
-      <div class="seg">
-        <button data-set="firstTo" data-val="5">5</button>
-        <button data-set="firstTo" data-val="7">7</button>
-        <button data-set="firstTo" data-val="11">11</button>
-      </div>
+    <p class="tagline">Choose how the next match plays.</p>
+    <div class="rules-grid">
+      <section class="rule-setting">
+        <div class="rule-setting-head"><span>Score</span><strong id="ruleCurrentFirst">First to 7</strong></div>
+        <div class="seg">
+          <button data-set="firstTo" data-val="5">5</button>
+          <button data-set="firstTo" data-val="7">7</button>
+          <button data-set="firstTo" data-val="11">11</button>
+        </div>
+      </section>
+      <section class="rule-setting">
+        <div class="rule-setting-head"><span>Puck pace</span><strong id="ruleCurrentPace">Classic</strong></div>
+        <div class="seg">
+          <button data-set="pace" data-val="casual">Casual</button>
+          <button data-set="pace" data-val="classic">Classic</button>
+          <button data-set="pace" data-val="lightning">Lightning</button>
+        </div>
+      </section>
+      <section class="rule-setting">
+        <div class="rule-setting-head"><span>Goal mouth</span><strong id="ruleCurrentGoal">Standard</strong></div>
+        <div class="seg">
+          <button data-set="goalW" data-val="narrow">Narrow</button>
+          <button data-set="goalW" data-val="standard">Standard</button>
+          <button data-set="goalW" data-val="wide">Wide</button>
+        </div>
+      </section>
     </div>
-    <div class="setrow">
-      <div class="setlabel">Puck pace</div>
-      <div class="seg">
-        <button data-set="pace" data-val="casual">Casual</button>
-        <button data-set="pace" data-val="classic">Classic</button>
-        <button data-set="pace" data-val="lightning">Lightning</button>
-      </div>
-    </div>
-    <div class="setrow">
-      <div class="setlabel">Goal mouth</div>
-      <div class="seg">
-        <button data-set="goalW" data-val="narrow">Narrow</button>
-        <button data-set="goalW" data-val="standard">Standard</button>
-        <button data-set="goalW" data-val="wide">Wide</button>
-      </div>
-    </div>
-    <button class="btn primary" id="rulesClose" style="margin-top:16px">Done</button>
+    <button class="btn primary" id="rulesClose">Done</button>
   </div>
 </div>
 
@@ -218,13 +227,14 @@
       </div>
     </div>
     <div class="setrow" id="boardRow">
-      <div class="setlabel">Orientation</div>
+      <div class="setlabel" id="orientationLabel">Board orientation</div>
       <div class="seg">
         <button data-set="orientation" data-val="auto">Auto</button>
         <button data-set="orientation" data-val="portrait">Portrait</button>
         <button data-set="orientation" data-val="landscape">Landscape</button>
       </div>
     </div>
+    <div class="setnote hidden" id="orientationNote"></div>
     <button class="btn primary" id="settingsClose" style="margin-top:16px">Done</button>
   </div>
 </div>

@@ -1,4 +1,4 @@
-const CACHE = 'atelier-air-hockey-v26';
+const CACHE = 'atelier-air-hockey-v27';
 const CORE = [
   './',
   './index.html',
@@ -52,6 +52,19 @@ async function networkFirstNavigation(request) {
   }
 }
 
+async function networkFirstAsset(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE);
+      await cache.put(request, response.clone());
+    }
+    return response;
+  } catch (error) {
+    return (await caches.match(request)) || Response.error();
+  }
+}
+
 async function staleWhileRevalidate(request, event) {
   const cached = await caches.match(request);
   const update = fetch(request)
@@ -78,6 +91,13 @@ self.addEventListener('fetch', event => {
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirstNavigation(request));
+    return;
+  }
+
+  // Game code and styles should never launch one version behind when online.
+  // Network-first keeps installed PWAs current while preserving offline fallback.
+  if (/\.(?:js|css|webmanifest)$/.test(url.pathname)) {
+    event.respondWith(networkFirstAsset(request));
     return;
   }
 

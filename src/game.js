@@ -1198,7 +1198,8 @@ const Replay = {
   reset() {
     this.frames.length = 0; this.clip = null; this.active = false;
     this.acc = 0; this.elapsed = 0; this.scorer = -1;
-    const b = document.getElementById('replaySkip'); if (b) b.classList.add('hidden');
+    const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
+    const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
   },
   snapshot() {
     const body = m => ({ x:m.x, y:m.y, vx:m.vx, vy:m.vy });
@@ -1225,7 +1226,8 @@ const Replay = {
     this.elapsed = 0; this.scorer = scorer; this.active = true;
     G.state = 'replay';
     $('topbar').classList.add('hidden');
-    const b = document.getElementById('replaySkip'); if (b) b.classList.remove('hidden');
+    const hud = document.getElementById('replayHud'); if (hud) hud.classList.remove('hidden');
+    const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     return true;
   },
   duration() {
@@ -1241,13 +1243,17 @@ const Replay = {
   update(dt) {
     if (!this.active) return;
     this.elapsed += dt;
-    if (this.elapsed >= this.duration()) this.finish();
+    const duration = this.duration();
+    const progress = document.getElementById('replayProgress');
+    if (progress) progress.style.transform = 'scaleX(' + clamp(duration > 0 ? this.elapsed / duration : 0, 0, 1).toFixed(3) + ')';
+    if (this.elapsed >= duration) this.finish();
   },
   finish() {
     if (!this.active) return;
     const scorer = this.scorer;
     this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1;
-    const b = document.getElementById('replaySkip'); if (b) b.classList.add('hidden');
+    const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
+    const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     beginGoalCeremony(scorer);
   },
   applyFrame() {
@@ -1370,11 +1376,23 @@ const CAM_PRESETS = {
 function cameraPresetForViewport(name, w, h) {
   const base = CAM_PRESETS[name];
   if (!base) return null;
-  // The original Surface camera is excellent on wide screens but compresses
-  // a portrait phone into a thin strip. Lift it only on tall displays.
-  if (name === 'surface' && h > w * 1.15)
-    return { c: [-90, CY, 360], look: [920, CY, 0] };
-  return base;
+  if (name !== 'surface' || !w || !h) return base;
+  // Surface stays low and cinematic on wide displays, then progressively
+  // opens up as the viewport becomes portrait. This avoids both the old thin
+  // strip and the abrupt camera jump at a single aspect-ratio threshold.
+  const portraitMix = clamp((h / w - 1.0) / 0.55, 0, 1);
+  return {
+    c: [
+      lerp(base.c[0], -300, portraitMix),
+      CY,
+      lerp(base.c[2], 520, portraitMix)
+    ],
+    look: [
+      lerp(base.look[0], 800, portraitMix),
+      CY,
+      0
+    ]
+  };
 }
 const TX1 = TX0 + PW + RAIL * 2, TY1 = TY0 + PH + RAIL * 2; // table footprint
 function v3sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
@@ -3276,7 +3294,6 @@ function drawGoalTextVirtual(c) {
 function renderTail(w, h) {
   drawGoalTextVirtual(ctx);
   drawHudCore(ctx);
-  if (G.state === 'replay') drawPlaque(ctx, CX, 128, 'REPLAY');
 
   const vg = ctx.createRadialGradient(CX, CY, VH * 0.42, CX, CY, VH * 0.95);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
@@ -3315,7 +3332,6 @@ function renderTail25(w, h) {
   ctx.translate(w * 0.5 - CX * hs, Math.max(6, h * 0.012));
   ctx.scale(hs, hs);
   drawHudCore(ctx);
-  if (G.state === 'replay') drawPlaque(ctx, CX, 128, 'REPLAY');
   ctx.restore();
 
   const vg = ctx.createRadialGradient(w * 0.5, h * 0.52, h * 0.28, w * 0.5, h * 0.52, h * 0.82);
