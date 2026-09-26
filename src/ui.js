@@ -79,12 +79,15 @@ function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
   // Lock them during an online match so peers can't desynchronize.
   if ((key === 'firstTo' || key === 'pace' || key === 'goalW') && G.mode === 'online' && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) return;
-  if (key === 'sound' || key === 'haptics' || key === 'music' || key === 'masterMuted') val = (val === 'true');
+  if (key === 'haptics' || key === 'masterMuted') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
-  if (key === 'musicVolume') val = clamp(Math.round(Number(val) || 0), 0, 100);
-  Settings[key] = val; saveSettings(); applySettingsToUI();
-  // music volume re-aims the live bus - no restart, no re-prime
-  if (key === 'musicVolume') MusicSys.applyVolume();
+  if (key === 'soundVolume' || key === 'musicVolume') val = clamp(Math.round(Number(val) || 0), 0, 100);
+  Settings[key] = val;
+  if (key === 'soundVolume') Settings.sound = val > 0;
+  if (key === 'musicVolume') Settings.music = val > 0;
+  saveSettings(); applySettingsToUI();
+  if (key === 'soundVolume') AudioSys.syncMute();
+  if (key === 'musicVolume') { AudioSys.syncMusic(); MusicSys.syncEnabled(); }
   // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
@@ -103,16 +106,10 @@ function applySettingsToUI() {
     btn.disabled = !canVibrate;
     btn.title = canVibrate ? '' : 'Haptics are not available on this device';
   });
-  // Board orientation only affects the top-down view - park it while a 2.5D
-  // camera is active so the two settings can't appear to conflict. The stored
-  // orientation is kept, so switching back to top-down restores it.
-  const cam25 = Settings.camera !== 'top';
-  document.querySelectorAll('[data-set="orientation"]').forEach(btn => {
-    btn.disabled = cam25;
-    btn.title = cam25 ? 'Board orientation only applies to the top-down camera view' : '';
-  });
-  const bn = $('boardNote');
-  if (bn) bn.classList.toggle('hidden', !cam25);
+  // Board orientation only affects top-down. Hide the whole row while it is
+  // irrelevant; the stored choice returns unchanged when top-down is restored.
+  const boardRow = $('boardRow');
+  if (boardRow) boardRow.classList.toggle('hidden', Settings.camera !== 'top');
   // ONLINE: match rules are agreed at match start - lock them mid-match so
   // peers can't desynchronize. setSetting also refuses these; the disabled
   // state makes the lock visible instead of a silent no-op.
@@ -124,11 +121,11 @@ function applySettingsToUI() {
       btn.title = rulesLocked ? 'Match rules are locked during an online match' : '';
     });
   });
-  AudioSys.muted = !Settings.sound;
-  AudioSys.syncMute(); // Sound gates the SFX bus only - music is independent
-  AudioSys.syncMusic(); // Music gates the music bus only - SFX are independent
-  AudioSys.syncMaster(); // HUD icon gates BOTH buses at once - toggles underneath are untouched
-  MusicSys.syncEnabled(); // the music toggle starts/stops the scheduler (no runaway timers)
+  AudioSys.muted = Settings.soundVolume <= 0;
+  AudioSys.syncMute();
+  AudioSys.syncMusic();
+  AudioSys.syncMaster();
+  MusicSys.syncEnabled();
   const sb = $('btnSound');
   if (sb) {
     sb.classList.toggle('off', Settings.masterMuted);
@@ -136,15 +133,19 @@ function applySettingsToUI() {
     sb.setAttribute('aria-label', Settings.masterMuted ? 'Unmute all audio' : 'Mute all audio');
     sb.title = Settings.masterMuted ? 'Unmute all (M)' : 'Mute all (M)';
   }
-  const ff = $('footFirst');
-  if (ff) ff.innerHTML = 'First to <b>' + Settings.firstTo + '</b> takes the table';
-  updateStartLabel(); // v21: the START MATCH sub-line carries the current first-to
+  updateStartLabel();
   const hf = $('helpFirst');
   if (hf) hf.textContent = Settings.firstTo;
-  // music volume slider follows the persisted setting (and the live value)
+  const summary = $('ruleSummary');
+  if (summary) summary.textContent = 'First to ' + Settings.firstTo + ' · ' +
+    ({ casual:'Casual', classic:'Classic', lightning:'Lightning' }[Settings.pace] || 'Classic') + ' · ' +
+    ({ narrow:'Narrow', standard:'Standard', wide:'Wide' }[Settings.goalW] || 'Standard');
+  const sv = $('soundVol'), svv = $('soundVolVal');
+  if (sv && document.activeElement !== sv) sv.value = Settings.soundVolume;
+  if (svv) svv.textContent = Settings.soundVolume === 0 ? 'MUTE' : Settings.soundVolume;
   const mv = $('musicVol'), mvv = $('musicVolVal');
   if (mv && document.activeElement !== mv) mv.value = Settings.musicVolume;
-  if (mvv) mvv.textContent = Settings.musicVolume;
+  if (mvv) mvv.textContent = Settings.musicVolume === 0 ? 'MUTE' : Settings.musicVolume;
 }
 
 
@@ -156,6 +157,13 @@ function openSettings(from = 'menu') {
 function closeSettings() {
   AudioSys.ui(); hideAll();
   $(settingsReturn === 'pause' ? 'pauseov' : 'menu').classList.remove('hidden');
+}
+
+function openRules() {
+  AudioSys.ui(); applySettingsToUI(); hideAll(); $('rules').classList.remove('hidden');
+}
+function closeRules() {
+  AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden');
 }
 
 function renderProgress() {
@@ -321,22 +329,28 @@ function carSync(id) {
     setTimeout(() => { carGuard = false; }, 120);
   }
 }
-// ---------- menu selection (v21) ----------
-// rival buttons select the matchup; the START MATCH button launches it.
-// Online keeps its own lobby flow.
+// ---------- menu selection ----------
+// Mode choice is separate from rival difficulty. Online remains inert until
+// the primary action is pressed, preserving the explicit network gesture.
 const MenuSel = { mode: 'ai', diff: 1, watch: { a: 1, b: 2 } };
 function selectRival(mode, diff) {
   MenuSel.mode = mode;
   if (diff != null) MenuSel.diff = diff;
+  const modeButtons = {
+    ai: $('btnHouse'), '2p': $('btn2p'), online: $('btnOnline'), watch: $('btnWatch')
+  };
+  Object.entries(modeButtons).forEach(([key, btn]) => {
+    if (!btn) return;
+    const selected = key === mode;
+    btn.classList.toggle('selected', selected);
+    btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
   document.querySelectorAll('[data-diff]').forEach(b => {
     const selected = mode === 'ai' && +b.dataset.diff === MenuSel.diff;
     b.classList.toggle('selected', selected);
     b.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
-  $('btn2p').classList.toggle('selected', mode === '2p');
-  $('btn2p').setAttribute('aria-pressed', mode === '2p' ? 'true' : 'false');
-  $('btnWatch').classList.toggle('selected', mode === 'watch');
-  $('btnWatch').setAttribute('aria-pressed', mode === 'watch' ? 'true' : 'false');
+  $('houseSel').classList.toggle('hidden', mode !== 'ai');
   $('watchSel').classList.toggle('hidden', mode !== 'watch');
   updateStartLabel();
 }
@@ -350,14 +364,19 @@ function selectWatch(side, idx) {
   updateStartLabel();
 }
 function updateStartLabel() {
-  const s = $('startSub'); if (!s) return;
+  const label = $('startLabel'), s = $('startSub');
+  if (!s || !label) return;
   let rival;
-  if (MenuSel.mode === '2p') rival = 'TWO PLAYERS';
+  if (MenuSel.mode === '2p') { label.textContent = 'START MATCH'; rival = 'TWO PLAYERS'; }
+  else if (MenuSel.mode === 'online') { label.textContent = 'PLAY ONLINE'; rival = 'HOST OR JOIN'; }
   else if (MenuSel.mode === 'watch') {
+    label.textContent = 'START EXHIBITION';
     const names = ['ROOKIE', 'CLUB PRO', 'CHAMPION'];
     rival = names[MenuSel.watch.a] + ' vs ' + names[MenuSel.watch.b];
+  } else {
+    label.textContent = 'START MATCH';
+    rival = ['ROOKIE', 'CLUB PRO', 'CHAMPION'][MenuSel.diff];
   }
-  else rival = ['ROOKIE', 'CLUB PRO', 'CHAMPION'][MenuSel.diff];
   s.textContent = rival + ' · FIRST TO ' + Settings.firstTo;
 }
 
@@ -423,10 +442,12 @@ function wireUI() {
   buildCarousel();
   $('carPrev').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(-1); });
   $('carNext').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(1); });
+  $('btnHouse').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('ai'); });
   document.querySelectorAll('[data-diff]').forEach(btn => {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('ai', +btn.dataset.diff); });
   });
   $('btn2p').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('2p'); });
+  $('btnOnline').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('online'); });
   $('btnWatch').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('watch'); });
   document.querySelectorAll('[data-watch]').forEach(btn => {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectWatch(btn.dataset.side, +btn.dataset.watch); });
@@ -435,29 +456,33 @@ function wireUI() {
   selectWatch('a', MenuSel.watch.a); selectWatch('b', MenuSel.watch.b);
   $('btnStart').addEventListener('click', () => {
     AudioSys.init(); AudioSys.ui();
+    if (MenuSel.mode === 'online') { Net.openLobby(); return; }
     if (MenuSel.mode === 'watch') startGame('watch', MenuSel.watch);
     else startGame(MenuSel.mode, MenuSel.diff);
   });
-  // ONLINE: the only entry point that touches the network - the Trystero
-  // import happens inside, on the tap, never before.
-  $('btnOnline').addEventListener('click', () => Net.openLobby());
   selectRival('ai', G.difficulty); // paint the initial selection + start label
   document.querySelectorAll('[data-set]').forEach(btn => {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); setSetting(btn.dataset.set, btn.dataset.val); });
   });
+  $('btnRules').addEventListener('click', openRules);
+  $('rulesClose').addEventListener('click', closeRules);
   $('btnSettings').addEventListener('click', () => openSettings('menu'));
   $('btnPauseSettings').addEventListener('click', () => openSettings('pause'));
   $('settingsClose').addEventListener('click', closeSettings);
-  // music volume slider: live gain change on every tick of the drag
+  const sv = $('soundVol');
+  if (sv) sv.addEventListener('input', () => {
+    AudioSys.init();
+    setSetting('soundVolume', sv.value);
+  });
   const mv = $('musicVol');
   if (mv) mv.addEventListener('input', () => {
-    AudioSys.init(); // the drag is a gesture - start audio so the change is heard at once
+    AudioSys.init();
     setSetting('musicVolume', mv.value);
   });
   // focus-loss veil: any tap is the resume gesture (autoplay policy)
   $('focusov').addEventListener('click', () => { AudioSys.init(); resumeFromFocusLoss(); });
   $('btnHelp').addEventListener('click', () => { AudioSys.ui(); applySettingsToUI(); hideAll(); $('help').classList.remove('hidden'); });
-  $('btnProgress').addEventListener('click', () => { AudioSys.ui(); renderProgress(); hideAll(); $('progress').classList.remove('hidden'); });
+  $('tourCount').addEventListener('click', () => { AudioSys.ui(); renderProgress(); hideAll(); $('progress').classList.remove('hidden'); });
   $('progressClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
   $('btnResetProgress').addEventListener('click', async () => {
     const ok = await askConfirm({
