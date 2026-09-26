@@ -2769,7 +2769,7 @@ function togglePause(force, silent) {
   // the ceremony from its start (goalT=0) rather than a stale timeScale.
   if (G.state === 'play' || G.state === 'count' || G.state === 'goal') {
     G.pausedFrom = G.state;
-    if (G.state === 'goal') clearCeremony();
+    if (G.state === 'goal') { clearCeremony(); Replay.hideOffer(); }
     G.state = 'pause';
     $('topbar').classList.add('hidden');
     hideAll(); $('pauseov').classList.remove('hidden');
@@ -2853,7 +2853,7 @@ function quitToMenu() {
 }
 function hideAll() {
   // ONLINE: online overlays are part of the overlay stack too
-  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer']) $(id).classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
