@@ -1158,6 +1158,7 @@ const G = {
   stats: null,              // per-match stats (top speed, rally, time)
   onlineFlip: false,        // ONLINE: guest view is mirrored - they play from their own side
   hintLive: false,          // first-time hint currently showing on the table
+  rallyHudT: 0, rallyHudN: 0, // brief 5/10/15... hit-rally callout, never persistent clutter
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
@@ -1193,13 +1194,26 @@ function replayMix(a, b, t) {
   };
 }
 const Replay = {
-  frames: [], active: false, clip: null, acc: 0, elapsed: 0, scorer: -1,
+  frames: [], active: false, prepared: false, requested: false,
+  clip: null, acc: 0, elapsed: 0, scorer: -1, offerT: 0,
   sourceRate: 0.80,
-  reset() {
-    this.frames.length = 0; this.clip = null; this.active = false;
-    this.acc = 0; this.elapsed = 0; this.scorer = -1;
+  hideOffer() {
+    const offer = document.getElementById('replayOffer');
+    if (offer) offer.classList.add('hidden');
+  },
+  hideHud() {
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
+  },
+  reset() {
+    this.frames.length = 0; this.clip = null; this.active = false; this.prepared = false;
+    this.requested = false; this.acc = 0; this.elapsed = 0; this.scorer = -1; this.offerT = 0;
+    this.hideOffer(); this.hideHud();
+  },
+  discard() {
+    this.frames.length = 0; this.clip = null; this.prepared = false; this.requested = false;
+    this.acc = 0; this.elapsed = 0; this.scorer = -1; this.offerT = 0;
+    this.hideOffer(); this.hideHud();
   },
   snapshot() {
     const body = m => ({ x:m.x, y:m.y, vx:m.vx, vy:m.vy });
@@ -1218,14 +1232,45 @@ const Replay = {
     const step = 1 / REPLAY_HZ;
     while (this.acc >= step) { this.acc -= step; this.push(); }
   },
-  start(scorer) {
-    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) return false;
+  prepare(scorer) {
+    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) {
+      this.prepared = false; return false;
+    }
     this.push();
     const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
     this.clip = this.frames.slice(-keep);
-    this.elapsed = 0; this.scorer = scorer; this.active = true;
+    this.elapsed = 0; this.scorer = scorer; this.prepared = true; this.requested = false; this.offerT = 0;
+    return true;
+  },
+  showOffer() {
+    if (!this.prepared || this.active || this.requested) return;
+    const offer = document.getElementById('replayOffer');
+    if (offer) offer.classList.remove('hidden');
+  },
+  keepOfferDuringCount(seconds = 1.0) {
+    if (!this.prepared) return;
+    this.offerT = seconds;
+    this.showOffer();
+  },
+  tickOffer(dt) {
+    if (!this.prepared || this.active || this.offerT <= 0 || G.state !== 'count') return;
+    this.offerT = Math.max(0, this.offerT - dt);
+    if (this.offerT <= 0) this.discard();
+  },
+  request() {
+    if (!this.prepared || this.active) return;
+    this.requested = true; this.offerT = 0; this.hideOffer();
+    // During the goal ceremony, updateGoal waits until the celebration has
+    // landed before entering replay. During countdown, the user explicitly
+    // chose replay, so begin it immediately and restart the count afterward.
+    if (G.state === 'count') this.startPrepared();
+  },
+  startPrepared() {
+    if (!this.prepared || !this.clip || !this.clip.length) return false;
+    this.active = true; this.requested = false; this.elapsed = 0;
     G.state = 'replay';
     $('topbar').classList.add('hidden');
+    this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.remove('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     return true;
@@ -1251,10 +1296,8 @@ const Replay = {
   finish() {
     if (!this.active) return;
     const scorer = this.scorer;
-    this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1;
-    const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
-    const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
-    beginGoalCeremony(scorer);
+    this.active = false; this.hideHud();
+    advanceAfterGoal(scorer, false);
   },
   applyFrame() {
     if (!this.active) return null;
@@ -2352,6 +2395,10 @@ function onMalletHit(x, y, impact, nx, ny) {
     G.stats.rally++;
     if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
     rallyN = G.stats.rally;
+    if (rallyN >= 5 && rallyN % 5 === 0) {
+      G.rallyHudN = rallyN;
+      G.rallyHudT = 0.9;
+    }
   }
   const v = clamp(impact / 2200, 0, 1);
   const tier = hitTier(impact);
@@ -2553,7 +2600,8 @@ function onGoal(scorer) {
   if (G.mode === 'online') {
     beginGoalCeremony(scorer);
     Net.sendGoal(scorer); // ONLINE: tell the guest to play it
-  } else if (!Replay.start(scorer)) {
+  } else {
+    Replay.prepare(scorer);
     beginGoalCeremony(scorer);
   }
 }
@@ -2589,6 +2637,8 @@ function beginGoalCeremony(scorer) {
   boardKick(scorer);
   G.goalSide = scorer;
   if (G.stats) G.stats.rally = 0; // new rally after each goal
+  G.rallyHudT = 0; G.rallyHudN = 0;
+  Replay.hideOffer();
   G.state = 'goal';
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
   G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
@@ -2613,6 +2663,24 @@ function beginGoalCeremony(scorer) {
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   buzz([25, 40, 40]);
 }
+function advanceAfterGoal(scorer, keepReplayOffer) {
+  clearCeremony();
+  if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
+    Replay.discard();
+    G.winSide = G.score[0] > G.score[1] ? 0 : 1;
+    G.state = 'win';
+    showWin();
+    return;
+  }
+  resetPositions();
+  rollServe(scorer === 0 ? 1 : -1); // scored-on player gets the puck
+  startCount();
+  $('topbar').classList.remove('hidden');
+  if (keepReplayOffer && Replay.prepared) Replay.keepOfferDuringCount(1.0);
+  else Replay.discard();
+  // ONLINE: the host's countdown mirrors to the guest so both start even
+  if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
+}
 function updateGoal(rdt) {
   G.goalT += rdt; G.goalSlowT += rdt;
   G.letterT = clamp(G.letterT + rdt * 3.2, 0, 1);
@@ -2625,22 +2693,22 @@ function updateGoal(rdt) {
   p.x = lerp(p.x, gx, clamp(rdt * 5, 0, 1));
   p.y = lerp(p.y, CY, clamp(rdt * 5, 0, 1));
   p.vx *= 0.9; p.vy *= 0.9;
-  // the winning goal gets ~30% more ceremony
-  const matchPoint = G.score[G.goalSide] >= Settings.firstTo;
-  if (G.goalT > (matchPoint ? 2.86 : 2.2)) {
+
+  // Replay is an invitation, never an interruption. The celebration gets a
+  // full beat before the affordance appears. Ignoring it keeps the match moving.
+  if (Replay.prepared && G.goalT >= 1.05) Replay.showOffer();
+  if (Replay.requested && G.goalT >= 1.45) {
     clearCeremony();
-    if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
-      G.winSide = G.score[0] > G.score[1] ? 0 : 1;
-      G.state = 'win';
-      showWin();
-    } else {
-      resetPositions();
-      rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
-      $('topbar').classList.remove('hidden');
-      startCount();
-      // ONLINE: the host's countdown mirrors to the guest so both start even
-      if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
-    }
+    Replay.startPrepared();
+    return;
+  }
+
+  const winningGoal = G.score[G.goalSide] >= Settings.firstTo;
+  if (G.goalT > (winningGoal ? 2.65 : 1.95)) {
+    // Non-winning goals move straight into the next countdown. Keep the replay
+    // offer alive for the first second of that countdown so choosing replay
+    // never forces everyone to wait when it is ignored.
+    advanceAfterGoal(G.goalSide, !winningGoal && Replay.prepared);
   }
 }
 function showWin() {
@@ -2809,8 +2877,13 @@ function quitToMenu() {
   AudioSys.ui();
 }
 function hideAll() {
-  // ONLINE: online overlays are part of the overlay stack too
+  // ONLINE: online overlays are part of the overlay stack too. Gameplay chrome
+  // is hidden here as well so Pause/Audio never float over Preferences, Help,
+  // Match Rules, pause/win cards, or online dialogs.
   for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint']) $(id).classList.add('hidden');
+  $('topbar').classList.add('hidden');
+  Replay.hideOffer();
+  Replay.hideHud();
 }
 function $(id) { return document.getElementById(id); }
 
@@ -2876,6 +2949,8 @@ function frame(t) {
   G.saveT = Math.max(0, G.saveT - rdt);
   G.nearCd = Math.max(0, G.nearCd - rdt);
   G.dipT = Math.max(0, G.dipT - rdt);
+  G.rallyHudT = Math.max(0, G.rallyHudT - rdt);
+  Replay.tickOffer(rdt);
   if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
   if (G.rattle) { G.rattle.t -= rdt; if (G.rattle.t <= 0) G.rattle = null; }
   tickBoard(rdt); // scoreboard flip/reel/peg/bulb animation
