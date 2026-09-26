@@ -2771,6 +2771,7 @@ function togglePause(force, silent) {
     G.pausedFrom = G.state;
     if (G.state === 'goal') clearCeremony();
     G.state = 'pause';
+    $('topbar').classList.add('hidden');
     hideAll(); $('pauseov').classList.remove('hidden');
     AudioSys.ui();
     if (G.mode === 'online' && !silent) Net.sendPause(true);
@@ -3298,21 +3299,23 @@ function renderTop(w, h) {
 // visible instead of covering it with opaque black letterbox bars.
 function drawHudCore(c) {
   drawScoreboard(c);
+  if ((G.state !== 'play' && G.state !== 'count') || G.demo) return;
 
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.stats && G.stats.rally >= 4)
-    drawPlaque(c, 150, 71, 'RALLY ×' + G.stats.rally);
-
-  if ((G.state === 'play' || G.state === 'count') && !G.demo) {
-    const t = Settings.firstTo;
-    const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
-    if (m0 || m1) {
-      const who = (m0 && m1) ? 'NEXT GOAL WINS'
-        : G.mode === '2p' ? ((m0 ? 'PLAYER ONE' : 'PLAYER TWO') + ': MATCH POINT')
-        : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ': MATCH POINT')
-        : (sideLabel(m0 ? 0 : 1) + ': MATCH POINT');
-      drawPlaque(c, CX, 78, who);
-    }
+  // One calm status lane below the physical scoreboard. Match point has
+  // priority; otherwise local human matches can surface a rally milestone.
+  // Keeping both out of the scoreboard body prevents the old visual collision.
+  const t = Settings.firstTo;
+  const m0 = G.score[0] === t - 1, m1 = G.score[1] === t - 1;
+  let status = '';
+  if (m0 || m1) {
+    status = (m0 && m1) ? 'NEXT GOAL WINS'
+      : G.mode === '2p' ? ((m0 ? 'P1' : 'P2') + ' · MATCH POINT')
+      : G.mode === 'online' ? ((m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' · MATCH POINT')
+      : (sideLabel(m0 ? 0 : 1) + ' · MATCH POINT');
+  } else if ((G.mode === 'ai' || G.mode === '2p') && G.stats && G.stats.rally >= 4) {
+    status = 'RALLY ' + G.stats.rally;
   }
+  if (status) drawPlaque(c, CX, 136, status, { size: 11, h: 24, track: 1.5, alpha: 0.9 });
 }
 
 function drawGoalTextVirtual(c) {
