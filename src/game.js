@@ -1193,13 +1193,16 @@ function replayMix(a, b, t) {
   };
 }
 const Replay = {
-  frames: [], active: false, clip: null, acc: 0, elapsed: 0, scorer: -1,
+  frames: [], active: false, clip: null, pendingClip: null,
+  acc: 0, elapsed: 0, scorer: -1, pendingScorer: -1, returnMode: 'goal',
   sourceRate: 0.80,
   reset() {
-    this.frames.length = 0; this.clip = null; this.active = false;
-    this.acc = 0; this.elapsed = 0; this.scorer = -1;
+    this.frames.length = 0; this.clip = null; this.pendingClip = null; this.active = false;
+    this.acc = 0; this.elapsed = 0; this.scorer = -1; this.pendingScorer = -1; this.returnMode = 'goal';
+    this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
+    const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
   },
   snapshot() {
     const body = m => ({ x:m.x, y:m.y, vx:m.vx, vy:m.vy });
@@ -1218,12 +1221,38 @@ const Replay = {
     const step = 1 / REPLAY_HZ;
     while (this.acc >= step) { this.acc -= step; this.push(); }
   },
-  start(scorer) {
-    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) return false;
+  capture(scorer) {
+    this.pendingClip = null; this.pendingScorer = -1;
+    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) {
+      this.frames.length = 0; this.acc = 0; return false;
+    }
     this.push();
     const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
-    this.clip = this.frames.slice(-keep);
-    this.elapsed = 0; this.scorer = scorer; this.active = true;
+    this.pendingClip = this.frames.slice(-keep);
+    this.pendingScorer = scorer;
+    this.frames.length = 0; this.acc = 0;
+    return true;
+  },
+  hasPending() { return !!(this.pendingClip && this.pendingClip.length > 1); },
+  showOffer() {
+    if (!this.hasPending() || this.active) return;
+    const b = document.getElementById('replayOffer'); if (b) b.classList.remove('hidden');
+  },
+  hideOffer() {
+    const b = document.getElementById('replayOffer'); if (b) b.classList.add('hidden');
+  },
+  discardPending() {
+    this.pendingClip = null; this.pendingScorer = -1; this.hideOffer();
+  },
+  startPending(returnMode = 'goal') {
+    if (!this.hasPending()) return false;
+    this.clip = this.pendingClip; this.pendingClip = null;
+    this.scorer = this.pendingScorer; this.pendingScorer = -1;
+    this.elapsed = 0; this.active = true; this.returnMode = returnMode;
+    this.hideOffer();
+    const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
+    clearCeremony();
+    hideAll();
     G.state = 'replay';
     $('topbar').classList.add('hidden');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.remove('hidden');
@@ -1250,11 +1279,17 @@ const Replay = {
   },
   finish() {
     if (!this.active) return;
-    const scorer = this.scorer;
-    this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1;
+    const ret = this.returnMode;
+    this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1; this.returnMode = 'goal';
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
-    beginGoalCeremony(scorer);
+    if (ret === 'win') {
+      G.state = 'win';
+      hideAll(); $('winov').classList.remove('hidden');
+      $('topbar').classList.add('hidden');
+    } else {
+      advanceAfterGoal();
+    }
   },
   applyFrame() {
     if (!this.active) return null;
