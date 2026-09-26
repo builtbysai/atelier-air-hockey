@@ -3413,7 +3413,7 @@ function drawObjects25(cam) {
 }
 
 const PUCK_H25 = 20;   // puck thickness in rink units
-const HANDLE_H25 = 110; // mallet handle height in rink units
+const HANDLE_H25 = 48; // compact air-hockey grip height in rink units
 
 // The puck as a short cylinder: dark wall, theme-dressed top, spin cue.
 function drawPuck25(cam) {
@@ -3466,36 +3466,62 @@ function drawPuck25(cam) {
 // wooden handle with a knob, like a real air hockey mallet.
 function drawMallet25(cam, m) {
   const S = THEME.mallet, r = m.r;
-  const b = tableEll25(cam, m.x, m.y, 0, r);
-  const t = camProject(cam, m.x, m.y, HANDLE_H25);
-  if (!b || !t) return;
-  // base disc keeps the theme's full mallet identity
-  const brx = b.rx, bry = b.ry;
-  const g = ctx.createRadialGradient(b.x - brx * 0.3, b.y - bry * 0.35, brx * 0.1, b.x, b.y, brx);
+  const base = tableEll25(cam, m.x, m.y, 0, r);
+  const neck = tableEll25(cam, m.x, m.y, 18, r * 0.34);
+  const cap = tableEll25(cam, m.x, m.y, HANDLE_H25, r * 0.24);
+  if (!base || !neck || !cap) return;
+
+  const g = ctx.createRadialGradient(base.x - base.rx * 0.3, base.y - base.ry * 0.35, base.rx * 0.1, base.x, base.y, base.rx);
   g.addColorStop(0, S.hi); g.addColorStop(0.6, S.base); g.addColorStop(1, S.edge);
   ctx.fillStyle = g;
-  ctx.beginPath(); ctx.ellipse(b.x, b.y, brx, bry, 0, 0, TAU); ctx.fill();
-  ctx.lineWidth = Math.max(1.5, 3 * b.s);
+  ctx.beginPath(); ctx.ellipse(base.x, base.y, base.rx, base.ry, 0, 0, TAU); ctx.fill();
+  ctx.lineWidth = Math.max(1.5, 3 * base.s);
   ctx.strokeStyle = S.ring; ctx.stroke();
-  // dish
-  const dg = ctx.createRadialGradient(b.x - brx * 0.13, b.y - bry * 0.17, 2, b.x, b.y, brx * 0.62);
+
+  const dg = ctx.createRadialGradient(base.x - base.rx * 0.13, base.y - base.ry * 0.17, 2, base.x, base.y, base.rx * 0.62);
   dg.addColorStop(0, S.dishHi); dg.addColorStop(1, S.dish);
   ctx.fillStyle = dg;
-  ctx.beginPath(); ctx.ellipse(b.x, b.y, brx * 0.62, bry * 0.62, 0, 0, TAU); ctx.fill();
-  // handle: a tapered post rising from the disc to the knob
-  const w0 = brx * 0.30, w1 = Math.max(2, brx * 0.22 * (t.s / b.s));
-  const hg = ctx.createLinearGradient(t.x, t.y, b.x, b.y);
-  hg.addColorStop(0, '#7a5638'); hg.addColorStop(1, '#4a3220');
-  ctx.fillStyle = hg;
+  ctx.beginPath(); ctx.ellipse(base.x, base.y, base.rx * 0.62, base.ry * 0.62, 0, 0, TAU); ctx.fill();
+
+  // A real air-hockey pusher has a short molded grip. The old tall post
+  // became a long visual obstruction in the low Surface camera.
+  ctx.fillStyle = S.knob || S.edge;
   ctx.beginPath();
-  ctx.moveTo(t.x - w1, t.y); ctx.lineTo(t.x + w1, t.y);
-  ctx.lineTo(b.x + w0, b.y); ctx.lineTo(b.x - w0, b.y);
+  ctx.moveTo(neck.x - neck.rx, neck.y);
+  ctx.lineTo(cap.x - cap.rx, cap.y);
+  ctx.lineTo(cap.x + cap.rx, cap.y);
+  ctx.lineTo(neck.x + neck.rx, neck.y);
   ctx.closePath(); ctx.fill();
-  // knob
-  const kg = ctx.createRadialGradient(t.x - w1 * 0.3, t.y - w1 * 0.3, 1, t.x, t.y, w1 * 1.3);
-  kg.addColorStop(0, '#8a6544'); kg.addColorStop(1, '#4a3220');
+
+  const kg = ctx.createRadialGradient(cap.x - cap.rx * 0.28, cap.y - cap.ry * 0.3, 1, cap.x, cap.y, cap.rx * 1.2);
+  kg.addColorStop(0, S.knobHi || S.hi); kg.addColorStop(1, S.knob || S.edge);
   ctx.fillStyle = kg;
-  ctx.beginPath(); ctx.ellipse(t.x, t.y, w1 * 1.3, w1 * 1.15, 0, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cap.x, cap.y, cap.rx * 1.15, Math.max(2, cap.ry * 1.15), 0, 0, TAU); ctx.fill();
+  ctx.lineWidth = Math.max(1, 1.6 * cap.s); ctx.strokeStyle = S.ring; ctx.stroke();
+}
+
+function drawGoalPocket25(cam, side) {
+  const frontX = side === 0 ? PX : PX + PW;
+  const backX = frontX + (side === 0 ? -72 : 72);
+  const half = goalW() / 2;
+  const pts = [
+    camProject(cam, frontX, CY - half, 0),
+    camProject(cam, backX, CY - half, -14),
+    camProject(cam, backX, CY + half, -14),
+    camProject(cam, frontX, CY + half, 0),
+  ];
+  if (pts.some(p => !p)) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,4,7,0.76)';
+  ctx.strokeStyle = THEME.gold || '#d8a93f';
+  ctx.globalAlpha = 0.9;
+  ctx.lineWidth = Math.max(1, 2 * (pts[0].s + pts[3].s) / 2);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 0.42; ctx.stroke();
+  ctx.restore();
 }
 
 // Table-bound dynamics in the 2.5D view: everything drawTableFlat draws
@@ -3555,9 +3581,9 @@ function drawDynTable25(cam) {
       ctx.restore();
     }
   }
-  // goal trim: theme art staged small and warped per frame (cheap: the mouth
-  // region needs only a handful of strips). The rattle jitter bakes into the
-  // staging, exactly like the flat view.
+  // Recessed goal pockets keep both mouths legible in low-angle views.
+  for (let side = 0; side < 2; side++) drawGoalPocket25(cam, side);
+  // Theme trim remains on top so every room keeps its identity.
   for (let side = 0; side < 2; side++) drawTrim25(cam, side);
   // goal-frame flash: the scored-on frame lights up in theme gold
   if (G.goalFrameT > 0 && fxFlash()) {
