@@ -35,11 +35,12 @@ this.__replay = { replayAngle, replayLerp, replayMix, REPLAY_HZ, REPLAY_MAX };`,
   return context.__replay;
 }
 
-test('goal replay prompt defaults on and is persisted with Settings', () => {
+test('goal replay offer defaults on and is persisted with Settings', () => {
   assert.match(game, /instantReplay: 'goals'/);
   assert.match(game, /\['goals', 'off'\]\.includes\(Settings\.instantReplay\)/);
+  assert.match(template, />Goal replay<\/div>/);
   assert.match(template, /data-set="instantReplay" data-val="off">Off<\/button>/);
-  assert.match(template, /data-set="instantReplay" data-val="goals">After goals<\/button>/);
+  assert.match(template, /data-set="instantReplay" data-val="goals">Offer<\/button>/);
 });
 
 test('replay buffer is five seconds at 30 Hz', async () => {
@@ -110,16 +111,40 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
 });
 
 
-test('a goal celebrates first and only offers replay afterwards', () => {
+test('a goal celebrates first and only starts replay after an explicit choice', () => {
   assert.match(game, /Replay\.capture\(scorer\);\s*beginGoalCeremony\(scorer\);/);
   assert.doesNotMatch(game, /Replay\.start\(scorer\)/);
-  assert.match(game, /G\.goalT > 0\.9 && Replay\.hasPending\(\)/);
-  assert.match(template, /id="replayOffer"[^>]*>Watch replay<\/button>/);
-  assert.match(ui, /replayOffer'\)\.addEventListener\('click', \(\) => Replay\.startPending\('goal'\)\)/);
+  assert.match(game, /G\.goalT >= 1\.05 && Replay\.hasPending\(\)/);
+  assert.match(game, /Replay\.requested && G\.goalT >= 1\.45/);
+  assert.match(template, /id="replayOffer"/);
+  assert.match(template, />Watch replay<\/span>/);
+  assert.match(ui, /replayOffer'\)\.addEventListener\('click', \(\) => Replay\.request\(\)\)/);
 });
 
 test('winning goal replay is offered from results instead of interrupting celebration', () => {
   assert.match(template, /id="btnWinReplay"[^>]*>Watch winning goal<\/button>/);
   assert.match(game, /btnWinReplay/);
   assert.match(ui, /btnWinReplay'\)\.addEventListener\('click', \(\) => Replay\.startPending\('win'\)\)/);
+});
+
+
+test('ignoring replay never delays the next serve', () => {
+  assert.match(game, /const keepOffer = !winningGoal && Replay\.hasPending\(\)/);
+  assert.match(game, /startCount\(\);[\s\S]*?Replay\.keepOfferDuringCount\(1\.0\)/);
+  assert.match(game, /tickOffer\(dt\)/);
+  assert.match(game, /offerT <= 0\) this\.discardPending\(\)/);
+});
+
+test('choosing replay during countdown restarts the normal post-goal flow afterwards', () => {
+  assert.match(game, /if \(G\.state === 'count'\) this\.startPending\('goal'\)/);
+  const start = game.indexOf('finish() {', game.indexOf('const Replay = {'));
+  const end = game.indexOf('applyFrame()', start);
+  const finish = game.slice(start, end);
+  assert.match(finish, /advanceAfterGoal\(\)/);
+});
+
+test('online mode never produces a replay clip or prompt', () => {
+  const start = game.indexOf('capture(scorer)');
+  const end = game.indexOf('hasPending()', start);
+  assert.match(game.slice(start, end), /G\.mode === 'online'/);
 });
