@@ -96,8 +96,14 @@ test('replay uses an explicit replay state that freezes normal physics', () => {
   assert.doesNotMatch(game, /case 'replay':[\s\S]{0,120}playStep/);
 });
 
-test('replay can be skipped by button or Escape', () => {
-  assert.match(template, /id="replaySkip"/);
+test('replay uses one visible HUD with progress, Skip, and Escape', () => {
+  assert.match(template, /id="replayHud"/);
+  assert.match(template, /id="replayProgress"/);
+  assert.match(template, /id="replaySkip"[^>]*>Skip<\/button>/);
+  assert.match(game, /replayHud/);
+  assert.match(game, /replayProgress/);
+  assert.match(game, /style\.transform = 'scaleX\('/);
   assert.match(ui, /replaySkip'\)\.addEventListener\('click', \(\) => Replay\.finish\(\)\)/);
   assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(\)/);
+  assert.doesNotMatch(game, /drawPlaque\(ctx, CX, 128, 'REPLAY'\)/);
 });
