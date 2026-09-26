@@ -35,11 +35,12 @@ this.__replay = { replayAngle, replayLerp, replayMix, REPLAY_HZ, REPLAY_MAX };`,
   return context.__replay;
 }
 
-test('instant replay preference defaults to Goals and is persisted with Settings', () => {
+test('goal replay preference defaults to an optional offer', () => {
   assert.match(game, /instantReplay: 'goals'/);
   assert.match(game, /\['goals', 'off'\]\.includes\(Settings\.instantReplay\)/);
+  assert.match(template, /Goal replay/);
   assert.match(template, /data-set="instantReplay" data-val="off">Off<\/button>/);
-  assert.match(template, /data-set="instantReplay" data-val="goals">Goals<\/button>/);
+  assert.match(template, /data-set="instantReplay" data-val="goals">Offer<\/button>/);
 });
 
 test('replay buffer is five seconds at 30 Hz', async () => {
@@ -106,4 +107,21 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
   assert.match(ui, /replaySkip'\)\.addEventListener\('click', \(\) => Replay\.finish\(\)\)/);
   assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(\)/);
   assert.doesNotMatch(game, /drawPlaque\(ctx, CX, 128, 'REPLAY'\)/);
+});
+
+
+test('goal celebration happens before replay and ignoring replay adds no delay', () => {
+  assert.match(game, /Replay\.prepare\(scorer\);[\s\S]*?beginGoalCeremony\(scorer\)/);
+  assert.doesNotMatch(game, /Replay\.start\(scorer\)/);
+  assert.match(game, /G\.goalT > 0\.80\) Replay\.offer\(\)/);
+  assert.match(game, /else if \(Replay\.requested && Replay\.playPrepared\(\)\)/);
+  assert.match(game, /else \{[\s\S]*?resumeAfterGoal\(\)/);
+});
+
+test('optional replay offer is explicit and playback returns directly to next serve', () => {
+  assert.match(template, /id="replayOffer"[^>]*>Watch replay<\/button>/);
+  assert.match(ui, /replayOffer'\)\.addEventListener\('click', \(\) => Replay\.request\(\)\)/);
+  assert.match(game, /request\(\) \{[\s\S]*?this\.requested = true/);
+  assert.match(game, /finish\(\) \{[\s\S]*?resumeAfterGoal\(\)/);
+  assert.doesNotMatch(game, /finish\(\) \{[\s\S]*?beginGoalCeremony\(scorer\)/);
 });
