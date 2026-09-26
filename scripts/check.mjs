@@ -31,9 +31,9 @@ assert.match(net, /disconnectTimer/); assert.match(net, /validGoalEvent/); asser
 assert.match(game, /bestStreak: \[0, 0\]/); assert.match(game, /function togglePause/);
 assert.match(boards, /Math\.max\(11, target \+ 1\)/); assert.match(boards, /chars\.split/);
 assert.match(ui, /installDialogA11y/); assert.match(ui, /\[role="option"\]/); assert.match(ui, /guestOwnsRight/); assert.match(ui, /'progress'/);
-assert.match(ui, /btnWatch/); assert.match(ui, /watchSel/); assert.match(ui, /G\.watch/); assert.match(ui, /selectWatch/);
+assert.match(ui, /btnWatch/); assert.match(ui, /btnHouse/); assert.match(ui, /btnOnline/); assert.match(ui, /watchSel/); assert.match(ui, /G\.watch/); assert.match(ui, /selectWatch/);
 assert.match(game, /mode === 'watch'/); assert.match(game, /G\.watch\s*=\s*\{ a:/);
-assert.match(template, />1 \/ 9</); assert.match(template, /id="settingsTitle"/); assert.match(template, /id="pauseTitle"/);
+assert.match(template, />1 \/ 10</); assert.match(template, /id="settingsTitle"/); assert.match(template, /id="rulesTitle"/); assert.match(template, /id="pauseTitle"/);
 assert.match(themes, /THEMES\.deco/); assert.match(css, /focus-visible/);
 const manifest = await readFile('manifest.webmanifest','utf8');
 assert.match(manifest, /icon-192\.png/); assert.match(manifest, /icon-512\.png/); assert.match(manifest, /\"id\"\s*:\s*\"\.\/\"/);
