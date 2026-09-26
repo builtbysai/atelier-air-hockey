@@ -584,6 +584,7 @@ function wireUI() {
   });
   $('btnWinMenu').addEventListener('click', quitToMenu);
   $('btnShareResult').addEventListener('click', shareResult);
+  $('replayOffer').addEventListener('click', () => Replay.request());
   $('replaySkip').addEventListener('click', () => Replay.finish());
   $('btnSound').addEventListener('click', () => {
     AudioSys.init();
