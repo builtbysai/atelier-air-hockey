@@ -81,3 +81,18 @@ test('Presentation controls run from least to most intense', () => {
     /data-set="effects" data-val="minimal">Minimal<\/button>[\s\S]*?data-set="effects" data-val="subtle">Subtle<\/button>[\s\S]*?data-set="effects" data-val="full">Full<\/button>/,
     'Effects should run Minimal, Subtle, Full');
 });
+
+
+test('in-game controls do not duplicate Pause with a menu button', () => {
+  assert.match(template, /id="btnPause"/);
+  assert.match(template, /id="btnSound"/);
+  assert.doesNotMatch(template, /id="btnMenu2"/);
+  assert.doesNotMatch(ui, /btnMenu2/);
+});
+
+test('match rules summary exposes three scannable values', () => {
+  for (const id of ['ruleSumScore', 'ruleSumPace', 'ruleSumGoal', 'ruleCurrentFirst', 'ruleCurrentPace', 'ruleCurrentGoal'])
+    assert.match(template, new RegExp('id="' + id + '"'), id + ' missing');
+  assert.match(css, /rule-summary-grid/);
+  assert.match(css, /rule-setting-head/);
+});
