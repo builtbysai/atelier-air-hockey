@@ -2585,12 +2585,9 @@ function onGoal(scorer) {
     st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
   }
   if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
-  if (G.mode === 'online') {
-    beginGoalCeremony(scorer);
-    Net.sendGoal(scorer); // ONLINE: tell the guest to play it
-  } else if (!Replay.start(scorer)) {
-    beginGoalCeremony(scorer);
-  }
+  Replay.capture(scorer);
+  beginGoalCeremony(scorer);
+  if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
 }
 // ONLINE: start the goal ceremony visuals only - no scoring, no sending.
 // The host scores first in onGoal; the guest's scores arrive final in the
@@ -2660,23 +2657,31 @@ function updateGoal(rdt) {
   p.x = lerp(p.x, gx, clamp(rdt * 5, 0, 1));
   p.y = lerp(p.y, CY, clamp(rdt * 5, 0, 1));
   p.vx *= 0.9; p.vy *= 0.9;
-  // the winning goal gets ~30% more ceremony
-  const matchPoint = G.score[G.goalSide] >= Settings.firstTo;
-  if (G.goalT > (matchPoint ? 2.86 : 2.2)) {
-    clearCeremony();
-    if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
-      G.winSide = G.score[0] > G.score[1] ? 0 : 1;
-      G.state = 'win';
-      showWin();
-    } else {
-      resetPositions();
-      rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
-      $('topbar').classList.remove('hidden');
-      startCount();
-      // ONLINE: the host's countdown mirrors to the guest so both start even
-      if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
-    }
+
+  const winningGoal = G.score[G.goalSide] >= Settings.firstTo;
+  // Replay is an optional reward after the player has already received the
+  // important feedback: goal flash, score update, sound, and GOAL! moment.
+  // It appears late in the ceremony and never delays the next serve if ignored.
+  if (!winningGoal && G.goalT > 0.9 && Replay.hasPending()) Replay.showOffer();
+  if (G.goalT > (winningGoal ? 2.86 : 2.2)) advanceAfterGoal();
+}
+function advanceAfterGoal() {
+  const winningGoal = G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo;
+  clearCeremony();
+  Replay.hideOffer();
+  if (winningGoal) {
+    G.winSide = G.score[0] > G.score[1] ? 0 : 1;
+    G.state = 'win';
+    showWin();
+    return;
   }
+  Replay.discardPending();
+  resetPositions();
+  rollServe(G.goalSide === 0 ? 1 : -1); // scored-on player gets the puck
+  $('topbar').classList.remove('hidden');
+  startCount();
+  // ONLINE: the host's countdown mirrors to the guest so both start even
+  if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
 function showWin() {
   clearCeremony(); // defensive: no ceremony visuals leak under the overlay
@@ -2732,6 +2737,8 @@ function showWin() {
       $('winFeats').textContent = '';
     }
   } catch (e) {}
+  const winReplay = $('btnWinReplay');
+  if (winReplay) winReplay.classList.toggle('hidden', !Replay.hasPending());
   hideAll(); $('winov').classList.remove('hidden');
   G.hintLive = false; // match over - the hint never survives a match end
   AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
