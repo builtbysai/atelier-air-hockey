@@ -4,14 +4,14 @@ import { readFile } from 'node:fs/promises';
 
 const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
 
-test('goal ceremony no longer draws opaque black letterbox bars', () => {
-  const start = game.indexOf('function renderTail(w, h)');
-  const end = game.indexOf('function renderTail25(w, h)', start);
-  assert.ok(start > 0 && end > start, 'renderTail block missing');
+test('goal ceremony stays open and renders in the shared screen-space tail', () => {
+  const start = game.indexOf('function renderScreenTail(w, h)');
+  const end = game.indexOf('function renderTail(w, h)', start);
+  assert.ok(start > 0 && end > start, 'renderScreenTail block missing');
   const tail = game.slice(start, end);
   assert.doesNotMatch(tail, /rgba\(0,0,0,0\.88\)/);
   assert.doesNotMatch(tail, /VH - bh/);
-  assert.match(tail, /drawGoalTextVirtual/);
+  assert.match(tail, /drawGoalTextScreen\(ctx, w, h\)/);
 });
 
 test('2.5D HUD renders directly in screen space', () => {
