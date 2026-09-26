@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [template, ui, css] = await Promise.all([
+const [template, ui, css, game] = await Promise.all([
   readFile(new URL('../src/template.html', import.meta.url), 'utf8'),
   readFile(new URL('../src/ui.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
+  readFile(new URL('../src/game.js', import.meta.url), 'utf8'),
 ]);
 
 test('menu groups the four play modes without duplicating How to play', () => {
@@ -60,4 +61,23 @@ test('keyboard shortcuts share the same menu routing', () => {
     'Escape must close Match Rules');
   assert.match(ui, /e\.key === 'Enter'[\s\S]*?\$\('btnStart'\)\.click\(\)/,
     'Enter must route through the primary action');
+});
+
+
+test('Match Rules participates in the shared overlay stack', () => {
+  assert.match(game,
+    /\['menu', 'progress', 'help', 'rules', 'settings', 'pauseov'/,
+    'hideAll must include the Match Rules overlay');
+  assert.match(ui, /function closeRules\(\) \{[\s\S]*?hideAll\(\);[\s\S]*?\$\('menu'\)\.classList\.remove\('hidden'\)/,
+    'Done must close Match Rules before restoring the menu');
+});
+
+test('Presentation controls run from least to most intense', () => {
+  const settings = template.match(/<div class="overlay hidden" id="settings"[\s\S]*?<div class="overlay hidden" id="pauseov"/)?.[0] || '';
+  assert.match(settings,
+    /data-set="shake" data-val="off">Off<\/button>[\s\S]*?data-set="shake" data-val="subtle">Subtle<\/button>[\s\S]*?data-set="shake" data-val="full">Full<\/button>/,
+    'Screen shake should run Off, Subtle, Full');
+  assert.match(settings,
+    /data-set="effects" data-val="minimal">Minimal<\/button>[\s\S]*?data-set="effects" data-val="subtle">Subtle<\/button>[\s\S]*?data-set="effects" data-val="full">Full<\/button>/,
+    'Effects should run Minimal, Subtle, Full');
 });

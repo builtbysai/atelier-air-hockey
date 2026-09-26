@@ -2666,7 +2666,7 @@ function quitToMenu() {
 }
 function hideAll() {
   // ONLINE: online overlays are part of the overlay stack too
-  for (const id of ['menu', 'progress', 'help', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint']) $(id).classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
