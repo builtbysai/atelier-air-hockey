@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v25-2.5d">
+<html lang="en" data-build="v26-pwa-25d">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -7,6 +7,10 @@
 <meta name="description" content="A handcrafted browser air-hockey game with ten art-directed tables, local rivals, two-player play, and peer-to-peer online matches.">
 <meta name="theme-color" content="#070606">
 <meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Atelier Air Hockey">
 <link rel="canonical" href="https://builtbysai.com/atelier-air-hockey/">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" sizes="any" href="./assets/icon.svg">
@@ -206,10 +210,11 @@
       </div>
     </div>
     <div class="setrow" id="boardRow">
-      <div class="setlabel">Board</div>
+      <div class="setlabel">Orientation</div>
       <div class="seg">
-        <button data-set="orientation" data-val="landscape">Landscape</button>
+        <button data-set="orientation" data-val="auto">Auto</button>
         <button data-set="orientation" data-val="portrait">Portrait</button>
+        <button data-set="orientation" data-val="landscape">Landscape</button>
       </div>
     </div>
     <button class="btn primary" id="settingsClose" style="margin-top:16px">Done</button>
