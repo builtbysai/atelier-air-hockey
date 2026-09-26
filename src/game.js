@@ -46,10 +46,11 @@ const Settings = {
 // player explicitly chose a shake level (their choice always wins).
 const PRM = { reduce: false, userShake: false };
 function loadSettings() {
+  let stored = {};
   try {
-    const s = JSON.parse(localStorage.getItem('atelier-ah-settings') || '{}');
-    PRM.userShake = Object.prototype.hasOwnProperty.call(s, 'shake');
-    for (const k of Object.keys(Settings)) if (s[k] !== undefined) Settings[k] = s[k];
+    stored = JSON.parse(localStorage.getItem('atelier-ah-settings') || '{}');
+    PRM.userShake = Object.prototype.hasOwnProperty.call(stored, 'shake');
+    for (const k of Object.keys(Settings)) if (stored[k] !== undefined) Settings[k] = stored[k];
   } catch (e) {}
   if (![5, 7, 11].includes(Settings.firstTo)) Settings.firstTo = 7;
   if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
@@ -60,12 +61,12 @@ function loadSettings() {
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
   // Audio sliders replace the old on/off preferences. Migrate old saves once,
   // then keep the booleans as derived compatibility gates for existing audio paths.
-  if (!Object.prototype.hasOwnProperty.call(s, 'soundVolume')) Settings.soundVolume = s.sound === false ? 0 : 100;
+  if (!Object.prototype.hasOwnProperty.call(stored, 'soundVolume')) Settings.soundVolume = stored.sound === false ? 0 : 100;
   if (!Number.isFinite(Settings.soundVolume)) Settings.soundVolume = 100;
   else Settings.soundVolume = clamp(Math.round(Settings.soundVolume), 0, 100);
   if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
   else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
-  if (!Object.prototype.hasOwnProperty.call(s, 'musicVolume') && s.music === false) Settings.musicVolume = 0;
+  if (!Object.prototype.hasOwnProperty.call(stored, 'musicVolume') && stored.music === false) Settings.musicVolume = 0;
   Settings.sound = Settings.soundVolume > 0;
   Settings.music = Settings.musicVolume > 0;
 }
