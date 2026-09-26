@@ -84,6 +84,11 @@ function appDisplayMode() {
     )) || navigator.standalone === true || !!document.fullscreenElement;
   } catch (e) { return false; }
 }
+function canLockOrientation() {
+  try {
+    return appDisplayMode() && !!(screen && screen.orientation && typeof screen.orientation.lock === 'function');
+  } catch (e) { return false; }
+}
 function applyScreenOrientationPreference() {
   try {
     const so = screen && screen.orientation;
@@ -131,9 +136,18 @@ function applySettingsToUI() {
     btn.disabled = !canVibrate;
     btn.title = canVibrate ? '' : 'Haptics are not available on this device';
   });
-  // Orientation is meaningful for every camera. Top-down rotates the board
-  // internally; installed/fullscreen PWAs can also request device orientation
-  // for the 2.5D cameras through the Screen Orientation API.
+  // Top-down can rotate internally on every browser. 2.5D can only force a
+  // device orientation when the installed/fullscreen environment exposes a
+  // working Screen Orientation lock, so never show a control that does nothing.
+  const boardRow = $('boardRow'), orientationLabel = $('orientationLabel'), orientationNote = $('orientationNote');
+  const topDown = Settings.camera === 'top', lockable25 = !topDown && canLockOrientation();
+  if (boardRow) boardRow.classList.toggle('hidden', !topDown && !lockable25);
+  if (orientationLabel) orientationLabel.textContent = topDown ? 'Board orientation' : 'Device orientation';
+  if (orientationNote) {
+    const explain = !topDown && !lockable25;
+    orientationNote.classList.toggle('hidden', !explain);
+    orientationNote.textContent = explain ? 'Rotate your device to change orientation in this camera view.' : '';
+  }
   // ONLINE: match rules are agreed at match start - lock them mid-match so
   // peers can't desynchronize. setSetting also refuses these; the disabled
   // state makes the lock visible instead of a silent no-op.
@@ -160,10 +174,16 @@ function applySettingsToUI() {
   updateStartLabel();
   const hf = $('helpFirst');
   if (hf) hf.textContent = Settings.firstTo;
-  const summary = $('ruleSummary');
-  if (summary) summary.textContent = 'First to ' + Settings.firstTo + ' · ' +
-    ({ casual:'Casual', classic:'Classic', lightning:'Lightning' }[Settings.pace] || 'Classic') + ' · ' +
-    ({ narrow:'Narrow', standard:'Standard', wide:'Wide' }[Settings.goalW] || 'Standard');
+  const paceLabel = ({ casual:'Casual', classic:'Classic', lightning:'Lightning' }[Settings.pace] || 'Classic');
+  const goalLabel = ({ narrow:'Narrow', standard:'Standard', wide:'Wide' }[Settings.goalW] || 'Standard');
+  const rs = $('ruleSumScore'), rp = $('ruleSumPace'), rg = $('ruleSumGoal');
+  if (rs) rs.textContent = Settings.firstTo;
+  if (rp) rp.textContent = paceLabel;
+  if (rg) rg.textContent = goalLabel;
+  const cf = $('ruleCurrentFirst'), cp = $('ruleCurrentPace'), cg = $('ruleCurrentGoal');
+  if (cf) cf.textContent = 'First to ' + Settings.firstTo;
+  if (cp) cp.textContent = paceLabel;
+  if (cg) cg.textContent = goalLabel;
   const sv = $('soundVol'), svv = $('soundVolVal');
   if (sv && document.activeElement !== sv) sv.value = Settings.soundVolume;
   if (svv) svv.textContent = Settings.soundVolume === 0 ? 'MUTE' : Settings.soundVolume;
@@ -557,11 +577,6 @@ function wireUI() {
   });
   $('btnWinMenu').addEventListener('click', quitToMenu);
   $('btnShareResult').addEventListener('click', shareResult);
-  $('btnMenu2').addEventListener('click', () => {
-    if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true);
-    else if (G.state === 'pause') { hideAll(); $('pauseov').classList.remove('hidden'); }
-    else quitToMenu();
-  });
   $('replaySkip').addEventListener('click', () => Replay.finish());
   $('btnSound').addEventListener('click', () => {
     AudioSys.init();
