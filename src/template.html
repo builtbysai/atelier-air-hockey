@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v27-regression-qa">
+<html lang="en" data-build="v28-goal-flow">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -42,6 +42,7 @@
   <span class="replay-progress" aria-hidden="true"><i id="replayProgress"></i></span>
   <button id="replaySkip" type="button">Skip</button>
 </div>
+<button id="replayOffer" class="replay-offer hidden" type="button">Watch replay</button>
 
 <div class="overlay" id="menu">
   <div class="card menusheet">
@@ -96,7 +97,6 @@
             <span><small>PACE</small><strong id="ruleSumPace">Classic</strong></span>
             <span><small>GOAL</small><strong id="ruleSumGoal">Standard</strong></span>
           </span>
-          <span class="ruleedit">Edit</span>
         </button>
         <button class="btn primary bigstart" id="btnStart"><span id="startLabel">START MATCH</span><small id="startSub">CLUB PRO · FIRST TO 7</small></button>
       </div>
@@ -188,10 +188,10 @@
       </div>
     </div>
     <div class="setrow">
-      <div class="setlabel">Instant replay</div>
+      <div class="setlabel">Goal replay</div>
       <div class="seg">
         <button data-set="instantReplay" data-val="off">Off</button>
-        <button data-set="instantReplay" data-val="goals">Goals</button>
+        <button data-set="instantReplay" data-val="goals">Offer</button>
       </div>
     </div>
     <div class="seclabel">AUDIO</div>
