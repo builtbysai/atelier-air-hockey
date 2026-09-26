@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v28-gameplay-flow">
+<html lang="en" data-build="v29-hud-flow-polish">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -42,7 +42,7 @@
   <span class="replay-progress" aria-hidden="true"><i id="replayProgress"></i></span>
   <button id="replaySkip" type="button">Skip</button>
 </div>
-<button id="replayOffer" class="replay-offer hidden" type="button">Watch replay</button>
+<button id="replayOffer" class="replay-offer hidden" type="button"><span>Watch replay</span><small>before the next serve</small></button>
 
 <div class="overlay" id="menu">
   <div class="card menusheet">
@@ -188,10 +188,10 @@
       </div>
     </div>
     <div class="setrow">
-      <div class="setlabel">Replay prompt</div>
+      <div class="setlabel">Goal replay</div>
       <div class="seg">
         <button data-set="instantReplay" data-val="off">Off</button>
-        <button data-set="instantReplay" data-val="goals">After goals</button>
+        <button data-set="instantReplay" data-val="goals">Offer</button>
       </div>
     </div>
     <div class="seclabel">AUDIO</div>
