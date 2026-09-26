@@ -177,11 +177,12 @@ test('auto orientation follows viewport shape for top-down', async () => {
   assert.equal(t.view.portrait, false, 'auto should remain landscape on a wide display');
 });
 
-test('2.5D camera presentation remains camera-driven while orientation is persisted', async () => {
+test('2.5D orientation controls are only shown when they can work', async () => {
   const src = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
   assert.match(src, /view\.portrait = view\.camera === 'top' && wantsPortrait/,
-    '2.5D should fit the physical viewport rather than applying the top-down rotation twice');
+    '2.5D should fit the physical viewport rather than pretending to rotate internally');
   const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
-  assert.match(ui, /applyScreenOrientationPreference\(\)/,
-    'installed/fullscreen app should apply the persisted orientation preference');
+  assert.match(ui, /function canLockOrientation\(\)/);
+  assert.match(ui, /boardRow\.classList\.toggle\('hidden', !topDown && !lockable25\)/);
+  assert.match(ui, /Rotate your device to change orientation in this camera view/);
 });
