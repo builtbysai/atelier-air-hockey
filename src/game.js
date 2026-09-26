@@ -1300,7 +1300,8 @@ function makeCamera(presetName, w, h, flip) {
   const xL = TX0 - pad, xR = TX1 + pad, yT = TY0 - pad, yB = TY1 + pad;
   const pts = [
     [xL, yT, 0], [xR, yT, 0], [xL, yB, 0], [xR, yB, 0],
-    [xL, yT, -50], [xL, yB, -50], [CX, CY, 64]
+    [xL, yT, -50], [xL, yB, -50], [xR, yT, -50], [xR, yB, -50],
+    [CX, CY, 64]
   ].map(([x, y, z]) => p1(x, y, z));
   let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
   for (const [px, py] of pts) {
