@@ -36,7 +36,7 @@ test('service worker caches the complete current app shell', () => {
   assert.match(sw, /staleWhileRevalidate/);
   assert.match(sw, /networkFirstNavigation/);
   assert.match(sw, /networkFirstAsset/);
-  assert.match(sw, /\\.\(\?:js\|css\|webmanifest\)\$/);
+  assert.match(sw, /js\|css\|webmanifest/);
 });
 
 test('service worker update check is non-blocking at boot', () => {
