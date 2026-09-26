@@ -39,6 +39,7 @@ const Settings = {
   effects: 'full',     // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics
   goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
   orientation: 'landscape', // 'landscape' | 'portrait' - board presentation (v24.2)
+  camera: 'top', // 'top' | 'elevated' | 'surface' - 2.5D camera (v25)
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
@@ -55,6 +56,7 @@ function loadSettings() {
   if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'landscape';
+  if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
   // music volume: persisted 0-100, 70 = unity. Clamp strays, fall back on garbage.
   if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
   else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
@@ -1193,7 +1195,19 @@ G.m1 = mkMallet(0); G.m2 = mkMallet(1);
 // ---------- view / input mapping ----------
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-let view = { w: 0, h: 0, s: 1, ox: 0, oy: 0, portrait: false };
+let view = { w: 0, h: 0, s: 1, ox: 0, oy: 0, portrait: false, camera: 'top', cam: null };
+// flat playfield staging canvas for the 2.5D warp (rink resolution).
+// Created lazily on first 2.5D frame so minimal-DOM test sandboxes that load
+// game.js never pay for it.
+let pfCanvas = null, pfCtx = null;
+function pfStage() {
+  if (!pfCanvas) {
+    pfCanvas = document.createElement('canvas');
+    pfCanvas.width = VW; pfCanvas.height = VH;
+    pfCtx = pfCanvas.getContext('2d');
+  }
+  return pfCtx;
+}
 
 function resize() {
   const vv = window.visualViewport;
@@ -1203,13 +1217,17 @@ function resize() {
   canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
   canvas.style.width = w + 'px'; canvas.style.height = h + 'px';
   view.w = w; view.h = h;
-  // Board orientation is a persisted setting and the single source of truth:
-  // 'portrait' forces the rotated presentation on any screen, 'landscape'
-  // (default) keeps the rink unrotated on any screen. No auto-override by
-  // screen shape - the toggle must do what it says on every device. The game
-  // space itself stays landscape; physics and AI never see the rotation
-  // (screenToRink inverts it for input).
-  view.portrait = Settings.orientation === 'portrait';
+  // 2.5D camera: the camera IS the presentation when active.
+  view.camera = ['top', 'elevated', 'surface'].includes(Settings.camera) ? Settings.camera : 'top';
+  // Board orientation is a persisted setting and the single source of truth
+  // for the top-down view: 'portrait' forces the rotated presentation on any
+  // screen, 'landscape' (default) keeps the rink unrotated on any screen. No
+  // auto-override by screen shape - the toggle must do what it says on every
+  // device. In 2.5D the camera is the whole presentation, so the orientation
+  // toggle is parked (the settings UI disables it there) and the affine fit
+  // stays landscape - the game space itself stays landscape either way and
+  // physics and AI never see the rotation (screenToRink inverts it for input).
+  view.portrait = view.camera === 'top' && Settings.orientation === 'portrait';
   if (!view.portrait) {
     view.s = Math.min(w / VW, h / VH);
     view.ox = (w - VW * view.s) / 2; view.oy = (h - VH * view.s) / 2;
@@ -1218,7 +1236,88 @@ function resize() {
     view.ox = (w - VH * view.s) / 2; view.oy = (h - VW * view.s) / 2;
   }
   view.dpr = dpr;
+  fitCamera();
   paintRoom();
+  paintTableWarp(); // 2.5D: re-warp the static table for the new fit
+}
+
+// ---------- 2.5D camera ----------
+// Optional faux-2.5D views (elevated / surface) alongside the top-down view.
+// The simulation never leaves flat table space: the camera is a pure view
+// layer. camProject maps table coords (x, y, z = height above the surface)
+// to screen CSS px; camUnproject inverts a screen point through a
+// ray/plane intersection so pointer control keeps tracking the mallet.
+// All ten tables share the same geometry, so every theme gets both views
+// for free. Pure functions of (preset, w, h, flip) - unit-testable.
+const CAM_PRESETS = {
+  elevated: { c: [-650, CY, 720], look: [760, CY, 0] },
+  surface: { c: [-60, CY, 170], look: [950, CY, 0] },
+};
+const TX1 = TX0 + PW + RAIL * 2, TY1 = TY0 + PH + RAIL * 2; // table footprint
+function v3sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+function v3cross(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+function v3norm(a) {
+  const l = Math.hypot(a[0], a[1], a[2]) || 1;
+  return [a[0] / l, a[1] / l, a[2] / l];
+}
+// Build a fitted camera. flip mirrors it behind the other end so the online
+// guest plays from their own side, exactly like the top-down mirror.
+function makeCamera(presetName, w, h, flip) {
+  const pr = CAM_PRESETS[presetName];
+  if (!pr || !w || !h) return null;
+  const mx = flip ? VW : 0, ms = flip ? -1 : 1;
+  const C = [mx + ms * pr.c[0], pr.c[1], pr.c[2]];
+  const L = [mx + ms * pr.look[0], pr.look[1], pr.look[2]];
+  const fwd = v3norm(v3sub(L, C));
+  const right = v3norm(v3cross(fwd, [0, 0, 1]));
+  const up = v3cross(right, fwd);
+  // project with f=1, fit the footprint (+ mallet-handle clearance) to the viewport
+  const p1 = (x, y, z) => {
+    const dx = x - C[0], dy = y - C[1], dz = z - C[2];
+    const Xc = dx * right[0] + dy * right[1] + dz * right[2];
+    const Yc = dx * up[0] + dy * up[1] + dz * up[2];
+    const Zc = dx * fwd[0] + dy * fwd[1] + dz * fwd[2];
+    return [Xc / Zc, Yc / Zc];
+  };
+  const pts = [[TX0, TY0, 0], [TX1, TY0, 0], [TX0, TY1, 0], [TX1, TY1, 0], [CX, CY, 130]]
+    .map(([x, y, z]) => p1(x, y, z));
+  let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+  for (const [px, py] of pts) {
+    if (px < x0) x0 = px; if (px > x1) x1 = px;
+    if (py < y0) y0 = py; if (py > y1) y1 = py;
+  }
+  // The scoreboard, chips and hint bar live in unwarped screen space, so the
+  // footprint is fitted into the clear band below them, not the raw viewport.
+  const bL = 0.03 * w, bT = 0.175 * h, bR = 0.97 * w, bB = 0.955 * h;
+  const f = Math.min((bR - bL) / (x1 - x0), (bB - bT) / (y1 - y0));
+  return { C, fwd, right, up, f, cx: (bL + bR) / 2 - f * (x0 + x1) / 2, cy: (bT + bB) / 2 + f * (y0 + y1) / 2 };
+}
+function fitCamera() {
+  view.cam = view.camera === 'top' ? null
+    : makeCamera(view.camera, view.w, view.h, !!G.onlineFlip);
+}
+// table (x, y, z) -> screen CSS px. s = screen px per rink unit at that depth.
+function camProject(cam, x, y, z) {
+  if (!cam) return null;
+  const dx = x - cam.C[0], dy = y - cam.C[1], dz = z - cam.C[2];
+  const Xc = dx * cam.right[0] + dy * cam.right[1] + dz * cam.right[2];
+  const Yc = dx * cam.up[0] + dy * cam.up[1] + dz * cam.up[2];
+  const Zc = dx * cam.fwd[0] + dy * cam.fwd[1] + dz * cam.fwd[2];
+  if (Zc < 1) return null; // behind the near plane
+  const s = cam.f / Zc;
+  return { x: cam.cx + Xc * s, y: cam.cy - Yc * s, s, zc: Zc };
+}
+// screen CSS px -> table (x, y) via ray/plane (z=0) intersection.
+// This is the exact inverse of camProject for z=0 points.
+function camUnproject(cam, sx, sy) {
+  const nx = (sx - cam.cx) / cam.f, ny = -(sy - cam.cy) / cam.f;
+  const rx = cam.fwd[0] + nx * cam.right[0] + ny * cam.up[0];
+  const ry = cam.fwd[1] + nx * cam.right[1] + ny * cam.up[1];
+  const rz = cam.fwd[2] + nx * cam.right[2] + ny * cam.up[2];
+  const t = -cam.C[2] / rz;
+  return { x: cam.C[0] + rx * t, y: cam.C[1] + ry * t };
 }
 // pre-render the theme's room to an offscreen canvas (screen space)
 function paintRoom() {
@@ -1239,6 +1338,10 @@ function paintRoom() {
 }
 // client px -> rink coords (inverse of render transform)
 function screenToRink(cx, cy) {
+  // 2.5D: the camera is the transform - invert through the ray/plane hit.
+  // The camera already sits behind the viewer's own end (mirrored for the
+  // online guest), so the result is true rink coords, no extra flip.
+  if (view.camera !== 'top' && view.cam) return camUnproject(view.cam, cx, cy);
   const { s, ox, oy, portrait } = view;
   const u = (cx - ox) / s, v = (cy - oy) / s;
   let x, y;
@@ -1320,10 +1423,21 @@ function driveMallet(m, dt, cap) {
 // player (side 1) gets the offset flipped so the mallet sits below the
 // fingertip. Online guests are mirror-flipped to play from their own side,
 // so they always keep the standard upward offset. Mouse/pen are untouched.
-function touchOffsetY(side) {
-  const malletScreenR = MALLET_R * (view.s || 1); // rink units -> CSS px
-  const off = clamp(malletScreenR * 2.0, 40, 96); // ~one mallet diameter
-  const topPlayer = view.portrait && side === 1 && G.mode === '2p';
+function touchOffsetY(side, cx, cy) {
+  let px;
+  if (view.camera !== 'top' && view.cam && cx !== undefined) {
+    // size-aware in 2.5D too: measure the mallet's on-screen size at the
+    // touch point through the camera, so the offset feels right at any depth
+    const r = camUnproject(view.cam, cx, cy);
+    const pr = camProject(view.cam, r.x, r.y, 0);
+    px = pr ? MALLET_R * pr.s : 40;
+  } else {
+    px = MALLET_R * (view.s || 1); // rink units -> CSS px
+  }
+  const off = clamp(px * 2.0, 40, 96); // ~one mallet diameter
+  // In 2.5D the far player (side 1) sits at the top of the screen, like the
+  // portrait top player - their offset flips the same way.
+  const topPlayer = side === 1 && G.mode === '2p' && (view.portrait || view.camera !== 'top');
   return topPlayer ? off : -off;
 }
 
@@ -1351,7 +1465,7 @@ function onPointerDown(e) {
   }
   const side = pointers.get(e.pointerId);
   const m = side === 0 ? G.m1 : G.m2;
-  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side) : 0));
+  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side, e.clientX, e.clientY) : 0));
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
 }
@@ -1360,7 +1474,7 @@ function onPointerMove(e) {
   if (G.state === 'menu' || G.state === 'win') return;
   const side = pointers.get(e.pointerId);
   const touch = e.pointerType === 'touch';
-  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side) : 0));
+  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side, e.clientX, e.clientY) : 0));
   const m = side === 0 ? G.m1 : G.m2;
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
@@ -2580,7 +2694,12 @@ function playStep(rdt) {
       aiDrive(G.ai1, sdt, G.m1);
       aiDrive(G.ai2, sdt, G.m2);
     } else {
-      if (pointers.size > 0) driveMallet(G.m1, sdt, PLAYER_CAP);
+      // 1p: keyboard/gamepad also drive through tx/ty, so only pin the target
+      // to the current position when no input source is active. Pinning
+      // unconditionally wipes keyboard/gamepad targets every substep and
+      // makes keys appear dead unless a pointer is also down.
+      const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
+      if (pointers.size > 0 || kbFresh) driveMallet(G.m1, sdt, PLAYER_CAP);
       else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
       aiDrive(G.ai2, sdt, G.m2);
     }
@@ -2707,6 +2826,201 @@ function drawPlaque(ctx, cx, y, text, opts) {
   ctx.restore();
 }
 
+// The flat playfield: table, rails, surface, markings and every effect that
+// lives ON the surface (scuffs, trails, flashes, particles). Drawn with an
+// affine rink transform - the top-down view draws it straight to the main
+// canvas; the 2.5D views stage it on the offscreen canvas and warp it.
+function drawTableStaticFlat(c) {
+  // table shadow + rails + surface
+  c.save();
+  c.shadowColor = 'rgba(0,0,0,0.55)'; c.shadowBlur = 46; c.shadowOffsetY = 22;
+  c.fillStyle = '#000';
+  rr(c, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 34); c.fill();
+  c.restore();
+  THEME.drawRails(c);
+  THEME.drawSurface(c);
+  THEME.drawMarkings(c);
+}
+
+function drawTableFlat(c) {
+  drawTableStaticFlat(c);
+
+  // scuffs (permanence)
+  for (const sc of G.scuffs) {
+    c.save(); c.translate(sc.x, sc.y); c.rotate(sc.ang);
+    c.fillStyle = 'rgba(10,8,6,' + sc.a.toFixed(3) + ')';
+    c.fillRect(-sc.len / 2, -1.6, sc.len, 3.2);
+    c.restore();
+  }
+
+  // puck trail
+  const tr = G.trail;
+  if (tr.length > 1) {
+    c.save(); c.lineCap = 'round';
+    // neon tables set trailGlow: the streak blooms like a light tube
+    if (THEME.trailGlow) { c.shadowColor = THEME.trailGlow; c.shadowBlur = 14; }
+    for (let i = 1; i < tr.length; i++) {
+      const a = (i / tr.length) * 0.35;
+      c.strokeStyle = THEME.trail;
+      c.globalAlpha = a;
+      c.lineWidth = 2 + (i / tr.length) * 8;
+      c.beginPath(); c.moveTo(tr[i - 1].x, tr[i - 1].y); c.lineTo(tr[i].x, tr[i].y); c.stroke();
+    }
+    c.restore();
+  }
+
+  // speed lines: above 1500 the trail alone undersells it - theme-colored
+  // streaks stretch back along the velocity vector
+  const psp = puckSpeed();
+  if (psp > 1500 && Settings.effects !== 'minimal') {
+    const nsl = Settings.effects === 'subtle' ? 3 : Math.min(5, 1 + Math.floor((psp - 1500) / 400));
+    const va = Math.atan2(G.puck.vy, G.puck.vx);
+    const cvx = Math.cos(va), svx = Math.sin(va);
+    c.save(); c.lineCap = 'round'; c.strokeStyle = THEME.trail;
+    for (let i = 0; i < nsl; i++) {
+      const off = (i - (nsl - 1) / 2) * 14;
+      const ox = -svx * off, oy = cvx * off;
+      const len = psp * (0.05 + i * 0.012);
+      c.globalAlpha = Math.max(0.06, 0.28 - i * 0.04);
+      c.lineWidth = 3;
+      c.beginPath();
+      c.moveTo(G.puck.x - cvx * (PUCK_R + 6) + ox, G.puck.y - svx * (PUCK_R + 6) + oy);
+      c.lineTo(G.puck.x - cvx * (PUCK_R + 6 + len) + ox, G.puck.y - svx * (PUCK_R + 6 + len) + oy);
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  // goal-frame rattle: a hard frame hit visibly shakes the trim for ~0.4s
+  // (fxFlash() gates it for Minimal effects + prefers-reduced-motion; the
+  // jitter itself scales with the Shake setting, like trauma shake)
+  for (let side = 0; side < 2; side++) {
+    const gx = side === 0 ? PX : PX + PW;
+    let ox = 0, oy = 0;
+    if (G.rattle && G.rattle.side === side && fxFlash()) {
+      const j = 4.5 * (G.rattle.t / 0.42) * shakeK();
+      ox = rnd(-1, 1) * j; oy = rnd(-1, 1) * j;
+    }
+    c.save(); c.translate(ox, oy);
+    THEME.drawGoalTrim(c, side, gx, CY, goalW());
+    c.restore();
+  }
+
+  // goal-frame flash: the scored-on frame lights up in theme gold
+  if (G.goalFrameT > 0 && fxFlash()) {
+    const fgx = G.goalSide === 0 ? PX + PW : PX;
+    c.save();
+    c.globalAlpha = G.goalFrameT * 0.9;
+    c.strokeStyle = THEME.gold || '#d8a93f'; c.lineWidth = 5;
+    rr(c, fgx - 16, CY - goalW() / 2 - 16, 32, goalW() + 32, 16); c.stroke();
+    c.restore();
+  }
+  // near-miss post glow: the kissed posts smolder briefly
+  if (G.missGlow && fxFlash()) {
+    const mgx = G.missGlow.side === 0 ? PX : PX + PW;
+    c.save();
+    c.globalAlpha = clamp(G.missGlow.t / 0.7, 0, 1) * 0.8;
+    c.fillStyle = THEME.gold || '#d8a93f';
+    for (const sgn of [-1, 1]) {
+      c.beginPath(); c.arc(mgx, CY + sgn * goalW() / 2, 10, 0, TAU); c.fill();
+    }
+    c.restore();
+  }
+}
+
+// Surface-bound motion FX: mallet trails, possession ring, particle streaks,
+// save pulses, impact flash. Stays with the table in every camera.
+function drawFxFlat(c) {
+  // mallet motion trails on fast flicks (recorded in driveMallet)
+  for (const m of [G.m1, G.m2]) {
+    const tr = m.trail;
+    for (let i = 0; i < tr.length; i++) {
+      const a = (i / tr.length) * 0.30 * fxTrail();
+      if (a <= 0.01) continue;
+      c.save(); c.globalAlpha = a; c.fillStyle = THEME.trail;
+      c.beginPath(); c.arc(tr[i].x, tr[i].y, m.r * (0.35 + 0.55 * i / tr.length), 0, TAU); c.fill();
+      c.restore();
+    }
+    // possession readability: sustained gentle contact (>0.4s) draws a soft
+    // ring under the puck - it reads as control, never as a stuck puck
+    if (m.glueT > 0.4) {
+      const pr = PUCK_R + 12 + Math.sin(perfNow() * 6) * 3;
+      c.save(); c.globalAlpha = 0.55; c.strokeStyle = THEME.gold || '#d8a93f';
+      c.lineWidth = 3;
+      c.beginPath(); c.arc(G.puck.x, G.puck.y, pr, 0, TAU); c.stroke();
+      c.restore();
+    }
+  }
+
+  // particles as motion streaks
+  c.save(); c.lineCap = 'round';
+  for (const q of PPOOL) {
+    if (!q.on) continue;
+    const a = clamp(q.life / q.max, 0, 1);
+    c.globalAlpha = a;
+    c.strokeStyle = q.color;
+    c.lineWidth = q.size * a + 0.5;
+    c.beginPath();
+    c.moveTo(q.x, q.y);
+    c.lineTo(q.x - q.vx * 0.035, q.y - q.vy * 0.035);
+    c.stroke();
+  }
+  c.restore();
+
+  // save-moment ring pulses: a soft expanding ring where the block happened
+  for (const q of G.pulses) {
+    const k = q.t / 0.6;
+    c.save();
+    c.globalAlpha = (1 - k) * 0.7;
+    c.strokeStyle = THEME.gold || '#d8a93f';
+    c.lineWidth = 4 * (1 - k) + 1;
+    c.beginPath(); c.arc(q.x, q.y, 30 + k * 90, 0, TAU); c.stroke();
+    c.restore();
+  }
+
+  // goal flash
+  if (G.flashA > 0) {
+    const gx = G.goalSide === 0 ? PX + PW : PX;
+    const g = c.createRadialGradient(gx, CY, 10, gx, CY, 420);
+    const fc = THEME.flash || 'rgba(216,169,63,1)';
+    g.addColorStop(0, fc); g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.save(); c.globalAlpha = G.flashA * 0.55; c.fillStyle = g;
+    c.fillRect(gx - 430, CY - 430, 860, 860);
+    c.restore();
+  }
+
+  // SMASH-tier impact flash: a hard white-gold pop exactly where it landed
+  if (G.hitFlash > 0 && fxFlash()) {
+    const hg = c.createRadialGradient(G.hitFlashX, G.hitFlashY, 8, G.hitFlashX, G.hitFlashY, 260);
+    hg.addColorStop(0, 'rgba(255,255,255,' + (0.55 * G.hitFlash).toFixed(3) + ')');
+    hg.addColorStop(1, 'rgba(255,255,255,0)');
+    c.save(); c.fillStyle = hg;
+    c.fillRect(G.hitFlashX - 270, G.hitFlashY - 270, 540, 540);
+    c.restore();
+  }
+}
+
+// Floating score texts in flat rink space (top-down only). The 2.5D views
+// project these to screen space instead so the type stays readable.
+function drawTextsFlat(c) {
+  // floating texts (positions flip with the playfield; glyphs stay upright).
+  // Two passes: a dark blurred backing for separation on the lightest rooms,
+  // then the crisp color face on top - the gold stays gold, no muddy outline.
+  for (const t of G.texts) {
+    const a = 1 - t.t / 1.1;
+    c.save();
+    c.globalAlpha = clamp(a, 0, 1);
+    c.font = '800 ' + t.size + 'px ' + THEME.font.display;
+    c.fillStyle = 'rgba(15,10,5,0.85)';
+    c.shadowColor = 'rgba(0,0,0,0.9)'; c.shadowBlur = 12;
+    rinkText(c, t.str, t.x, t.y); // ONLINE: upright type in the mirrored view
+    c.shadowBlur = 0;
+    c.fillStyle = t.color;
+    rinkText(c, t.str, t.x, t.y);
+    c.restore();
+  }
+}
+
 function render() {
   const dpr = view.dpr || 1, w = view.w, h = view.h, s = view.s;
   // the room: pre-rendered on theme change / resize - one drawImage, no shake
@@ -2722,6 +3036,17 @@ function render() {
     rg.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.save(); ctx.fillStyle = rg; ctx.fillRect(0, 0, w, h); ctx.restore();
   }
+  // Camera branch: top-down keeps the classic affine rink transform; the
+  // 2.5D views stage the flat playfield offscreen and warp it through the
+  // fitted pinhole camera. Physics, AI and netcode never see the difference.
+  if (view.camera !== 'top' && view.cam) render25(w, h);
+  else renderTop(w, h);
+}
+
+// Classic top-down view: the affine rink transform, byte-identical to the
+// pre-2.5D render path.
+function renderTop(w, h) {
+  const s = view.s;
   // trauma shake: slight rotation + translation (rotation reads as force)
   const sh = shakeOffset();
   ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
@@ -2731,7 +3056,6 @@ function render() {
   // every world-space glyph (scoreboard, countdown, GOAL!, floating text).
   // P1's goal stays at the bottom of the screen, as before.
   else ctx.transform(0, -s, s, 0, view.ox, view.oy + s * VW);
-
   // goal zoom: ease toward the mouth during the ceremony (playfield only)
   ctx.save();
   if (G.letterT > 0) {
@@ -2739,193 +3063,17 @@ function render() {
     const z = 1 + 0.10 * easeOutBack(clamp(G.letterT, 0, 1));
     ctx.translate(gx, CY); ctx.scale(z, z); ctx.translate(-gx, -CY);
   }
-
   // ONLINE: the guest plays from their own side, so the playfield mirrors -
   // their mallet and goal sit where the host's do. Everything above the
   // playfield (scoreboard, ceremony type, ribbon) stays unflipped.
   ctx.save();
   if (G.onlineFlip) { ctx.translate(VW, 0); ctx.scale(-1, 1); }
-
-  // table shadow + rails + surface
-  ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.55)'; ctx.shadowBlur = 46; ctx.shadowOffsetY = 22;
-  ctx.fillStyle = '#000';
-  rr(ctx, TX0, TY0, PW + RAIL * 2, PH + RAIL * 2, 34); ctx.fill();
-  ctx.restore();
-  THEME.drawRails(ctx);
-  THEME.drawSurface(ctx);
-  THEME.drawMarkings(ctx);
-
-  // scuffs (permanence)
-  for (const sc of G.scuffs) {
-    ctx.save(); ctx.translate(sc.x, sc.y); ctx.rotate(sc.ang);
-    ctx.fillStyle = 'rgba(10,8,6,' + sc.a.toFixed(3) + ')';
-    ctx.fillRect(-sc.len / 2, -1.6, sc.len, 3.2);
-    ctx.restore();
-  }
-
-  // puck trail
-  const tr = G.trail;
-  if (tr.length > 1) {
-    ctx.save(); ctx.lineCap = 'round';
-    // neon tables set trailGlow: the streak blooms like a light tube
-    if (THEME.trailGlow) { ctx.shadowColor = THEME.trailGlow; ctx.shadowBlur = 14; }
-    for (let i = 1; i < tr.length; i++) {
-      const a = (i / tr.length) * 0.35;
-      ctx.strokeStyle = THEME.trail;
-      ctx.globalAlpha = a;
-      ctx.lineWidth = 2 + (i / tr.length) * 8;
-      ctx.beginPath(); ctx.moveTo(tr[i - 1].x, tr[i - 1].y); ctx.lineTo(tr[i].x, tr[i].y); ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // speed lines: above 1500 the trail alone undersells it - theme-colored
-  // streaks stretch back along the velocity vector
-  const psp = puckSpeed();
-  if (psp > 1500 && Settings.effects !== 'minimal') {
-    const nsl = Settings.effects === 'subtle' ? 3 : Math.min(5, 1 + Math.floor((psp - 1500) / 400));
-    const va = Math.atan2(G.puck.vy, G.puck.vx);
-    const cvx = Math.cos(va), svx = Math.sin(va);
-    ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = THEME.trail;
-    for (let i = 0; i < nsl; i++) {
-      const off = (i - (nsl - 1) / 2) * 14;
-      const ox = -svx * off, oy = cvx * off;
-      const len = psp * (0.05 + i * 0.012);
-      ctx.globalAlpha = Math.max(0.06, 0.28 - i * 0.04);
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(G.puck.x - cvx * (PUCK_R + 6) + ox, G.puck.y - svx * (PUCK_R + 6) + oy);
-      ctx.lineTo(G.puck.x - cvx * (PUCK_R + 6 + len) + ox, G.puck.y - svx * (PUCK_R + 6 + len) + oy);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  // goal-frame rattle: a hard frame hit visibly shakes the trim for ~0.4s
-  // (fxFlash() gates it for Minimal effects + prefers-reduced-motion; the
-  // jitter itself scales with the Shake setting, like trauma shake)
-  for (let side = 0; side < 2; side++) {
-    const gx = side === 0 ? PX : PX + PW;
-    let ox = 0, oy = 0;
-    if (G.rattle && G.rattle.side === side && fxFlash()) {
-      const j = 4.5 * (G.rattle.t / 0.42) * shakeK();
-      ox = rnd(-1, 1) * j; oy = rnd(-1, 1) * j;
-    }
-    ctx.save(); ctx.translate(ox, oy);
-    THEME.drawGoalTrim(ctx, side, gx, CY, goalW());
-    ctx.restore();
-  }
-
-  // goal-frame flash: the scored-on frame lights up in theme gold
-  if (G.goalFrameT > 0 && fxFlash()) {
-    const fgx = G.goalSide === 0 ? PX + PW : PX;
-    ctx.save();
-    ctx.globalAlpha = G.goalFrameT * 0.9;
-    ctx.strokeStyle = THEME.gold || '#d8a93f'; ctx.lineWidth = 5;
-    rr(ctx, fgx - 16, CY - goalW() / 2 - 16, 32, goalW() + 32, 16); ctx.stroke();
-    ctx.restore();
-  }
-  // near-miss post glow: the kissed posts smolder briefly
-  if (G.missGlow && fxFlash()) {
-    const mgx = G.missGlow.side === 0 ? PX : PX + PW;
-    ctx.save();
-    ctx.globalAlpha = clamp(G.missGlow.t / 0.7, 0, 1) * 0.8;
-    ctx.fillStyle = THEME.gold || '#d8a93f';
-    for (const sgn of [-1, 1]) {
-      ctx.beginPath(); ctx.arc(mgx, CY + sgn * goalW() / 2, 10, 0, TAU); ctx.fill();
-    }
-    ctx.restore();
-  }
-
+  drawTableFlat(ctx);
   drawPuck(ctx);
   drawMallet(ctx, G.m1);
   drawMallet(ctx, G.m2);
-
-  // mallet motion trails on fast flicks (recorded in driveMallet)
-  for (const m of [G.m1, G.m2]) {
-    const tr = m.trail;
-    for (let i = 0; i < tr.length; i++) {
-      const a = (i / tr.length) * 0.30 * fxTrail();
-      if (a <= 0.01) continue;
-      ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = THEME.trail;
-      ctx.beginPath(); ctx.arc(tr[i].x, tr[i].y, m.r * (0.35 + 0.55 * i / tr.length), 0, TAU); ctx.fill();
-      ctx.restore();
-    }
-    // possession readability: sustained gentle contact (>0.4s) draws a soft
-    // ring under the puck - it reads as control, never as a stuck puck
-    if (m.glueT > 0.4) {
-      const pr = PUCK_R + 12 + Math.sin(perfNow() * 6) * 3;
-      ctx.save(); ctx.globalAlpha = 0.55; ctx.strokeStyle = THEME.gold || '#d8a93f';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(G.puck.x, G.puck.y, pr, 0, TAU); ctx.stroke();
-      ctx.restore();
-    }
-  }
-
-  // particles as motion streaks
-  ctx.save(); ctx.lineCap = 'round';
-  for (const q of PPOOL) {
-    if (!q.on) continue;
-    const a = clamp(q.life / q.max, 0, 1);
-    ctx.globalAlpha = a;
-    ctx.strokeStyle = q.color;
-    ctx.lineWidth = q.size * a + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(q.x, q.y);
-    ctx.lineTo(q.x - q.vx * 0.035, q.y - q.vy * 0.035);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // save-moment ring pulses: a soft expanding ring where the block happened
-  for (const q of G.pulses) {
-    const k = q.t / 0.6;
-    ctx.save();
-    ctx.globalAlpha = (1 - k) * 0.7;
-    ctx.strokeStyle = THEME.gold || '#d8a93f';
-    ctx.lineWidth = 4 * (1 - k) + 1;
-    ctx.beginPath(); ctx.arc(q.x, q.y, 30 + k * 90, 0, TAU); ctx.stroke();
-    ctx.restore();
-  }
-
-  // goal flash
-  if (G.flashA > 0) {
-    const gx = G.goalSide === 0 ? PX + PW : PX;
-    const g = ctx.createRadialGradient(gx, CY, 10, gx, CY, 420);
-    const fc = THEME.flash || 'rgba(216,169,63,1)';
-    g.addColorStop(0, fc); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.save(); ctx.globalAlpha = G.flashA * 0.55; ctx.fillStyle = g;
-    ctx.fillRect(gx - 430, CY - 430, 860, 860);
-    ctx.restore();
-  }
-
-  // SMASH-tier impact flash: a hard white-gold pop exactly where it landed
-  if (G.hitFlash > 0 && fxFlash()) {
-    const hg = ctx.createRadialGradient(G.hitFlashX, G.hitFlashY, 8, G.hitFlashX, G.hitFlashY, 260);
-    hg.addColorStop(0, 'rgba(255,255,255,' + (0.55 * G.hitFlash).toFixed(3) + ')');
-    hg.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.save(); ctx.fillStyle = hg;
-    ctx.fillRect(G.hitFlashX - 270, G.hitFlashY - 270, 540, 540);
-    ctx.restore();
-  }
-
-  // floating texts (positions flip with the playfield; glyphs stay upright).
-  // Two passes: a dark blurred backing for separation on the lightest rooms,
-  // then the crisp color face on top - the gold stays gold, no muddy outline.
-  for (const t of G.texts) {
-    const a = 1 - t.t / 1.1;
-    ctx.save();
-    ctx.globalAlpha = clamp(a, 0, 1);
-    ctx.font = '800 ' + t.size + 'px ' + THEME.font.display;
-    ctx.fillStyle = 'rgba(15,10,5,0.85)';
-    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 12;
-    rinkText(ctx, t.str, t.x, t.y); // ONLINE: upright type in the mirrored view
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = t.color;
-    rinkText(ctx, t.str, t.x, t.y);
-    ctx.restore();
-  }
+  drawFxFlat(ctx);
+  drawTextsFlat(ctx);
   ctx.restore(); // ONLINE flip
 
   // countdown - anticipation with a pop
@@ -2943,11 +3091,16 @@ function render() {
     ctx.fillText(label, 0, 0); // screen space - never flipped
     ctx.restore();
   }
+  ctx.restore();
+  renderTail(w, h);
+}
 
+// Screen-space tail shared by every camera: letterbox GOAL ceremony,
+// scoreboard, rally and match-point chips, vignette, menu dim.
+function renderTail(w, h) {
   // letterbox + GOAL! - the reserved channel (stable screen space, above the zoom).
   // Under reduced motion the banner arrives without the spring (bars fade in
   // instead of sliding, GOAL! appears at rest size).
-  ctx.restore();
   if (G.letterT > 0) {
     const be = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT, 0, 1));
     const bh = 120 * be;
@@ -3007,6 +3160,530 @@ function render() {
     ctx.fillRect(0, 0, VW, VH);
   }
 }
+
+// ---------- 2.5D view ----------
+// The playfield is staged flat on the offscreen canvas (affine only, so all
+// ten themes render untouched), then warped through the fitted pinhole
+// camera strip by strip. Objects with real height - puck, mallet handles,
+// the table body - are drawn in true perspective on top, far to near.
+function render25(w, h) {
+  const cam = view.cam;
+  if (!cam) { renderTop(w, h); return; } // fitted camera missing: safe fallback
+  // The table (surface, rails, markings, skirt) is pre-warped once per camera
+  // fit into warpCanvas - one drawImage per frame. Only the dynamic FX, puck
+  // and mallets are drawn per frame, in true perspective.
+  if (!warpCanvas) paintTableWarp();
+  // trauma shake in screen space - same language as the top-down view,
+  // applied to the whole scene at once
+  const sh = shakeOffset();
+  ctx.save();
+  ctx.translate(w / 2, h / 2); ctx.rotate(sh.r); ctx.translate(-w / 2 + sh.x, -h / 2 + sh.y);
+  if (warpCanvas) ctx.drawImage(warpCanvas, 0, 0, w, h);
+  drawDynTable25(cam);
+  drawFx25(cam);
+  drawObjects25(cam);
+  drawTexts25(cam);
+  drawCountdown25(cam);
+  ctx.restore();
+  renderTail(w, h);
+}
+
+// The table gets a real body: near and side faces extruded below the surface
+// so the tabletop reads as a physical object, not a projected poster.
+// Baked into the pre-warped table canvas (static per camera fit).
+function drawTableSkirt25(g, cam) {
+  const T = 46; // body thickness in rink units
+  const quad = (pts, fill) => {
+    const q = pts.map(([x, y, z]) => camProject(cam, x, y, z));
+    if (q.some(p => !p)) return;
+    g.beginPath();
+    g.moveTo(q[0].x, q[0].y);
+    for (let i = 1; i < q.length; i++) g.lineTo(q[i].x, q[i].y);
+    g.closePath();
+    g.fillStyle = fill; g.fill();
+  };
+  // side faces first (darker), near face last (catches the room light)
+  quad([[TX0, TY0, 0], [TX1, TY0, 0], [TX1, TY0, -T], [TX0, TY0, -T]], '#0a0a0d');
+  quad([[TX0, TY1, 0], [TX1, TY1, 0], [TX1, TY1, -T], [TX0, TY1, -T]], '#0a0a0d');
+  quad([[TX0, TY0, 0], [TX0, TY1, 0], [TX0, TY1, -T], [TX0, TY0, -T]], '#121216');
+}
+
+// Pre-warped 2.5D table: the surface, rails, markings and skirt are static
+// per theme, so the perspective warp runs once per camera fit (resize,
+// camera switch, theme change, online flip) into a screen-space canvas.
+// Each frame then costs a single drawImage. The trauma shake applies on top
+// of the pre-warped image, exactly as it did when the warp ran per frame.
+let warpCanvas = null;
+function paintTableWarp() {
+  if (view.camera === 'top' || !view.cam || !view.w || !view.h) { warpCanvas = null; return; }
+  // flat playfield -> offscreen staging (identity transform: the staging
+  // canvas is exactly rink resolution, so rink coords map 1:1 to source px)
+  const pfx = pfStage();
+  pfx.setTransform(1, 0, 0, 1, 0, 0);
+  pfx.clearRect(0, 0, VW, VH);
+  drawTableStaticFlat(pfx);
+  const dpr = view.dpr || 1, w = view.w, h = view.h;
+  const c = document.createElement('canvas');
+  c.width = Math.max(2, Math.round(w * dpr));
+  c.height = Math.max(2, Math.round(h * dpr));
+  const g = c.getContext('2d');
+  g.scale(dpr, dpr);
+  drawTableSkirt25(g, view.cam);
+  warpPlayfield25(g, view.cam);
+  warpCanvas = c;
+}
+
+// Warp an arbitrary rink rect [x0,x1]x[y0,y1] from a source canvas through
+// the camera. (sx,sy) is the source-canvas px offset of rink (x0,y0): the
+// full-table staging canvas is 1:1 with rink coords (offset 0,0); small
+// transient canvases (goal trim) carry their own offset.
+function warpRect25(g, cam, src, ox, oy, x0, x1, y0, y1) {
+  const dy = y1 - y0;
+  const bounds = [x0];
+  const stack = [[x0, x1]];
+  let guard = 0;
+  while (stack.length && guard++ < 20000) {
+    const [a, b] = stack.pop();
+    if (b - a < 0.5 || triErr25(cam, a, b, y0, y1) < 0.5) bounds.push(b);
+    else { const m = (a + b) / 2; stack.push([m, b]); stack.push([a, m]); }
+  }
+  bounds.sort((p, q) => p - q);
+  const tops = [], bots = [];
+  for (const x of bounds) {
+    const t = camProject(cam, x, y0, 0), bo = camProject(cam, x, y1, 0);
+    if (!t || !bo) return; // unreachable: the fit keeps every corner in front
+    tops.push(t); bots.push(bo);
+  }
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    const sx0 = bounds[i], sx1 = bounds[i + 1], dx = sx1 - sx0;
+    const T0 = tops[i], T1 = tops[i + 1], B0 = bots[i], B1 = bots[i + 1];
+    triBlit25(g, src, ox, oy, [[sx0, y0], [sx1, y0], [sx1, y1]],
+              [[T0.x, T0.y], [T1.x, T1.y], [B1.x, B1.y]], sx0, y0, dx, dy);
+    triBlit25(g, src, ox, oy, [[sx0, y0], [sx1, y1], [sx0, y1]],
+              [[T0.x, T0.y], [B1.x, B1.y], [B0.x, B0.y]], sx0, y0, dx, dy);
+  }
+}
+
+function warpPlayfield25(g, cam) {
+  warpRect25(g, cam, pfCanvas, 0, 0, TX0, TX1, TY0, TY1);
+}
+
+// Draw one source triangle through the affine its three true projected
+// corners determine, clipped to the destination triangle. The strip's full
+// source rect is drawn (it covers the triangle); the clip cuts the excess.
+// Source px = rink coords minus the (ox,oy) canvas offset.
+function triBlit25(g, src, ox, oy, sTri, dTri, sx, sy, sw, sh) {
+  const A = triAffine25(sTri, dTri);
+  if (!A) return;
+  const [[d0x, d0y], [d1x, d1y], [d2x, d2y]] = dTri;
+  g.save();
+  g.beginPath();
+  g.moveTo(d0x, d0y); g.lineTo(d1x, d1y); g.lineTo(d2x, d2y);
+  g.closePath(); g.clip();
+  g.transform(A[0], A[1], A[2], A[3], A[4], A[5]);
+  g.drawImage(src, sx - ox, sy - oy, sw, sh, sx, sy, sw, sh);
+  g.restore();
+}
+
+// Affine from three source points to three screen points, as
+// [m11, m12, m21, m22, ex, ey] for ctx.transform. Pure math - unit-testable.
+function triAffine25(sTri, dTri) {
+  const [[s0x, s0y], [s1x, s1y], [s2x, s2y]] = sTri;
+  const [[d0x, d0y], [d1x, d1y], [d2x, d2y]] = dTri;
+  const a11 = s1x - s0x, a12 = s1y - s0y, a21 = s2x - s0x, a22 = s2y - s0y;
+  const det = a11 * a22 - a12 * a21;
+  if (!det) return null;
+  const i11 = a22 / det, i12 = -a12 / det, i21 = -a21 / det, i22 = a11 / det;
+  const b11 = d1x - d0x, b12 = d1y - d0y, b21 = d2x - d0x, b22 = d2y - d0y;
+  const m11 = b11 * i11 + b21 * i12, m21 = b11 * i21 + b21 * i22;
+  const m12 = b12 * i11 + b22 * i12, m22 = b12 * i21 + b22 * i22;
+  return [m11, m12, m21, m22,
+    d0x - (m11 * s0x + m21 * s0y), d0y - (m12 * s0x + m22 * s0y)];
+}
+
+// Worst-case screen-space error of the two-triangle warp over a strip:
+// sample interior points and compare the affine prediction against the
+// true projection. Pure math - unit-testable.
+function triErr25(cam, sx0, sx1, y0, y1) {
+  const A = camProject(cam, sx0, y0, 0), B = camProject(cam, sx1, y0, 0);
+  const C = camProject(cam, sx0, y1, 0), D = camProject(cam, sx1, y1, 0);
+  if (!A || !B || !C || !D) return 1e9;
+  const f1 = triAffine25([[sx0, y0], [sx1, y0], [sx1, y1]],
+                         [[A.x, A.y], [B.x, B.y], [D.x, D.y]]);
+  const f2 = triAffine25([[sx0, y0], [sx1, y1], [sx0, y1]],
+                         [[A.x, A.y], [D.x, D.y], [C.x, C.y]]);
+  if (!f1 || !f2) return 1e9;
+  const proj = (f, x, y) => [f[0] * x + f[2] * y + f[4], f[1] * x + f[3] * y + f[5]];
+  let worst = 0;
+  const dx = sx1 - sx0, dy = y1 - y0;
+  const pts = [[0.5, 0.004], [0.5, 0.996], [0.25, 0.5], [0.75, 0.5], [0.5, 0.5]];
+  for (const [u, v] of pts) {
+    const x = sx0 + dx * u, y = y0 + dy * v;
+    const t = camProject(cam, x, y, 0);
+    if (!t) return 1e9;
+    // triangle 1 covers the region below the (sx0,y0)-(sx1,y1) diagonal
+    const f = v < u ? f1 : f2;
+    const [px, py] = proj(f, x, y);
+    const e = Math.hypot(px - t.x, py - t.y);
+    if (e > worst) worst = e;
+  }
+  return worst;
+}
+
+// Screen-space ellipse for a circle of radius r on the table plane at
+// (x, y, z). The camera never rolls, so table-y maps (unforeshortened) to
+// screen-x and table-x (depth) maps to screen-y: each axis gets its own
+// true local scale instead of a fudge factor.
+function tableEll25(cam, x, y, z, r) {
+  const p0 = camProject(cam, x, y, z);
+  if (!p0) return null;
+  const px = camProject(cam, x + r, y, z), py = camProject(cam, x, y + r, z);
+  if (!px || !py) return null;
+  return { x: p0.x, y: p0.y, rx: Math.abs(py.x - p0.x), ry: Math.abs(px.y - p0.y), s: p0.s };
+}
+
+function drawShadow25(cam, x, y, r) {
+  const e = tableEll25(cam, x, y, 0, r);
+  if (!e) return;
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(e.x, e.y, e.rx, e.ry, 0, 0, TAU);
+  ctx.fill();
+}
+
+// Puck and mallets, drawn far-to-near in true perspective.
+function drawObjects25(cam) {
+  const p = G.puck;
+  drawShadow25(cam, p.x + 10, p.y + 14, PUCK_R * 1.05);
+  drawShadow25(cam, G.m1.x + 8, G.m1.y + 12, G.m1.r);
+  drawShadow25(cam, G.m2.x + 8, G.m2.y + 12, G.m2.r);
+  const items = [
+    { z: camProject(cam, p.x, p.y, 0), f: () => drawPuck25(cam) },
+    { z: camProject(cam, G.m1.x, G.m1.y, 0), f: () => drawMallet25(cam, G.m1) },
+    { z: camProject(cam, G.m2.x, G.m2.y, 0), f: () => drawMallet25(cam, G.m2) },
+  ];
+  // painter's order: far (large zc) first. A missing projection sorts last.
+  items.sort((u, v) => (v.z ? v.z.zc : -1) - (u.z ? u.z.zc : -1));
+  for (const it of items) it.f();
+}
+
+const PUCK_H25 = 20;   // puck thickness in rink units
+const HANDLE_H25 = 110; // mallet handle height in rink units
+
+// The puck as a short cylinder: dark wall, theme-dressed top, spin cue.
+function drawPuck25(cam) {
+  const p = G.puck, S = THEME.puck;
+  const base = tableEll25(cam, p.x, p.y, 0, PUCK_R);
+  const top = tableEll25(cam, p.x, p.y, PUCK_H25, PUCK_R);
+  if (!base || !top) return;
+  // wall
+  ctx.fillStyle = S.edge;
+  ctx.beginPath();
+  ctx.ellipse(base.x, base.y, base.rx, base.ry, 0, 0, TAU);
+  ctx.fill();
+  // top face
+  const rx = top.rx, ry = top.ry;
+  if (S.glow) { ctx.save(); ctx.shadowColor = S.glow; ctx.shadowBlur = 26; }
+  const g = ctx.createRadialGradient(top.x - rx * 0.2, top.y - ry * 0.25, 2, top.x, top.y, rx);
+  g.addColorStop(0, S.hi); g.addColorStop(0.55, S.body); g.addColorStop(1, S.edge);
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(top.x, top.y, rx, ry, 0, 0, TAU); ctx.fill();
+  if (S.glow) ctx.restore();
+  ctx.lineWidth = Math.max(1.2, 2.5 * top.s);
+  ctx.strokeStyle = S.ring; ctx.stroke();
+  // highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(top.x - rx * 0.2, top.y - ry * 0.28, rx * 0.18, ry * 0.12, -0.5, 0, TAU);
+  ctx.fill();
+  // save-moment halo after a goal-line block
+  if (G.saveT > 0 && fxFlash()) {
+    const sg = ctx.createRadialGradient(top.x, top.y, rx * 0.5, top.x, top.y, rx * 2.2);
+    sg.addColorStop(0, hexA(THEME.gold || '#d8a93f', 0.5 * (G.saveT / 0.55)));
+    sg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sg;
+    ctx.beginPath(); ctx.arc(top.x, top.y, rx * 2.2, 0, TAU); ctx.fill();
+  }
+  // spin cue: the theme-gold dot rides the puck's rotation
+  if (Math.abs(p.w || 0) > 2.5) {
+    const da = p.ang || 0;
+    const dp = camProject(cam, p.x + Math.cos(da) * PUCK_R * 0.55, p.y + Math.sin(da) * PUCK_R * 0.55, PUCK_H25);
+    if (dp) {
+      ctx.save();
+      ctx.globalAlpha = 0.85; ctx.fillStyle = THEME.gold || '#d8a93f';
+      ctx.beginPath(); ctx.arc(dp.x, dp.y, Math.max(2, 4.5 * top.s), 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+// The mallet as a physical striker: theme-dressed base disc plus a standing
+// wooden handle with a knob, like a real air hockey mallet.
+function drawMallet25(cam, m) {
+  const S = THEME.mallet, r = m.r;
+  const b = tableEll25(cam, m.x, m.y, 0, r);
+  const t = camProject(cam, m.x, m.y, HANDLE_H25);
+  if (!b || !t) return;
+  // base disc keeps the theme's full mallet identity
+  const brx = b.rx, bry = b.ry;
+  const g = ctx.createRadialGradient(b.x - brx * 0.3, b.y - bry * 0.35, brx * 0.1, b.x, b.y, brx);
+  g.addColorStop(0, S.hi); g.addColorStop(0.6, S.base); g.addColorStop(1, S.edge);
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.ellipse(b.x, b.y, brx, bry, 0, 0, TAU); ctx.fill();
+  ctx.lineWidth = Math.max(1.5, 3 * b.s);
+  ctx.strokeStyle = S.ring; ctx.stroke();
+  // dish
+  const dg = ctx.createRadialGradient(b.x - brx * 0.13, b.y - bry * 0.17, 2, b.x, b.y, brx * 0.62);
+  dg.addColorStop(0, S.dishHi); dg.addColorStop(1, S.dish);
+  ctx.fillStyle = dg;
+  ctx.beginPath(); ctx.ellipse(b.x, b.y, brx * 0.62, bry * 0.62, 0, 0, TAU); ctx.fill();
+  // handle: a tapered post rising from the disc to the knob
+  const w0 = brx * 0.30, w1 = Math.max(2, brx * 0.22 * (t.s / b.s));
+  const hg = ctx.createLinearGradient(t.x, t.y, b.x, b.y);
+  hg.addColorStop(0, '#7a5638'); hg.addColorStop(1, '#4a3220');
+  ctx.fillStyle = hg;
+  ctx.beginPath();
+  ctx.moveTo(t.x - w1, t.y); ctx.lineTo(t.x + w1, t.y);
+  ctx.lineTo(b.x + w0, b.y); ctx.lineTo(b.x - w0, b.y);
+  ctx.closePath(); ctx.fill();
+  // knob
+  const kg = ctx.createRadialGradient(t.x - w1 * 0.3, t.y - w1 * 0.3, 1, t.x, t.y, w1 * 1.3);
+  kg.addColorStop(0, '#8a6544'); kg.addColorStop(1, '#4a3220');
+  ctx.fillStyle = kg;
+  ctx.beginPath(); ctx.ellipse(t.x, t.y, w1 * 1.3, w1 * 1.15, 0, 0, TAU); ctx.fill();
+}
+
+// Table-bound dynamics in the 2.5D view: everything drawTableFlat draws
+// per frame on top of the static table (scuffs, trail, speed lines, goal
+// trim, frame flash, post glow), projected to true depth. The static table
+// itself lives pre-warped in warpCanvas.
+function drawDynTable25(cam) {
+  // scuffs (permanence): short dark streaks, projected as thick segments
+  for (const sc of G.scuffs) {
+    const ca = Math.cos(sc.ang), sa = Math.sin(sc.ang);
+    const p0 = camProject(cam, sc.x - ca * sc.len / 2, sc.y - sa * sc.len / 2, 0);
+    const p1 = camProject(cam, sc.x + ca * sc.len / 2, sc.y + sa * sc.len / 2, 0);
+    if (!p0 || !p1) continue;
+    ctx.save();
+    ctx.globalAlpha = sc.a;
+    ctx.strokeStyle = 'rgb(10,8,6)';
+    ctx.lineWidth = Math.max(0.6, 3.2 * (p0.s + p1.s) / 2);
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    ctx.restore();
+  }
+  // puck trail
+  const tr = G.trail;
+  if (tr.length > 1) {
+    ctx.save(); ctx.lineCap = 'round';
+    if (THEME.trailGlow) { ctx.shadowColor = THEME.trailGlow; ctx.shadowBlur = 14; }
+    ctx.strokeStyle = THEME.trail;
+    for (let i = 1; i < tr.length; i++) {
+      const p0 = camProject(cam, tr[i - 1].x, tr[i - 1].y, 0);
+      const p1 = camProject(cam, tr[i].x, tr[i].y, 0);
+      if (!p0 || !p1) continue;
+      ctx.globalAlpha = (i / tr.length) * 0.35;
+      ctx.lineWidth = Math.max(0.6, (2 + (i / tr.length) * 8) * (p0.s + p1.s) / 2);
+      ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // speed lines above 1500: theme-colored streaks back along the velocity
+  if (G.puck) {
+    const psp = puckSpeed();
+    if (psp > 1500 && Settings.effects !== 'minimal') {
+      const nsl = Settings.effects === 'subtle' ? 3 : Math.min(5, 1 + Math.floor((psp - 1500) / 400));
+      const va = Math.atan2(G.puck.vy, G.puck.vx);
+      const cvx = Math.cos(va), svx = Math.sin(va);
+      ctx.save(); ctx.lineCap = 'round'; ctx.strokeStyle = THEME.trail;
+      for (let i = 0; i < nsl; i++) {
+        const off = (i - (nsl - 1) / 2) * 14;
+        const ox = -svx * off, oy = cvx * off;
+        const len = psp * (0.05 + i * 0.012);
+        const p0 = camProject(cam, G.puck.x - cvx * (PUCK_R + 6) + ox, G.puck.y - svx * (PUCK_R + 6) + oy, 0);
+        const p1 = camProject(cam, G.puck.x - cvx * (PUCK_R + 6 + len) + ox, G.puck.y - svx * (PUCK_R + 6 + len) + oy, 0);
+        if (!p0 || !p1) continue;
+        ctx.globalAlpha = Math.max(0.06, 0.28 - i * 0.04);
+        ctx.lineWidth = Math.max(0.6, 3 * (p0.s + p1.s) / 2);
+        ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+  // goal trim: theme art staged small and warped per frame (cheap: the mouth
+  // region needs only a handful of strips). The rattle jitter bakes into the
+  // staging, exactly like the flat view.
+  for (let side = 0; side < 2; side++) drawTrim25(cam, side);
+  // goal-frame flash: the scored-on frame lights up in theme gold
+  if (G.goalFrameT > 0 && fxFlash()) {
+    const fgx = G.goalSide === 0 ? PX + PW : PX, gw = goalW();
+    const c = [[fgx - 16, CY - gw / 2 - 16], [fgx + 16, CY - gw / 2 - 16],
+               [fgx + 16, CY + gw / 2 + 16], [fgx - 16, CY + gw / 2 + 16]]
+      .map(([x, y]) => camProject(cam, x, y, 0));
+    if (!c.some(p => !p)) {
+      ctx.save();
+      ctx.globalAlpha = G.goalFrameT * 0.9;
+      ctx.strokeStyle = THEME.gold || '#d8a93f';
+      ctx.lineWidth = Math.max(1, 5 * (c[0].s + c[2].s) / 2);
+      ctx.beginPath();
+      ctx.moveTo(c[0].x, c[0].y);
+      for (let i = 1; i < 4; i++) ctx.lineTo(c[i].x, c[i].y);
+      ctx.closePath(); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  // near-miss post glow: the kissed posts smolder briefly
+  if (G.missGlow && fxFlash()) {
+    const mgx = G.missGlow.side === 0 ? PX : PX + PW;
+    ctx.save();
+    ctx.globalAlpha = clamp(G.missGlow.t / 0.7, 0, 1) * 0.8;
+    ctx.fillStyle = THEME.gold || '#d8a93f';
+    for (const sgn of [-1, 1]) {
+      const e = tableEll25(cam, mgx, CY + sgn * goalW() / 2, 0, 10);
+      if (!e) continue;
+      ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx, e.ry, 0, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// One goal mouth's trim in the 2.5D view: the theme draws its trim art into
+// a small rink-space canvas (with the rattle jitter when active), which is
+// then warped through the camera - the theme's identity survives intact.
+let trimCanvas = null;
+function drawTrim25(cam, side) {
+  const gx = side === 0 ? PX : PX + PW, gw = goalW();
+  const pad = 40, rx0 = gx - pad, ry0 = CY - gw / 2 - pad;
+  const TW = pad * 2, TH = Math.ceil(gw + pad * 2);
+  if (!trimCanvas || trimCanvas.width !== TW || trimCanvas.height !== TH) {
+    trimCanvas = document.createElement('canvas');
+    trimCanvas.width = TW; trimCanvas.height = TH;
+  }
+  let ox = 0, oy = 0;
+  if (G.rattle && G.rattle.side === side && fxFlash()) {
+    const j = 4.5 * (G.rattle.t / 0.42) * shakeK();
+    ox = rnd(-1, 1) * j; oy = rnd(-1, 1) * j;
+  }
+  const tc = trimCanvas.getContext('2d');
+  tc.setTransform(1, 0, 0, 1, 0, 0);
+  tc.clearRect(0, 0, TW, TH);
+  tc.save(); tc.translate(-rx0 + ox, -ry0 + oy);
+  THEME.drawGoalTrim(tc, side, gx, CY, gw);
+  tc.restore();
+  warpRect25(ctx, cam, trimCanvas, rx0, ry0, rx0, rx0 + TW, ry0, ry0 + TH);
+}
+
+// Dynamic FX in the 2.5D view: the same elements as the flat FX layer
+// (trails, rings, particles, pulses, flashes), each projected to its true
+// depth instead of being baked into the warped table. Per-element
+// projection is exact for small primitives and costs a few camProjects.
+function drawFx25(cam) {
+  const ell = (x, y, r, style, alpha, lw) => {
+    const e = tableEll25(cam, x, y, 0, r);
+    if (!e) return;
+    ctx.save();
+    if (alpha !== undefined) ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y, Math.max(0.5, e.rx), Math.max(0.5, e.ry), 0, 0, TAU);
+    if (lw) { ctx.strokeStyle = style; ctx.lineWidth = Math.max(0.75, lw * e.s); ctx.stroke(); }
+    else { ctx.fillStyle = style; ctx.fill(); }
+    ctx.restore();
+  };
+  // mallet motion trails on fast flicks (recorded in driveMallet)
+  for (const m of [G.m1, G.m2]) {
+    const tr = m.trail;
+    for (let i = 0; i < tr.length; i++) {
+      const a = (i / tr.length) * 0.30 * fxTrail();
+      if (a <= 0.01) continue;
+      ell(tr[i].x, tr[i].y, m.r * (0.35 + 0.55 * i / tr.length), THEME.trail, a);
+    }
+    // possession readability: sustained gentle contact (>0.4s) draws a soft
+    // ring under the puck - it reads as control, never as a stuck puck
+    if (m.glueT > 0.4) {
+      const pr = PUCK_R + 12 + Math.sin(perfNow() * 6) * 3;
+      ell(G.puck.x, G.puck.y, pr, THEME.gold || '#d8a93f', 0.55, 3);
+    }
+  }
+  // particles as motion streaks
+  ctx.save(); ctx.lineCap = 'round';
+  for (const q of PPOOL) {
+    if (!q.on) continue;
+    const a = clamp(q.life / q.max, 0, 1);
+    const p0 = camProject(cam, q.x, q.y, 0);
+    const p1 = camProject(cam, q.x - q.vx * 0.035, q.y - q.vy * 0.035, 0);
+    if (!p0 || !p1) continue;
+    ctx.globalAlpha = a;
+    ctx.strokeStyle = q.color;
+    ctx.lineWidth = Math.max(0.5, (q.size * a + 0.5) * (p0.s + p1.s) / 2);
+    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+  }
+  ctx.restore();
+  // save-moment ring pulses: a soft expanding ring where the block happened
+  for (const q of G.pulses) {
+    const k = q.t / 0.6;
+    ell(q.x, q.y, 30 + k * 90, THEME.gold || '#d8a93f', (1 - k) * 0.7, 4 * (1 - k) + 1);
+  }
+  // goal flash + SMASH impact flash: radial blooms projected onto the table
+  const flash = (x, y, r, color, alpha) => {
+    const e = tableEll25(cam, x, y, 0, r);
+    if (!e || alpha <= 0.01) return;
+    const gr = ctx.createRadialGradient(e.x, e.y, e.rx * 0.05, e.x, e.y, e.rx);
+    gr.addColorStop(0, color); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = gr;
+    ctx.fillRect(e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2);
+    ctx.restore();
+  };
+  if (G.flashA > 0) {
+    const gx = G.goalSide === 0 ? PX + PW : PX;
+    flash(gx, CY, 420, THEME.flash || 'rgba(216,169,63,1)', G.flashA * 0.55);
+  }
+  if (G.hitFlash > 0 && fxFlash()) {
+    flash(G.hitFlashX, G.hitFlashY, 260,
+      'rgba(255,255,255,' + (0.55 * G.hitFlash).toFixed(3) + ')', 1);
+  }
+}
+
+// Countdown in the 2.5D view: the same pop language as the top-down view,
+// placed on the table in true perspective so it sits in the scene.
+function drawCountdown25(cam) {
+  if (G.state !== 'count') return;
+  const frac = (G.countT % 0.55) / 0.55;
+  const label = G.countT < 1.65 ? String(3 - Math.floor(G.countT / 0.55)) : 'GO!';
+  const pop = 1 + (1 - frac) * 0.55;
+  const p = camProject(cam, CX, CY - 40, 120);
+  if (!p) return;
+  ctx.save();
+  ctx.globalAlpha = clamp(1.4 - frac, 0, 1);
+  ctx.font = '800 ' + (120 * p.s * pop).toFixed(1) + 'px ' + THEME.font.display;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = THEME.ink;
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 24;
+  ctx.fillText(label, p.x, p.y);
+  ctx.restore();
+}
+
+// Floating texts projected to screen space so the type stays upright and
+// readable at any camera angle, sized by the local depth scale.
+function drawTexts25(cam) {
+  for (const t of G.texts) {
+    const a = 1 - t.t / 1.1;
+    const p = camProject(cam, t.x, t.y, 50);
+    if (!p) continue;
+    const size = Math.max(8, t.size * p.s);
+    ctx.save();
+    ctx.globalAlpha = clamp(a, 0, 1);
+    ctx.font = '800 ' + size.toFixed(1) + 'px ' + THEME.font.display;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(15,10,5,0.85)';
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 12;
+    ctx.fillText(t.str, p.x, p.y);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = t.color;
+    ctx.fillText(t.str, p.x, p.y);
+    ctx.restore();
+  }
+}
+
 
 function drawPuck(c) {
   const p = G.puck, S = THEME.puck;

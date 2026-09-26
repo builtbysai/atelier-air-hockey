@@ -29,6 +29,7 @@ function setTheme(id, silent) {
   root.setProperty('--body', THEME.font.body);
   document.title = THEME.name + ': Atelier Air Hockey';
   paintRoom();
+  if (typeof paintTableWarp === 'function') paintTableWarp(); // 2.5D static table re-warp
   AudioSys.ambience(id); // room ambience follows the room (deferred pre-gesture)
   MusicSys.setTable(id); // generative music follows the room too (crossfades)
   if (!silent) AudioSys.ui();
@@ -87,9 +88,9 @@ function setSetting(key, val) {
   // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
-  // board orientation re-fits the view immediately (visual only - physics,
-  // AI, and net sync are untouched, so it's safe mid-match)
-  if (key === 'orientation') { try { resize(); } catch (e) {} }
+  // board orientation and camera re-fit the view immediately (visual only -
+  // physics, AI, and net sync are untouched, so both are safe mid-match)
+  if (key === 'orientation' || key === 'camera') { try { resize(); } catch (e) {} }
 }
 function applySettingsToUI() {
   document.querySelectorAll('[data-set]').forEach(btn => {
@@ -101,6 +102,27 @@ function applySettingsToUI() {
   document.querySelectorAll('[data-set="haptics"]').forEach(btn => {
     btn.disabled = !canVibrate;
     btn.title = canVibrate ? '' : 'Haptics are not available on this device';
+  });
+  // Board orientation only affects the top-down view - park it while a 2.5D
+  // camera is active so the two settings can't appear to conflict. The stored
+  // orientation is kept, so switching back to top-down restores it.
+  const cam25 = Settings.camera !== 'top';
+  document.querySelectorAll('[data-set="orientation"]').forEach(btn => {
+    btn.disabled = cam25;
+    btn.title = cam25 ? 'Board orientation only applies to the top-down camera view' : '';
+  });
+  const bn = $('boardNote');
+  if (bn) bn.classList.toggle('hidden', !cam25);
+  // ONLINE: match rules are agreed at match start - lock them mid-match so
+  // peers can't desynchronize. setSetting also refuses these; the disabled
+  // state makes the lock visible instead of a silent no-op.
+  const rulesLocked = typeof G !== 'undefined' && G.mode === 'online' &&
+    (G.state === 'play' || G.state === 'count' || G.state === 'goal');
+  ['firstTo', 'pace', 'goalW'].forEach(k => {
+    document.querySelectorAll('[data-set="' + k + '"]').forEach(btn => {
+      btn.disabled = rulesLocked;
+      btn.title = rulesLocked ? 'Match rules are locked during an online match' : '';
+    });
   });
   AudioSys.muted = !Settings.sound;
   AudioSys.syncMute(); // Sound gates the SFX bus only - music is independent
@@ -129,7 +151,7 @@ function applySettingsToUI() {
 let settingsReturn = 'menu';
 function openSettings(from = 'menu') {
   settingsReturn = from;
-  AudioSys.ui(); hideAll(); $('settings').classList.remove('hidden');
+  AudioSys.ui(); applySettingsToUI(); hideAll(); $('settings').classList.remove('hidden');
 }
 function closeSettings() {
   AudioSys.ui(); hideAll();
@@ -160,9 +182,25 @@ function keyboardGamepadDrive(now) {
   if (G.focusLost) { requestAnimationFrame(keyboardGamepadDrive); return; } // frozen: loop lives, nothing drives
   if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch') {
     const speed = 920;
-    // Screen-space input -> rink-space: portrait rotates the rink 90°, onlineFlip mirrors x.
-    // (Matches the inverse of the render transform in screenToRink.)
-    const toRink = (sx, sy) => {
+    // Screen-space input -> rink-space. In 2.5D the camera is the transform,
+    // so a key press is resolved through it: project the mallet to screen,
+    // nudge in screen space, unproject back. Up moves away from the viewer,
+    // Right moves right on screen. (The camera already sits behind the
+    // viewer's own end, mirrored for the online guest, so no extra flip.)
+    // Top-down keeps the classic mapping: portrait rotates the rink 90°,
+    // onlineFlip mirrors x. (Matches the inverse of the render transform
+    // in screenToRink.)
+    const toRink = (m, sx, sy) => {
+      if (typeof view !== 'undefined' && view.camera !== 'top' && view.cam &&
+          typeof camProject === 'function' && typeof camUnproject === 'function') {
+        const p = camProject(view.cam, m.x, m.y, 0);
+        if (p) {
+          const q = camUnproject(view.cam, p.x + sx * 24, p.y + sy * 24);
+          const dx = q.x - m.x, dy = q.y - m.y, n = Math.hypot(dx, dy);
+          if (n > 1e-6) { const k = Math.hypot(sx, sy) / n; return [dx * k, dy * k]; }
+        }
+        return [0, 0];
+      }
       let dx, dy;
       if (typeof view !== 'undefined' && view.portrait) { dx = -sy; dy = sx; } // matches the true-rotation portrait matrix
       else { dx = sx; dy = sy; }
@@ -173,10 +211,11 @@ function keyboardGamepadDrive(now) {
       const sx = (keyDrive.has(right) ? 1 : 0) - (keyDrive.has(left) ? 1 : 0);
       const sy = (keyDrive.has(down) ? 1 : 0) - (keyDrive.has(up) ? 1 : 0);
       if (!sx && !sy) return;
-      let [dx, dy] = toRink(sx, sy);
+      let [dx, dy] = toRink(m, sx, sy);
       const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
       m.tx = clamp(m.tx + dx * speed * dt, lo, hi);
       m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
+      G.kbDriveT = now; // keyboard drove a target this frame (see playStep)
     };
     const guestOwnsRight = G.mode === 'online' && Net.role === 'guest';
     const p1 = guestOwnsRight ? G.m2 : G.m1;
@@ -191,8 +230,9 @@ function keyboardGamepadDrive(now) {
         const ax = Math.abs(pad.axes[0] || 0) > .18 ? pad.axes[0] : 0;
         const ay = Math.abs(pad.axes[1] || 0) > .18 ? pad.axes[1] : 0;
         if (ax || ay) {
-          let [dx, dy] = toRink(ax, ay);
+          let [dx, dy] = toRink(m, ax, ay);
           m.tx = clamp(m.tx + dx * speed * dt, lo, hi); m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
+          G.kbDriveT = now; // gamepad drove a target this frame (see playStep)
         }
       };
       applyPad(pads[0], p1, p1Lo, p1Hi);

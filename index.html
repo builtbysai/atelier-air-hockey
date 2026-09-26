@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v24-stabilized">
+<html lang="en" data-build="v25-2.5d">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -13,12 +13,12 @@
 <link rel="apple-touch-icon" sizes="180x180" href="./assets/icon-180.png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Atelier Air Hockey">
-<meta property="og:description" content="Nine handcrafted tables. Local, two-player, and peer-to-peer online air hockey in the browser.">
+<meta property="og:description" content="Ten handcrafted tables. Local, two-player, and peer-to-peer online air hockey in the browser.">
 <meta property="og:url" content="https://builtbysai.com/atelier-air-hockey/">
 <meta property="og:image" content="https://builtbysai.com/atelier-air-hockey/docs/screenshots/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Atelier Air Hockey">
-<meta name="twitter:description" content="Nine handcrafted tables. Local, two-player, and peer-to-peer online air hockey in the browser.">
+<meta name="twitter:description" content="Ten handcrafted tables. Local, two-player, and peer-to-peer online air hockey in the browser.">
 <meta name="twitter:image" content="https://builtbysai.com/atelier-air-hockey/docs/screenshots/social-preview.png">
 <link rel="stylesheet" href="./src/styles.css">
 </head>
@@ -112,6 +112,7 @@
     <div class="kicker">TABLE RULES</div>
     <h1 id="settingsTitle">Settings</h1>
     <p class="tagline">Tune the room to your liking. Saved on this device.</p>
+    <div class="seclabel">PRESENTATION</div>
     <div class="setrow">
       <div class="setlabel">Screen shake</div>
       <div class="seg">
@@ -128,6 +129,7 @@
         <button data-set="effects" data-val="minimal">Minimal</button>
       </div>
     </div>
+    <div class="seclabel">AUDIO</div>
     <div class="setrow">
       <div class="setlabel">Sound</div>
       <div class="seg">
@@ -149,6 +151,7 @@
         <output id="musicVolVal" for="musicVol">70</output>
       </div>
     </div>
+    <div class="seclabel">GAMEPLAY</div>
     <div class="setrow">
       <div class="setlabel">Haptics</div>
       <div class="seg">
@@ -180,11 +183,21 @@
         <button data-set="goalW" data-val="wide">Wide</button>
       </div>
     </div>
+    <div class="seclabel">VIEW</div>
     <div class="setrow">
       <div class="setlabel">Board</div>
       <div class="seg">
         <button data-set="orientation" data-val="landscape">Landscape</button>
         <button data-set="orientation" data-val="portrait">Portrait</button>
+      </div>
+    </div>
+    <div class="setnote hidden" id="boardNote">Board orientation applies to the top-down view only.</div>
+    <div class="setrow">
+      <div class="setlabel">Camera</div>
+      <div class="seg">
+        <button data-set="camera" data-val="top">Top-down</button>
+        <button data-set="camera" data-val="elevated">Elevated</button>
+        <button data-set="camera" data-val="surface">Surface</button>
       </div>
     </div>
     <button class="btn primary" id="settingsClose" style="margin-top:16px">Done</button>
