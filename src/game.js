@@ -1193,11 +1193,14 @@ function replayMix(a, b, t) {
   };
 }
 const Replay = {
-  frames: [], active: false, clip: null, acc: 0, elapsed: 0, scorer: -1,
+  frames: [], active: false, prepared: false, requested: false,
+  clip: null, acc: 0, elapsed: 0, scorer: -1,
   sourceRate: 0.80,
   reset() {
     this.frames.length = 0; this.clip = null; this.active = false;
+    this.prepared = false; this.requested = false;
     this.acc = 0; this.elapsed = 0; this.scorer = -1;
+    this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
   },
@@ -1218,13 +1221,47 @@ const Replay = {
     const step = 1 / REPLAY_HZ;
     while (this.acc >= step) { this.acc -= step; this.push(); }
   },
-  start(scorer) {
-    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) return false;
+  prepare(scorer) {
+    // Replays are a reward the player can opt into after the celebration.
+    // Never hold up online play, demos, or the final winning transition.
+    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo ||
+        G.score[scorer] >= Settings.firstTo || this.frames.length < REPLAY_HZ) return false;
     this.push();
     const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
     this.clip = this.frames.slice(-keep);
-    this.elapsed = 0; this.scorer = scorer; this.active = true;
+    this.elapsed = 0; this.scorer = scorer;
+    this.prepared = true; this.requested = false; this.active = false;
+    this.hideOffer();
+    return true;
+  },
+  offer() {
+    if (!this.prepared || this.active || this.requested) return;
+    const b = document.getElementById('replayOffer');
+    if (!b) return;
+    b.textContent = 'Watch replay';
+    b.classList.remove('queued', 'hidden');
+  },
+  hideOffer() {
+    const b = document.getElementById('replayOffer');
+    if (!b) return;
+    b.classList.add('hidden');
+    b.classList.remove('queued');
+    b.textContent = 'Watch replay';
+  },
+  request() {
+    if (!this.prepared || this.active) return;
+    this.requested = true;
+    const b = document.getElementById('replayOffer');
+    if (b) {
+      b.textContent = 'Replay queued';
+      b.classList.add('queued');
+    }
+  },
+  playPrepared() {
+    if (!this.prepared || !this.clip || !this.clip.length) return false;
+    this.active = true; this.prepared = false; this.requested = false; this.elapsed = 0;
     G.state = 'replay';
+    this.hideOffer();
     $('topbar').classList.add('hidden');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.remove('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
@@ -1250,16 +1287,19 @@ const Replay = {
   },
   finish() {
     if (!this.active) return;
-    const scorer = this.scorer;
     this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1;
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
-    beginGoalCeremony(scorer);
+    resumeAfterGoal();
+  },
+  discardPrepared() {
+    this.prepared = false; this.requested = false; this.clip = null; this.scorer = -1;
+    this.hideOffer();
   },
   applyFrame() {
     if (!this.active) return null;
     const f = this.sample(); if (!f) return null;
-    const saveBody = m => ({ x:m.x, y:m.y, vx:m.vx, vy:m.vy });
+    const saveBody = m => ({ x:m.x, y:m.y, vx:m.vx,vy:m.vy });
     const saved = {
       puck:{ x:G.puck.x, y:G.puck.y, vx:G.puck.vx, vy:G.puck.vy, w:G.puck.w, ang:G.puck.ang },
       m1:saveBody(G.m1), m2:saveBody(G.m2), puckSq:G.puckSq, puckSqA:G.puckSqA,
