@@ -12,7 +12,8 @@ test('every table has one persisted House challenge', () => {
   for (const id of ['deco','mid','brut','bil','mem','sashi','bau','zel','swi','neon'])
     assert.match(game, new RegExp('\\b' + id + ':\\s*\\{'), id + ' challenge missing');
   assert.match(game, /key:'atelier-ah-table-challenges'/);
-  assert.match(game, /TableChallenges\.load\(\)/);
+  assert.match(game, /const TableChallenges = \{/);
+  assert.match(game, /load\(\) \{[\s\S]*?atelier-ah-table-challenges/);
   assert.match(ui, /TableChallenges\.load\(\)/);
 });
 
