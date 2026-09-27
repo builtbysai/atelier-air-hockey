@@ -510,20 +510,35 @@
   .foot a{ color:var(--title); }
   .foot b{ color:var(--title); }
   #settings .card, #rules .card{ max-width:500px; text-align:left; }
-  #workshop .card, #workshopDone .card{ max-width:520px; }
-  .workshop-drills{ border-top:1px solid var(--pline); margin:11px 0 12px; }
+  #workshop .card, #workshopDone .card{ max-width:560px; }
+  .workshop-drills{
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;
+    margin:11px 0 12px;
+  }
   .workshop-drill{
-    width:100%; min-height:62px; display:flex; align-items:center; justify-content:space-between; gap:14px;
-    padding:12px 4px; border:0; border-bottom:1px solid color-mix(in srgb,var(--pline) 62%,transparent);
-    background:transparent; color:var(--title); font-family:var(--body); text-align:left; cursor:pointer;
+    width:100%; min-height:94px; display:flex; flex-direction:column; align-items:flex-start; justify-content:space-between; gap:10px;
+    padding:12px; border:1px solid color-mix(in srgb,var(--pline) 72%,transparent); border-radius:9px;
+    background:color-mix(in srgb,var(--ghost) 34%,transparent); color:var(--title);
+    font-family:var(--body); text-align:left; cursor:pointer;
   }
   .workshop-drill span{ min-width:0; }
   .workshop-drill strong{ display:block; font:700 15px var(--display); }
-  .workshop-drill small{ display:block; margin-top:3px; color:var(--sub); font-size:10px; letter-spacing:.6px; }
-  .workshop-drill em{ flex:0 0 auto; color:var(--sub); font-size:9px; font-style:normal; letter-spacing:1.4px; }
-  .workshop-drill.cleared em{ color:var(--btnbg); }
-  .workshop-drill:active{ background:var(--ghost); }
-  .workshop-note{ margin:0 0 12px; color:var(--sub); font-size:10px; line-height:1.5; text-align:center; }
+  .workshop-drill small{ display:block; margin-top:3px; color:var(--sub); font-size:10px; line-height:1.35; letter-spacing:.6px; }
+  .workshop-drill em{ color:var(--sub); font-size:8px; font-style:normal; line-height:1.3; letter-spacing:1.15px; }
+  .workshop-drill.cleared{ border-color:color-mix(in srgb,var(--btnbg) 62%,var(--pline)); }
+  .workshop-drill.cleared em, .workshop-drill.sandbox em{ color:var(--btnbg); }
+  .workshop-drill:active{ transform:scale(.98); background:var(--ghost); }
+  .workshop-note{ margin:0 0 10px; color:var(--sub); font-size:10px; line-height:1.45; text-align:center; }
+  @media (max-height:540px){
+    #workshop .card{ padding:8px 12px; }
+    .workshop-drills{ margin:6px 0 7px; gap:6px; }
+    .workshop-drill{ min-height:68px; padding:8px 9px; gap:5px; }
+    .workshop-drill strong{ font-size:13px; }
+    .workshop-drill small{ margin-top:1px; font-size:8px; }
+    .workshop-drill em{ font-size:7px; }
+    .workshop-note{ margin-bottom:5px; font-size:8px; }
+    #workshopClose{ margin:3px 0; padding:7px 10px; }
+  }
   #rules .rules-card{ max-width:460px; }
   .rules-grid{ margin:10px 0 16px; border-top:1px solid var(--pline); }
   .rule-setting{ padding:15px 0; text-align:center; border-bottom:1px solid color-mix(in srgb,var(--pline) 62%,transparent); }

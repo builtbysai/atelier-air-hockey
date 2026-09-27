@@ -124,7 +124,7 @@
   <div class="card workshop-card">
     <div class="kicker">THE WORKSHOP</div>
     <h1 id="workshopTitle">Practice the craft.</h1>
-    <p class="tagline">Three live drills. Clear them to sharpen your game and open alternate routes through the Table Tour.</p>
+    <p class="tagline">Three skill drills and an open practice table.</p>
     <div class="workshop-drills">
       <button class="workshop-drill" data-workshop="power">
         <span><strong>Power</strong><small>Score at 22 km/h</small></span>
@@ -135,11 +135,15 @@
         <em id="workshopControlState">NOT CLEARED</em>
       </button>
       <button class="workshop-drill" data-workshop="keeper">
-        <span><strong>Keeper</strong><small>Make 3 clean saves</small></span>
+        <span><strong>Keeper</strong><small>Make 3 saves in a row</small></span>
         <em id="workshopKeeperState">NOT CLEARED</em>
       </button>
+      <button class="workshop-drill sandbox" data-workshop="free">
+        <span><strong>Free Hit</strong><small>Shots, banks, and control</small></span>
+        <em id="workshopFreeState">OPEN TABLE</em>
+      </button>
     </div>
-    <p class="workshop-note">Workshop clears are permanent on this device. They do not count as match wins or records.</p>
+    <p class="workshop-note">Clears and personal bests stay on this device. Free Hit never affects progression.</p>
     <button class="btn" id="workshopClose">Back</button>
   </div>
 </div>
@@ -148,7 +152,7 @@
   <div class="card workshop-done-card">
     <div class="kicker">DRILL CLEARED</div>
     <h1 id="workshopDoneTitle">Power complete.</h1>
-    <p class="tagline" id="workshopDoneText">Drill cleared. Your Workshop progress is saved on this device.</p>
+    <p class="tagline" id="workshopDoneText">Clear saved. Replay the drill to push your best.</p>
     <button class="btn primary" id="workshopAgain">Back to Workshop</button>
     <button class="btn" id="workshopDoneMenu">Return to menu</button>
   </div>
