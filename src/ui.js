@@ -872,11 +872,22 @@ function applyVisualQaState(name) {
       G.stats.t0 = performance.now() - 112000; G.stats.topSpeed = 2640; G.stats.bestRally = 18;
       G.stats.saves = [6,3]; G.stats.bestStreak = [3,1]; G.stats.worstDef = [-3,0];
       const clip = Array.from({ length:72 }, () => Replay.snapshot());
-      Highlights.goals = [
-        { id:1, scorer:0, clip, speedKmh:61, rally:8, score:[2,1], themeId:G.themeId },
-        { id:2, scorer:0, clip, speedKmh:74, rally:12, score:[5,3], themeId:G.themeId },
-        { id:3, scorer:0, clip, speedKmh:66, rally:18, score:[7,4], themeId:G.themeId },
-      ];
+      const bank = {
+        id:1, kind:'goal', scorer:0, side:0, clip, speedKmh:24, rally:12,
+        score:[4,3], before:[3,3], deficitBefore:0, bank:true, goAhead:true,
+        winning:false, comeback:false, equalizer:false, excitement:108, t:38, themeId:G.themeId,
+      };
+      const save = {
+        id:2, kind:'save', scorer:0, side:0, clip, speedKmh:23, rally:14,
+        score:[6,4], clutch:true, excitement:128, t:77, themeId:G.themeId,
+      };
+      const winner = {
+        id:3, kind:'goal', scorer:0, side:0, clip, speedKmh:25, rally:18,
+        score:[7,4], before:[6,4], deficitBefore:-2, bank:false, goAhead:false,
+        winning:true, comeback:false, equalizer:false, excitement:190, t:108, themeId:G.themeId,
+      };
+      Highlights.events = [bank, save, winner];
+      Highlights.goals = [bank, winner];
       Highlights.nextId = 4;
       showWin(); break;
     }
