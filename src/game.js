@@ -813,13 +813,13 @@ const AudioSys = {
     }, 1500);
   },
   _ambTick() { // every ~1.1s: roll the room's sparse events
-    if (!this.amb || !this.ctx || this.muted || this.ctx.state !== 'running') return;
+    if (!this.amb || !this.ctx || !Settings.music || Settings.musicVolume <= 0 || this.ctx.state !== 'running') return;
     const a = this.amb, cfg = a.cfg, t = this.ctx.currentTime;
     // the loft murmurs: slow random swells on the bed
     if (cfg.bed.swell) a.g.gain.setTargetAtTime(cfg.bed.g * rnd(0.7, 1.3), t, 1.2);
     for (const ev of cfg.events) if (Math.random() < ev.p) this[ev.f]();
   },
-  // --- sparse one-shot events (all check muted via _ambTick) ---
+  // --- sparse room one-shots (music/ambience bus; gated by _ambTick) ---
   _bass() { // distant upright pluck in the jazz room
     const t = this.ctx.currentTime;
     const o = this.ctx.createOscillator(); o.type = 'triangle';
@@ -827,7 +827,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.055, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
-    o.connect(g); g.connect(this.sfxBus);
+    o.connect(g); g.connect(this.musicBus);
     o.start(t); o.stop(t + 0.6);
   },
   _mote() { // faint piano-ish mote, A-minor colour
@@ -837,7 +837,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.028, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
-    o.connect(g); g.connect(this.sfxBus);
+    o.connect(g); g.connect(this.musicBus);
     o.start(t); o.stop(t + 1.05);
   },
   _splash() { // soft poolside lap
@@ -848,7 +848,7 @@ const AudioSys = {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.03, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-    src.connect(hp); hp.connect(g); g.connect(this.sfxBus);
+    src.connect(hp); hp.connect(g); g.connect(this.musicBus);
     src.start(t, rnd(1.5)); src.stop(t + 0.35);
   },
   _clink() { // distant glass in the loft
@@ -859,7 +859,7 @@ const AudioSys = {
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(i ? 0.014 : 0.02, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-      o.connect(g); g.connect(this.sfxBus);
+      o.connect(g); g.connect(this.musicBus);
       o.start(t); o.stop(t + 0.45);
     });
   },
@@ -872,7 +872,7 @@ const AudioSys = {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(0.032, t + 0.12);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
-    o.connect(g); g.connect(this.sfxBus);
+    o.connect(g); g.connect(this.musicBus);
     o.start(t); o.stop(t + 0.85);
   },
 };
