@@ -63,3 +63,14 @@ test('selected table surfaces its challenge without changing carousel height', (
   assert.match(css, /position:absolute/);
   assert.match(css, /\.tslide\.sel:not\(\.locked\) \.tchallenge/);
 });
+
+test('challenge presentation uses concise actionable objective labels', () => {
+  for (const short of [
+    'ALLOW ≤2','10-HIT RALLY','22 KM/H','BANK GOAL','TRAIL BY 2',
+    '5 SAVES','WIN BY 3','12-HIT GOAL','3 IN A ROW','24 KM/H · +2'
+  ]) assert.ok(game.includes("short:'" + short + "'"), short + ' label missing');
+
+  assert.match(game, /chip\.textContent = challengeDone \? '◆ CHALLENGE CLEARED' : \(def \? '◆ ' \+ def\.short : ''\)/);
+  assert.match(ui, /done \? 'cleared' : c\.short\.toLowerCase\(\)/);
+  assert.doesNotMatch(ui, /done \? 'cleared' : c\.desc\.toLowerCase\(\)/);
+});

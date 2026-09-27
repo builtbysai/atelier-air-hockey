@@ -363,7 +363,7 @@ function renderProgress() {
     const c = TABLE_CHALLENGES[id], done = TableChallenges.done(id);
     return '<div class="progress-item challenge-row' + (done ? ' done' : '') + '"><span>' +
       (done ? '★ ' : '○ ') + THEMES[id].name + ' · ' + c.name +
-      '</span><span>' + (done ? 'cleared' : c.desc.toLowerCase()) + '</span></div>';
+      '</span><span>' + (done ? 'cleared' : c.short.toLowerCase()) + '</span></div>';
   }).join('');
   body.innerHTML = '<div class="seclabel">WORKSHOP</div>' + workshopRows +
     '<div class="seclabel">TABLE MASTERY</div>' + tableRows +
