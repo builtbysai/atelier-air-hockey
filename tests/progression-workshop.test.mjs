@@ -71,7 +71,7 @@ test('House rivals expose distinct behavioral profiles', () => {
   assert.ok(game.includes('homeDepth:175'));
   assert.ok(game.includes('homeDepth:240'));
   assert.ok(game.includes('bankChance:0.08'));
-  assert.ok(game.includes('bankChance:0.36'));
+  assert.ok(game.includes('bankChance:0.44'));
   assert.ok(game.includes('readKeeper:0.30'));
   assert.ok(game.includes('readKeeper:0.92'));
   assert.ok(game.includes('rebound:0.12'));
