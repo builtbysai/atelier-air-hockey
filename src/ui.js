@@ -870,7 +870,7 @@ function applyVisualQaState(name) {
       baseMatch('top'); G.score = [7,4]; G.winSide = 0; G.state = 'win';
       G.stats.t0 = performance.now() - 112000; G.stats.topSpeed = 2640; G.stats.bestRally = 18;
       G.stats.saves = [6,3]; G.stats.bestStreak = [3,1]; G.stats.worstDef = [-3,0];
-      const clip = [Replay.snapshot(), Replay.snapshot()];
+      const clip = Array.from({ length:72 }, () => Replay.snapshot());
       Highlights.goals = [
         { id:1, scorer:0, clip, speedKmh:61, rally:8, score:[2,1], themeId:G.themeId },
         { id:2, scorer:0, clip, speedKmh:74, rally:12, score:[5,3], themeId:G.themeId },
