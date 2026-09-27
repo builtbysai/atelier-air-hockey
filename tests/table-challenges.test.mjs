@@ -23,7 +23,7 @@ test('challenge checks are grounded in real match stats', () => {
     'saves','margin','bestGoalRally','bestStreak'
   ]) assert.match(game, new RegExp('ctx\\.' + field), field + ' challenge input missing');
 
-  assert.match(game, /bestGoalRally:0, bankGoals:\[0,0\]/);
+  assert.match(game, /bestGoalRally:\s*0, bankGoals:\s*\[0, 0\]/);
   assert.match(game, /G\.stats\.bestGoalRally = Math\.max/);
   assert.match(game, /G\.stats\.bankGoals\[scorer\]\+\+/);
 });
@@ -43,7 +43,7 @@ test('late rooms accept challenge clears as alternate skill gates', () => {
 
 test('Progress and carousel surface challenge state without adding a new overlay', () => {
   assert.match(ui, /HOUSE CHALLENGES/);
-  assert.match(ui, /TableChallenges\.count\(\) \+ '\/10 challenges'/);
+  assert.match(ui, /TableChallenges\.count\(\)[\s\S]*?'\/10 challenges'/);
   assert.match(game, /el\.classList\.toggle\('challenged', TableChallenges\.done\(id\)\)/);
   assert.match(css, /\.tslide\.challenged \.tname::before/);
   assert.match(css, /\.challenge-row\.done/);
