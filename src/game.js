@@ -1202,6 +1202,9 @@ const Practice = {
     G.m1.y = G.m1.ty = CY;
     pointers.clear();
     hideAll(); $('topbar').classList.remove('hidden'); $('practiceHud').classList.remove('hidden');
+    const restart = $('btnRestart'), quit = $('btnQuit');
+    if (restart) restart.textContent = 'Restart drill';
+    if (quit) quit.textContent = 'Exit Practice';
     G.state = 'play'; MusicSys.setIntensity(0);
     if (this.drill === 'keeper') this.feedT = 0.75;
     else this.placePuck();
@@ -1209,6 +1212,9 @@ const Practice = {
   },
   stop() {
     this.active = false; this.shotActive = false; this.save(); this.hide(); this.renderMenu();
+    const restart = $('btnRestart'), quit = $('btnQuit');
+    if (restart) restart.textContent = 'Restart match';
+    if (quit) quit.textContent = 'Quit to menu';
   },
   hide() { const hud = $('practiceHud'); if (hud) hud.classList.add('hidden'); },
   show() { if (this.active) { const hud = $('practiceHud'); if (hud) hud.classList.remove('hidden'); } },
@@ -1244,7 +1250,9 @@ const Practice = {
       this.render(); return;
     }
     if (scorer === 0) {
-      const speed = this.shotPeak;
+      // Goal detection runs inside the physics substep, so include the puck's
+      // exact crossing speed instead of relying only on the previous HUD sample.
+      const speed = Math.max(this.shotPeak, puckKmh());
       this.goals++;
       if (this.drill === 'power') {
         if (speed > this.data.powerBest) { this.data.powerBest = speed; this.save(); }
