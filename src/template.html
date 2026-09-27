@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v29-hud-flow-polish">
+<html lang="en" data-build="v30-victory-juice">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -263,16 +263,29 @@
 </div>
 
 <div class="overlay hidden" id="winov" role="dialog" aria-modal="true" aria-labelledby="winTitle">
-  <div class="card">
-    <div class="kicker">FULL TIME</div>
-    <h1 id="winTitle">You win</h1>
-    <p id="winSub">7:4</p>
-    <p id="winStats" class="winstats"></p>
-    <p id="winFeats" class="winfeats"></p>
-    <button class="btn hidden" id="btnWinReplay">Watch winning goal</button>
-    <button class="btn primary" id="btnRematch">Rematch</button>
-    <button class="btn" id="btnShareResult">Share result</button>
-    <button class="btn" id="btnWinMenu">Change table</button>
+  <div class="card win-card">
+    <div class="win-burst" id="winBurst" aria-hidden="true"></div>
+    <div class="kicker" id="winKicker">FULL TIME</div>
+    <div class="win-hero">
+      <h1 id="winTitle">You took the table.</h1>
+      <div class="win-score" id="winSub" aria-label="Final score 7 to 4">
+        <strong id="winScoreLeft">7</strong><span>:</span><strong id="winScoreRight">4</strong>
+      </div>
+      <p class="win-resultline" id="winResultLine">NOIR DECO · 3 GOAL MARGIN</p>
+    </div>
+    <div class="win-statgrid" id="winStats" aria-label="Match highlights">
+      <div class="win-stat"><span>TOP SPEED</span><strong id="winTopSpeed">0</strong><small>KM/H</small></div>
+      <div class="win-stat"><span>LONGEST RALLY</span><strong id="winLongestRally">0</strong><small>HITS</small></div>
+      <div class="win-stat"><span>SAVES</span><strong id="winSaves">0–0</strong><small id="winSaveLabel">YOU · RIVAL</small></div>
+      <div class="win-stat"><span>MATCH TIME</span><strong id="winTime">0:00</strong><small>FINAL</small></div>
+    </div>
+    <div id="winFeats" class="win-awards hidden" aria-live="polite"></div>
+    <div class="win-moment-actions">
+      <button class="btn hidden" id="btnWinReplay">Watch winning goal</button>
+      <button class="btn" id="btnShareResult">Share result</button>
+    </div>
+    <button class="btn primary win-rematch" id="btnRematch">Run it back<small>SAME TABLE · SAME RULES</small></button>
+    <button class="btn win-exit" id="btnWinMenu">Change table</button>
   </div>
 </div>
 
