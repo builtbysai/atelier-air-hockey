@@ -1207,6 +1207,7 @@ const Replay = {
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
+    document.body.classList.remove('replay-mode');
   },
   snapshot() {
     const body = m => ({ x:m.x, y:m.y, vx:m.vx, vy:m.vy });
@@ -1220,22 +1221,25 @@ const Replay = {
     if (this.frames.length > REPLAY_MAX) this.frames.shift();
   },
   record(dt) {
-    if (this.active || Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || G.state !== 'play') return;
+    if (this.active || G.mode === 'online' || G.demo || G.state !== 'play') return;
     this.acc += dt;
     const step = 1 / REPLAY_HZ;
     while (this.acc >= step) { this.acc -= step; this.push(); }
   },
   capture(scorer) {
     this.pendingClip = null; this.pendingScorer = -1; this.requested = false; this.offerT = 0;
-    if (Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) {
-      this.frames.length = 0; this.acc = 0; return false;
+    if (G.mode === 'online' || G.demo || this.frames.length < REPLAY_HZ) {
+      this.frames.length = 0; this.acc = 0; return null;
     }
     this.push();
     const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
-    this.pendingClip = this.frames.slice(-keep);
-    this.pendingScorer = scorer;
+    const clip = this.frames.slice(-keep);
+    if (Settings.instantReplay === 'goals') {
+      this.pendingClip = clip;
+      this.pendingScorer = scorer;
+    }
     this.frames.length = 0; this.acc = 0;
-    return true;
+    return clip;
   },
   hasPending() { return !!(this.pendingClip && this.pendingClip.length > 1); },
   showOffer() {
@@ -1266,20 +1270,27 @@ const Replay = {
     // so play it immediately and restart countdown afterward.
     if (G.state === 'count') this.startPending('goal');
   },
-  startPending(returnMode = 'goal') {
-    if (!this.hasPending()) return false;
-    this.clip = this.pendingClip; this.pendingClip = null;
-    this.scorer = this.pendingScorer; this.pendingScorer = -1;
+  startClip(clip, scorer, returnMode = 'win') {
+    if (!clip || clip.length < 2 || this.active) return false;
+    this.clip = clip;
+    this.scorer = scorer;
     this.elapsed = 0; this.active = true; this.returnMode = returnMode;
     this.requested = false; this.offerT = 0; this.hideOffer();
     const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
     clearCeremony();
     hideAll();
     G.state = 'replay';
+    document.body.classList.add('replay-mode');
     $('topbar').classList.add('hidden');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.remove('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     return true;
+  },
+  startPending(returnMode = 'goal') {
+    if (!this.hasPending()) return false;
+    const clip = this.pendingClip, scorer = this.pendingScorer;
+    this.pendingClip = null; this.pendingScorer = -1;
+    return this.startClip(clip, scorer, returnMode);
   },
   duration() {
     return this.clip && this.clip.length > 1 ? ((this.clip.length - 1) / REPLAY_HZ) / this.sourceRate : 0;
@@ -1303,6 +1314,7 @@ const Replay = {
     if (!this.active) return;
     const ret = this.returnMode;
     this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1; this.returnMode = 'goal';
+    document.body.classList.remove('replay-mode');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     if (ret === 'win') {
@@ -1332,6 +1344,52 @@ const Replay = {
     G.puckSq = saved.puckSq; G.puckSqA = saved.puckSqA; G.trail = saved.trail;
   },
 };
+// ---------- match highlights ----------
+// Goal clips are tiny snapshot arrays, not video. We keep enough metadata to
+// pick meaningful match moments without adding any network traffic or another
+// simulation path.
+const Highlights = {
+  goals: [], nextId: 1,
+  reset() { this.goals.length = 0; this.nextId = 1; },
+  recordGoal(scorer, clip) {
+    if (!clip || clip.length < 2 || G.mode === 'online' || G.demo) return;
+    const st = G.stats || freshStats();
+    const speedKmh = Math.round(hyp(G.puck.vx, G.puck.vy) * (2.4384 / PW) * 3.6);
+    this.goals.push({
+      id: this.nextId++,
+      scorer,
+      clip,
+      speedKmh,
+      rally: st.rally || 0,
+      score: [G.score[0], G.score[1]],
+      themeId: G.themeId,
+    });
+    if (this.goals.length > 12) this.goals.shift();
+  },
+  get(id) { return this.goals.find(g => g.id === Number(id)) || null; },
+  moments() {
+    if (!this.goals.length) return [];
+    const last = this.goals[this.goals.length - 1];
+    const fastest = this.goals.reduce((a,b) => b.speedKmh > a.speedKmh ? b : a);
+    const rally = this.goals.reduce((a,b) => b.rally > a.rally ? b : a);
+    const candidates = [
+      { kind:'winning', title:'Winning goal', detail:last.score[0] + '–' + last.score[1], goal:last },
+      { kind:'speed', title:'Fastest goal', detail:fastest.speedKmh + ' km/h', goal:fastest },
+      { kind:'rally', title:'Longest rally', detail:rally.rally + ' hits', goal:rally },
+    ];
+    const seen = new Set(), out = [];
+    for (const item of candidates) {
+      if (!item.goal || seen.has(item.goal.id)) continue;
+      seen.add(item.goal.id); out.push(item);
+    }
+    return out;
+  },
+  play(id, returnMode = 'win') {
+    const goal = this.get(id);
+    return goal ? Replay.startClip(goal.clip, goal.scorer, returnMode) : false;
+  },
+};
+
 const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
 
 function mkMallet(side) {
@@ -2492,6 +2550,7 @@ function startGame(mode, diff) {
   else { G.watch = null; G.difficulty = diff == null ? G.difficulty : diff; }
   G.score = [0, 0]; G.winSide = 0;
   Replay.reset();
+  Highlights.reset();
   G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
   clearCeremony();
   G.freezeT = 0; G.trauma = 0;
@@ -2612,7 +2671,8 @@ function onGoal(scorer) {
     st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
   }
   if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
-  Replay.capture(scorer);
+  const goalClip = Replay.capture(scorer);
+  Highlights.recordGoal(scorer, goalClip);
   beginGoalCeremony(scorer);
   if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
 }
@@ -2826,6 +2886,7 @@ function showWin() {
     else kicker.textContent = 'FULL TIME';
   }
 
+  if (typeof renderWinHighlights === 'function') renderWinHighlights();
   const winReplay = $('btnWinReplay');
   const hasReplay = Replay.hasPending();
   if (winReplay) winReplay.classList.toggle('hidden', !hasReplay);
@@ -3071,6 +3132,7 @@ function frame(t) {
   }
   Net.pump(rdt); // ONLINE: snapshots out (host), inputs out (guest), dead reckoning
   render();
+  if (typeof GifExport !== 'undefined' && GifExport.active) GifExport.capture(t);
 }
 
 // ---------- render ----------
