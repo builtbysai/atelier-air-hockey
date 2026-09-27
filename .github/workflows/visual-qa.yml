@@ -36,7 +36,7 @@ jobs:
               "http://127.0.0.1:4173/?qa=$state" "$out"
           }
 
-          for state in menu rules preferences practice top elevated surface goal replay pause win; do
+          for state in menu rules preferences practice-menu practice top elevated surface goal replay pause win; do
             capture "390,844" "$state" "visual-artifacts/mobile/$state.png"
           done
 
@@ -44,7 +44,7 @@ jobs:
             capture "844,390" "$state" "visual-artifacts/landscape/$state.png"
           done
 
-          for state in menu practice top elevated surface win; do
+          for state in menu practice-menu practice top elevated surface win; do
             capture "1440,900" "$state" "visual-artifacts/desktop/$state.png"
           done
       - name: Upload visual QA screenshots
