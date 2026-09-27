@@ -1514,6 +1514,7 @@ const G = {
   goalMomentLabel: '',       // tie / lead / match-point context
   goalScorerLabel: '',       // YOU SCORE / ROOKIE SCORES / P1 SCORES
   goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
+  pausedGoalCeremony: null,   // semantic goal payload held across pause/focus loss
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
 function freshStats() {
@@ -3399,6 +3400,32 @@ function clearCeremony() {
   G.goalStreakLabel = ''; G.goalMomentLabel = ''; G.goalScorerLabel = ''; G.goalSpeedKmh = 0;
   G.timeScale = 1;
 }
+function holdGoalCeremonyForPause() {
+  const held = {
+    goalSide:G.goalSide,
+    goalStreakLabel:G.goalStreakLabel,
+    goalMomentLabel:G.goalMomentLabel,
+    goalScorerLabel:G.goalScorerLabel,
+    goalSpeedKmh:G.goalSpeedKmh,
+  };
+  clearCeremony();
+  return held;
+}
+function resumeGoalCeremonyAfterPause() {
+  const held = G.pausedGoalCeremony;
+  if (!held) return;
+  G.goalSide = held.goalSide;
+  G.goalStreakLabel = held.goalStreakLabel;
+  G.goalMomentLabel = held.goalMomentLabel;
+  G.goalScorerLabel = held.goalScorerLabel;
+  G.goalSpeedKmh = held.goalSpeedKmh;
+  G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
+  G.timeScale = 0.22;
+  const yours = goalIsYours(G.goalSide);
+  G.flashA = yours ? 0.45 : 0.30;
+  G.goalFrameT = yours ? 0.45 : 0.25;
+  G.pausedGoalCeremony = null;
+}
 // ---------- game flow ----------
 function startGame(mode, diff) {
   AudioSys.init(); AudioSys.resume();
@@ -3410,7 +3437,7 @@ function startGame(mode, diff) {
   Replay.reset();
   Highlights.reset();
   G.demo = false; G.idleT = 0; G.gwNet = 0; // local/host: goal width from Settings (guests get the host's via countdown)
-  clearCeremony();
+  clearCeremony(); G.pausedGoalCeremony = null;
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
   G.scuffs.length = 0; G.texts.length = 0;
@@ -3445,7 +3472,7 @@ function startWorkshop(id) {
   G.watch = null; G.score = [0,0]; G.winSide = 0;
   Replay.reset(); Highlights.reset();
   G.demo = false; G.idleT = 0; G.gwNet = 0;
-  clearCeremony(); G.freezeT = 0; G.trauma = 0; G.board = freshBoard();
+  clearCeremony(); G.pausedGoalCeremony = null; G.freezeT = 0; G.trauma = 0; G.board = freshBoard();
   G.scuffs.length = 0; G.texts.length = 0;
   resetPositions();
   G.ai1 = null; G.ai2 = d.coach == null ? null : mkBrain(1, d.coach);
@@ -3620,6 +3647,7 @@ function goalMomentContext(scorer) {
   return '';
 }
 function beginGoalCeremony(scorer) {
+  G.pausedGoalCeremony = null;
   boardKick(scorer);
   G.goalSide = scorer;
   if (G.stats) G.stats.rally = 0; // new rally after each goal
@@ -3851,7 +3879,10 @@ function togglePause(force, silent) {
   // the ceremony from its start (goalT=0) rather than a stale timeScale.
   if (G.state === 'play' || G.state === 'count' || G.state === 'goal') {
     G.pausedFrom = G.state;
-    if (G.state === 'goal') { clearCeremony(); Replay.hideOffer(); }
+    if (G.state === 'goal') {
+      G.pausedGoalCeremony = holdGoalCeremonyForPause();
+      Replay.hideOffer();
+    }
     G.state = 'pause';
     $('topbar').classList.add('hidden');
     hideAll(); $('pauseov').classList.remove('hidden');
@@ -3860,7 +3891,9 @@ function togglePause(force, silent) {
   } else if (G.state === 'pause' && force !== true) {
     G.state = G.pausedFrom;
     hideAll();
-    if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
+    if (G.state === 'goal') resumeGoalCeremonyAfterPause();
+    if (G.state === 'play' || G.state === 'count') $('topbar').classList.remove('hidden');
+    else if (G.state === 'goal') $('topbar').classList.add('hidden');
     if (G.mode === 'workshop' && Practice.active) $('workshopHud').classList.remove('hidden');
     if (G.hintLive) $('hint').classList.remove('hidden'); // hint survives pause/resume
     if (!silent) {
@@ -3926,7 +3959,7 @@ function quitToMenu() {
   if (wasWorkshop || Practice.active) Practice.cancel();
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
-  clearCeremony();
+  clearCeremony(); G.pausedGoalCeremony = null;
   Replay.reset();
   G.freezeT = 0; G.trauma = 0;
   G.board = freshBoard();
