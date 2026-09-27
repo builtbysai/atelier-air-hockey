@@ -2991,6 +2991,10 @@ function playStep(rdt) {
 let lastT = 0;
 function frame(t) {
   requestAnimationFrame(frame);
+  if (typeof window !== 'undefined' && window.__atelierVisualQA && window.__atelierVisualQA.freeze) {
+    render();
+    return;
+  }
   const rdt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
   lastT = t;
   // focus-loss freeze: sim, demo, particles, and the net pump all hold; the
