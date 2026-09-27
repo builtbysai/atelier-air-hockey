@@ -30,6 +30,10 @@ test('rival telemetry measures behavior rather than only configured stats', () =
   ]) assert.ok(game.includes(signal), signal + ' telemetry missing');
   assert.match(game, /b\.lastReadKeeper = readsKeeper/);
   assert.match(game, /previous === 'recover' && brain\.state === 'engage'/);
+  assert.match(game, /counterWindow:0\.72/);
+  assert.match(game, /saveBrain\.counterT = saveBrain\.diff\.counterWindow/);
+  assert.match(game, /RivalLab\.noteTouch\(m\.side, p\.vx, p\.vy\)/);
+  assert.match(game, /last\.towardOwn && this\.clock - last\.time < 1\.2/);
 });
 
 test('CI guards rival identity and simulation health', () => {
