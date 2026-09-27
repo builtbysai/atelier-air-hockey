@@ -15,38 +15,17 @@ jobs:
           node-version: 22
       - name: Build static game
         run: npm run build
-      - name: Install Chromium for screenshots
-        run: npx --yes playwright@1.55.0 install --with-deps chromium
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.55.0
+          npx playwright install --with-deps chromium
       - name: Start local game
         run: |
           python3 -m http.server 4173 >/tmp/atelier-visual-qa.log 2>&1 &
           echo $! > /tmp/atelier-visual-qa.pid
           sleep 1
       - name: Capture deterministic UI states
-        run: |
-          mkdir -p visual-artifacts/mobile visual-artifacts/landscape visual-artifacts/desktop
-          capture () {
-            local viewport="$1"
-            local state="$2"
-            local out="$3"
-            npx --yes playwright@1.55.0 screenshot \
-              --browser=chromium \
-              --viewport-size="$viewport" \
-              --wait-for-timeout=650 \
-              "http://127.0.0.1:4173/?qa=$state" "$out"
-          }
-
-          for state in menu rules preferences practice-menu practice top elevated surface goal replay pause win; do
-            capture "390,844" "$state" "visual-artifacts/mobile/$state.png"
-          done
-
-          for state in menu surface goal win; do
-            capture "844,390" "$state" "visual-artifacts/landscape/$state.png"
-          done
-
-          for state in menu practice-menu practice top elevated surface win; do
-            capture "1440,900" "$state" "visual-artifacts/desktop/$state.png"
-          done
+        run: node scripts/visual-qa.mjs
       - name: Upload visual QA screenshots
         uses: actions/upload-artifact@v4
         with:
