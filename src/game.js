@@ -278,11 +278,11 @@ const Mastery = {
 
 const TABLE_CHALLENGES = Object.freeze({
   deco:  { name:'Clean Finish',   desc:'Win while allowing 2 goals or fewer', kind:'concede', value:2 },
-  mid:   { name:'Keep It Moving', desc:'Win with an 8-hit rally',             kind:'rally',   value:8 },
+  mid:   { name:'Keep It Moving', desc:'Win with a 10-hit rally',            kind:'rally',   value:10 },
   brut:  { name:'Heavy Hand',     desc:'Reach 22 km/h and win',               kind:'speed',   value:22 },
   bil:   { name:'Banker',         desc:'Score a bank goal and win',           kind:'bank',    value:1 },
   mem:   { name:'Turnaround',     desc:'Win after trailing by 2',             kind:'deficit', value:2 },
-  sashi: { name:'Last Line',      desc:'Make 4 saves and win',                kind:'saves',   value:4 },
+  sashi: { name:'Last Line',      desc:'Make 5 saves and win',                kind:'saves',   value:5 },
   bau:   { name:'Form & Function',desc:'Win by 3 goals or more',              kind:'margin',  value:3 },
   zel:   { name:'Pattern Play',   desc:'Score after a 12-hit rally',          kind:'goalRally', value:12 },
   swi:   { name:'Grid Lock',      desc:'Score 3 in a row and win',            kind:'streak',  value:3 },
