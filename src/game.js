@@ -1165,6 +1165,138 @@ const G = {
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
 G.stats = freshStats();
 
+// ---------- Practice Lab ----------
+const PRACTICE_KEY = 'atelier-ah-practice';
+const PRACTICE_DRILLS = {
+  free:   { name:'Free Hit',    objective:'Explore touch, banks and spin.' },
+  power:  { name:'Power Shot',  objective:'Score at 60 km/h or faster.', target:60 },
+  keeper: { name:'Goalkeeper',  objective:'Make 5 saves in a row.', target:5 },
+};
+function puckKmh(speed = puckSpeed()) { return Math.round(speed * (2.4384 / PW) * 3.6); }
+const Practice = {
+  active:false, drill:'free', data:{ freeBest:0, powerBest:0, keeperBest:0 },
+  goals:0, shotPeak:0, saves:0, misses:0, saveStreak:0, feedT:0, shotT:0, shotActive:false, shotSaved:false,
+  load() {
+    try {
+      const d = JSON.parse(localStorage.getItem(PRACTICE_KEY) || '{}');
+      for (const k of Object.keys(this.data)) if (Number.isFinite(d[k])) this.data[k] = Math.max(0, Math.round(d[k]));
+    } catch (e) {}
+  },
+  save() { try { localStorage.setItem(PRACTICE_KEY, JSON.stringify(this.data)); } catch (e) {} },
+  resetRun() {
+    this.goals = 0; this.shotPeak = 0; this.saves = 0; this.misses = 0; this.saveStreak = 0;
+    this.feedT = 0; this.shotT = 0; this.shotActive = false; this.shotSaved = false;
+  },
+  start(drill = 'free') {
+    if (!PRACTICE_DRILLS[drill]) drill = 'free';
+    this.active = true; this.drill = drill; this.resetRun();
+    G.mode = 'practice'; G.watch = null; G.demo = false; G.onlineFlip = false; G.gwNet = 0;
+    G.score = [0, 0]; G.winSide = 0; G.board = freshBoard(); G.stats = freshStats(); G.stats.t0 = performance.now();
+    Replay.reset(); clearCeremony(); G.freezeT = 0; G.trauma = 0; G.scuffs.length = 0; G.texts.length = 0;
+    resetPositions();
+    // No opponent in Practice: park/ghost the second mallet. Physics and the
+    // player's mallet remain exactly the same as a real match.
+    G.m2.x = G.m2.tx = PX + PW - 70; G.m2.y = G.m2.ty = PY + 70; G.m2.ghostT = 9999;
+    G.ai1 = null; G.ai2 = null;
+    G.m1.x = G.m1.tx = this.drill === 'keeper' ? PX + 135 : PX + 190;
+    G.m1.y = G.m1.ty = CY;
+    pointers.clear();
+    hideAll(); $('topbar').classList.remove('hidden'); $('practiceHud').classList.remove('hidden');
+    G.state = 'play'; MusicSys.setIntensity(0);
+    if (this.drill === 'keeper') this.feedT = 0.75;
+    else this.placePuck();
+    this.render();
+  },
+  stop() {
+    this.active = false; this.shotActive = false; this.hide();
+  },
+  hide() { const hud = $('practiceHud'); if (hud) hud.classList.add('hidden'); },
+  show() { if (this.active) { const hud = $('practiceHud'); if (hud) hud.classList.remove('hidden'); } },
+  placePuck() {
+    G.puck.x = CX - 58; G.puck.y = CY + rnd(-45, 45);
+    G.puck.vx = 0; G.puck.vy = 0; G.puck.w = 0; G.lastTouch = -1;
+    G.trail.length = 0; this.shotPeak = 0;
+  },
+  feedKeeper() {
+    const p = G.puck, speed = Math.min(1850, 1050 + this.saveStreak * 110);
+    const targetY = CY + rnd(-goalW() * 0.34, goalW() * 0.34);
+    p.x = PX + PW - 190; p.y = CY + rnd(-170, 170);
+    const dx = PX - p.x, dy = targetY - p.y, d = hyp(dx, dy) || 1;
+    p.vx = dx / d * speed; p.vy = dy / d * speed; p.w = rnd(-2.2, 2.2);
+    G.lastTouch = -1; G.trail.length = 0;
+    this.shotActive = true; this.shotSaved = false; this.shotT = 0;
+  },
+  registerSave() {
+    if (!this.active || this.drill !== 'keeper' || !this.shotActive || this.shotSaved) return;
+    this.shotSaved = true; this.saves++; this.saveStreak++;
+    if (this.saveStreak > this.data.keeperBest) { this.data.keeperBest = this.saveStreak; this.save(); }
+    this.render();
+  },
+  nextKeeperShot(delay = 0.65) {
+    this.shotActive = false; this.shotSaved = false; this.shotT = 0; this.feedT = delay;
+    G.puck.vx = 0; G.puck.vy = 0; G.puck.x = CX + 150; G.puck.y = CY;
+  },
+  onGoal(scorer) {
+    if (!this.active) return;
+    if (this.drill === 'keeper') {
+      if (scorer === 1) { this.misses++; this.saveStreak = 0; this.nextKeeperShot(0.8); }
+      else this.nextKeeperShot(0.6);
+      this.render(); return;
+    }
+    if (scorer === 0) {
+      const speed = this.shotPeak;
+      this.goals++;
+      if (this.drill === 'power') {
+        if (speed > this.data.powerBest) { this.data.powerBest = speed; this.save(); }
+      } else if (speed > this.data.freeBest) { this.data.freeBest = speed; this.save(); }
+      burst(PX + PW, CY, Math.max(3, Math.round(16 * fxParticles())), THEME.particle, 380, 3);
+      AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99]);
+      buzz([18, 24, 34]);
+    }
+    this.placePuck(); this.render();
+  },
+  step(dt) {
+    if (!this.active || G.state !== 'play') return;
+    if (this.drill === 'keeper') {
+      if (!this.shotActive) {
+        this.feedT -= dt;
+        if (this.feedT <= 0) this.feedKeeper();
+      } else {
+        this.shotT += dt;
+        if (this.shotSaved && (G.puck.x > CX + 100 || this.shotT > 1.35)) this.nextKeeperShot(0.55);
+        else if (this.shotT > 4.2) { this.misses++; this.saveStreak = 0; this.nextKeeperShot(0.7); }
+      }
+    } else if (G.lastTouch === 0) {
+      this.shotPeak = Math.max(this.shotPeak, puckKmh());
+      if (this.drill === 'free' && this.shotPeak > this.data.freeBest) { this.data.freeBest = this.shotPeak; this.save(); }
+    }
+    this.render();
+  },
+  render() {
+    const D = PRACTICE_DRILLS[this.drill] || PRACTICE_DRILLS.free;
+    const title = $('practiceTitle'), objective = $('practiceObjective'), metric = $('practiceMetric'), value = $('practiceValue');
+    if (title) title.textContent = D.name;
+    if (objective) objective.textContent = D.objective;
+    if (!metric || !value) return;
+    if (this.drill === 'free') {
+      metric.textContent = 'BEST SPEED';
+      value.textContent = Math.max(this.data.freeBest, this.shotPeak) + ' KM/H · ' + this.goals + ' GOAL' + (this.goals === 1 ? '' : 'S');
+    } else if (this.drill === 'power') {
+      metric.textContent = this.data.powerBest >= D.target ? 'COMPLETE · BEST GOAL' : 'TARGET · BEST GOAL';
+      value.textContent = D.target + ' · ' + this.data.powerBest + ' KM/H';
+    } else {
+      metric.textContent = this.saveStreak >= D.target ? 'COMPLETE · SAVE STREAK' : 'SAVE STREAK';
+      value.textContent = this.saveStreak + ' / ' + D.target + ' · BEST ' + this.data.keeperBest;
+    }
+  },
+  renderMenu() {
+    const free = $('practiceFreeBest'), power = $('practicePowerBest'), keeper = $('practiceKeeperBest');
+    if (free) free.textContent = this.data.freeBest ? 'BEST ' + this.data.freeBest + ' KM/H' : '';
+    if (power) power.textContent = this.data.powerBest ? 'BEST ' + this.data.powerBest + ' KM/H' : '';
+    if (keeper) keeper.textContent = this.data.keeperBest ? 'BEST ' + this.data.keeperBest + ' SAVES' : '';
+  },
+};
+
 // ---------- instant replay ----------
 // Local-only visual rewind. The live simulation stays frozen and authoritative
 // while render() temporarily borrows interpolated puck/mallet positions.
