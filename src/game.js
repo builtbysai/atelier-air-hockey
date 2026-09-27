@@ -2775,7 +2775,7 @@ const RivalLab = {
     };
   },
   runMatch(a, b, seed = 1, opts = {}) {
-    if (!['localhost','127.0.0.1'].includes(location.hostname))
+    if (!['localhost','127.0.0.1'].includes(window.location?.hostname))
       throw new Error('RivalLab is localhost only');
     const firstTo = Math.max(3, Math.min(7, Number(opts.firstTo) || 5));
     const maxSeconds = Math.max(30, Number(opts.maxSeconds) || 150);
@@ -2862,7 +2862,7 @@ const RivalLab = {
     return { matches, self };
   },
 };
-if (typeof window !== 'undefined' && ['localhost','127.0.0.1'].includes(location.hostname))
+if (typeof window !== 'undefined' && ['localhost','127.0.0.1'].includes(window.location?.hostname))
   window.__atelierRivalLab = RivalLab;
 
 // ---------- juice ----------
