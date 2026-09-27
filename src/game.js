@@ -3007,6 +3007,7 @@ function onGoal(scorer) {
 // flash, deeper chord); conceded goals are a smaller, dimmer affair.
 function goalIsYours(scorer) {
   if (G.mode === '2p') return true; // both ends are players - both celebrate
+  if (G.mode === 'watch') return false; // exhibition has no human side
   if (G.mode === 'online') return (Net.role === 'host') === (scorer === 0);
   return scorer === 0;
 }
