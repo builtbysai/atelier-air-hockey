@@ -1346,18 +1346,21 @@ function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibra
 const DIFFS = [
   {
     name:'Rookie', style:'COUNTER PUNCHER',
-    maxSpeed:780, react:0.30, aimErr:100, strike:0.62, aggro:0.50, tick:0.14, whiff:0.12, windup:0.11,
-    homeDepth:155, homeTrack:0.22, bankChance:0.04, centerBias:0.52, recover:0.58,
+    maxSpeed:1080, react:0.22, aimErr:68, strike:0.88, aggro:0.64, tick:0.105, whiff:0.06, windup:0.13,
+    homeDepth:175, homeTrack:0.34, bankChance:0.08, centerBias:0.28, recover:0.43,
+    readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
   },
   {
     name:'Club Pro', style:'PLACEMENT PLAYER',
-    maxSpeed:1180, react:0.13, aimErr:45, strike:1.00, aggro:0.70, tick:0.09, whiff:0.03, windup:0.11,
-    homeDepth:190, homeTrack:0.36, bankChance:0.18, centerBias:0.12, recover:0.42,
+    maxSpeed:1320, react:0.12, aimErr:38, strike:1.05, aggro:0.76, tick:0.075, whiff:0.02, windup:0.11,
+    homeDepth:205, homeTrack:0.44, bankChance:0.22, centerBias:0.10, recover:0.32,
+    readKeeper:0.72, rebound:0.35, engageSpeed:1780, attackDelay:0.05, pressureDepth:95, pressBoost:0.14,
   },
   {
     name:'Champion', style:'PRESSURE PLAYER',
-    maxSpeed:1520, react:0.10, aimErr:34, strike:1.25, aggro:0.95, tick:0.06, whiff:0.01, windup:0.14,
-    homeDepth:230, homeTrack:0.50, bankChance:0.38, centerBias:0.00, recover:0.30,
+    maxSpeed:1600, react:0.075, aimErr:20, strike:1.22, aggro:0.94, tick:0.05, whiff:0.005, windup:0.095,
+    homeDepth:240, homeTrack:0.58, bankChance:0.36, centerBias:0.00, recover:0.22,
+    readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
   },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
@@ -1393,7 +1396,10 @@ const G = {
   onlineFlip: false,        // ONLINE: guest view is mirrored - they play from their own side
   hintLive: false,          // first-time hint currently showing on the table
   rallyHudT: 0, rallyHudN: 0, // brief rally milestones instead of persistent HUD clutter
-  goalStreakLabel: '',       // one centered streak sub-line during goal celebration
+  goalStreakLabel: '',       // one concise earned callout during goal celebration
+  goalMomentLabel: '',       // tie / lead / match-point context
+  goalScorerLabel: '',       // YOU SCORE / ROOKIE SCORES / P1 SCORES
+  goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
 function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
@@ -2320,20 +2326,34 @@ function predictPuck(x, y, vx, vy, t) {
   }
   return { x: px, y: py };
 }
+function aiMatchPressure(b) {
+  // Difficulty never secretly changes reaction time or max speed mid-match.
+  // The rival only changes positioning/intent: trail -> step higher, lead ->
+  // sit a little deeper. A player streak also wakes the House up slightly.
+  if (!G.score) return 0;
+  const mine = G.score[b.side] || 0, theirs = G.score[1 - b.side] || 0;
+  const deficit = clamp(theirs - mine, -3, 3);
+  const opponentStreak = G.stats && G.stats.streak ? Math.max(0, (G.stats.streak[1 - b.side] || 0) - 1) : 0;
+  const matchPointThreat = theirs >= Settings.firstTo - 1 ? 0.10 : 0;
+  return clamp(deficit * 0.12 + Math.min(2, opponentStreak) * 0.07 + matchPointThreat, -0.18, 0.52);
+}
 function aiHome(b) {
   // Each rival occupies a visibly different defensive line. Rookie protects
-  // the mouth, Club Pro shadows lanes, Champion holds high and pressures.
+  // the mouth and counter-punches, Club Pro shadows lanes, Champion holds
+  // high and squeezes space. Match pressure moves that line, never raw speed.
   b.swayT += 1 / 60;
-  const D = b.diff;
-  const depth = D.homeDepth || 190;
-  const track = D.homeTrack == null ? 0.35 : D.homeTrack;
+  const D = b.diff, pressure = aiMatchPressure(b);
+  const depth = (D.homeDepth || 190) + pressure * (D.pressureDepth || 80);
+  const track = clamp((D.homeTrack == null ? 0.35 : D.homeTrack) + pressure * 0.16, 0.18, 0.78);
   const hx = b.side === 0 ? PX + depth : PX + PW - depth;
-  const hy = CY + (b.seen.y - CY) * track + Math.sin(b.swayT * 1.7) * 14;
+  const sway = 10 + (D.readKeeper || 0) * 12;
+  const hy = CY + (b.seen.y - CY) * track + Math.sin(b.swayT * 1.7) * sway;
   return { x: hx, y: clamp(hy, PY + 90, PY + PH - 90) };
 }
 function aiThink(b, dt, m) {
   const D = b.diff;
   b.tState += dt; b.tickT += dt;
+  if (b.state !== 'recover') b.reboundTried = false;
   if (b.abortCd > 0) b.abortCd -= dt;
   if (b.tickT < D.tick) return; // decisions at 7–16 Hz, like a human
   b.tickT = 0;
@@ -2430,7 +2450,14 @@ function aiThink(b, dt, m) {
       if (blocked) setTx(m.x, m.y); // hold - the puck will clear
       else goHome();
       if (threat) { b.state = 'defend'; b.tState = 0; }
-      else if (b.sideH && puckSpeed < 1200 && Math.random() < D.aggro) { b.state = 'engage'; b.tState = 0; }
+      else {
+        const pressure = aiMatchPressure(b);
+        const attackChance = clamp(D.aggro + pressure * (D.pressBoost || 0.12), 0.20, 0.99);
+        const attackDelay = D.attackDelay || 0;
+        if (b.sideH && puckSpeed < (D.engageSpeed || 1500) && b.tState >= attackDelay && Math.random() < attackChance) {
+          b.state = 'engage'; b.tState = 0;
+        }
+      }
       break;
     }
     case 'around': {
@@ -2525,7 +2552,10 @@ function aiThink(b, dt, m) {
         // often) while Champion pins the post.
         const bank = Math.random() < (D.bankChance == null ? 0.12 : D.bankChance);
         b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
-        const farSide = s.y < CY ? 1 : -1;
+        const keeper = b.side === 0 ? G.m2 : G.m1;
+        const readsKeeper = Math.random() < (D.readKeeper || 0);
+        const laneY = readsKeeper && keeper ? keeper.y : s.y;
+        const farSide = laneY < CY ? 1 : -1;
         const farY = CY + farSide * (goalW() / 2 - 12);
         b.aimX = foeGoalX;
         b.aimY = lerp(farY, CY, D.centerBias || 0) + rnd(-1, 1) * D.aimErr;
@@ -2586,8 +2616,21 @@ function aiThink(b, dt, m) {
     }
     case 'recover': {
       goHome();
+      const recovery = D.recover || 0.4;
+      // Club Pro and especially Champion will sometimes stay on a loose
+      // rebound instead of obediently retreating after every swing. This is
+      // where the pressure-player personality actually becomes visible.
+      if (!b.reboundTried && b.tState >= recovery * 0.45) {
+        b.reboundTried = true;
+        const liveOwnSide = b.side === 0 ? p.x < CX - 20 : p.x > CX + 20;
+        const loose = hyp(p.vx, p.vy) < (D.engageSpeed || 1500);
+        const reachable = hyp(p.x - m.x, p.y - m.y) < 340;
+        if (!b.whiff && liveOwnSide && loose && reachable && Math.random() < (D.rebound || 0)) {
+          b.state = 'engage'; b.tState = 0; break;
+        }
+      }
       // a whiffed swing takes longer to gather - the embarrassment tax
-      if (b.tState > (b.whiff ? (D.recover || 0.4) + 0.35 : (D.recover || 0.4))) {
+      if (b.tState > (b.whiff ? recovery + 0.35 : recovery)) {
         b.state = 'guard'; b.tState = 0; b.whiff = false;
       }
       break;
@@ -2789,7 +2832,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
 // restart, or win can never leave GOAL! / slow-mo stuck on screen.
 function clearCeremony() {
   G.letterT = 0; G.flashA = 0; G.goalT = 0; G.goalSlowT = 0;
-  G.goalStreakLabel = '';
+  G.goalStreakLabel = ''; G.goalMomentLabel = ''; G.goalScorerLabel = ''; G.goalSpeedKmh = 0;
   G.timeScale = 1;
 }
 // ---------- game flow ----------
@@ -2985,6 +3028,20 @@ function announceStreak(scorer) {
     : n === 3 ? 'HAT TRICK'
     : n + ' IN A ROW';
 }
+function goalScorerCallout(scorer) {
+  const who = sideLabel(scorer);
+  return who === 'YOU' ? 'YOU SCORE' : who + ' SCORES';
+}
+function goalMomentContext(scorer) {
+  const mine = G.score[scorer], theirs = G.score[1 - scorer], target = Settings.firstTo;
+  if (mine >= target) return 'WINNING GOAL';
+  if (mine === target - 1 && theirs === target - 1) return 'NEXT GOAL WINS';
+  if (G.goalStreakLabel) return G.goalStreakLabel;
+  if (mine === target - 1) return 'MATCH POINT';
+  if (mine === theirs) return 'LEVEL';
+  if (mine === theirs + 1) return 'LEAD TAKEN';
+  return '';
+}
 function beginGoalCeremony(scorer) {
   boardKick(scorer);
   G.goalSide = scorer;
@@ -3008,9 +3065,11 @@ function beginGoalCeremony(scorer) {
     for (let c = 0; c < 3; c++) burst(gx, CY, Math.max(1, Math.round(n / 3)), cols[c % cols.length], 380 + c * 160, 4 + c);
   }
   addTrauma(0.85);
-  // The themed scoreboard already confirms +1. Keep the celebration focused:
-  // GOAL! plus, when earned, one concise streak sub-line.
+  // Capture the goal itself before the puck eases into the net.
+  G.goalSpeedKmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
   announceStreak(scorer);
+  G.goalScorerLabel = goalScorerCallout(scorer);
+  G.goalMomentLabel = goalMomentContext(scorer);
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
   Haptics.fire(yours ? 'goal' : 'concede');
@@ -3780,28 +3839,67 @@ function drawCountdownScreen(c, w, h) {
 
 function drawGoalTextScreen(c, w, h) {
   if (G.letterT <= 0) return;
-  const alpha = clamp((G.letterT - 0.12) * 2.4, 0, 1);
-  const pop = PRM.reduce ? 1 : easeOutBack(clamp((G.letterT - 0.12) * 1.55, 0, 1));
-  const fs = clamp(Math.min(w * 0.16, h * 0.11), 44, 92);
+  const yours = goalIsYours(G.goalSide);
+  const gold = THEME.gold || '#d8a93f';
+  const ink = THEME.ink || '#f4ead3';
+  const sub = getComputedStyle(document.documentElement).getPropertyValue('--sub').trim() || '#aa9a78';
+  const t = clamp(G.goalT / 1.65, 0, 1);
+  const alpha = clamp((G.letterT - 0.08) * 2.7, 0, 1) * clamp((1.12 - t) * 4.2, 0.35, 1);
+  const titlePop = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT * 1.35, 0, 1));
+  const scorePop = PRM.reduce ? 1 : 0.94 + 0.06 * easeOutBack(clamp((G.goalT - 0.12) * 2.9, 0, 1));
+  const cy = h * 0.50;
+  const panelW = Math.min(w * 0.82, 720);
+  const panelH = clamp(h * 0.34, 126, 250);
+  const left = (w - panelW) * 0.5, top = cy - panelH * 0.5;
+
   c.save();
   c.globalAlpha = alpha;
-  c.translate(w * 0.5, h * 0.48); c.scale(pop, pop);
-  c.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
+
+  // A cinematic wash makes the beat legible without replacing the table
+  // with a modal card. Your goals get more light; conceded goals stay quiet.
+  const wash = c.createRadialGradient(w * 0.5, cy, 0, w * 0.5, cy, Math.max(w, h) * 0.55);
+  wash.addColorStop(0, yours ? 'rgba(8,7,5,.22)' : 'rgba(8,7,5,.34)');
+  wash.addColorStop(1, 'rgba(4,3,3,.04)');
+  c.fillStyle = wash; c.fillRect(0, 0, w, h);
+
+  const lineA = yours ? 0.78 : 0.40;
+  c.strokeStyle = hexA(gold, lineA); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(left, top); c.lineTo(left + panelW, top);
+  c.moveTo(left, top + panelH); c.lineTo(left + panelW, top + panelH); c.stroke();
+
   c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.lineWidth = Math.max(4, fs * 0.08);
-  c.strokeStyle = 'rgba(0,0,0,0.55)';
-  c.shadowColor = hexA(THEME.gold || '#d8a93f', 0.38); c.shadowBlur = 28;
-  c.strokeText('GOAL!', 0, 0);
-  c.fillStyle = THEME.gold || '#d8a93f';
-  c.fillText('GOAL!', 0, 0);
-  if (G.goalStreakLabel) {
+  c.shadowColor = 'rgba(0,0,0,.62)'; c.shadowBlur = 18;
+
+  const kickerY = top + panelH * 0.16;
+  c.fillStyle = yours ? gold : sub;
+  c.font = '700 ' + clamp(panelH * 0.075, 10, 16).toFixed(1) + 'px ' + THEME.font.body;
+  c.fillText(G.goalScorerLabel || 'GOAL', w * 0.5, kickerY);
+
+  const fs = clamp(Math.min(w * 0.15, panelH * 0.42), 44, 98);
+  c.save();
+  c.translate(w * 0.5, top + panelH * 0.42); c.scale(titlePop, titlePop);
+  c.lineWidth = Math.max(3, fs * 0.065);
+  c.strokeStyle = 'rgba(0,0,0,.58)';
+  c.strokeText('GOAL', 0, 0);
+  c.fillStyle = yours ? gold : ink;
+  c.fillText('GOAL', 0, 0);
+  c.restore();
+
+  // Let the changed score be the payoff, rather than another redundant +1.
+  c.save();
+  c.translate(w * 0.5, top + panelH * 0.69); c.scale(scorePop, scorePop);
+  c.shadowBlur = 10;
+  c.fillStyle = ink;
+  c.font = '800 ' + clamp(panelH * 0.20, 24, 48).toFixed(1) + 'px ' + THEME.font.display;
+  c.fillText(G.score[0] + '  :  ' + G.score[1], 0, 0);
+  c.restore();
+
+  const detail = [G.goalMomentLabel, G.goalSpeedKmh ? G.goalSpeedKmh + ' KM/H' : ''].filter(Boolean).join('  ·  ');
+  if (detail) {
     c.shadowBlur = 0;
-    c.lineWidth = Math.max(2, fs * 0.035);
-    c.font = '700 ' + Math.max(12, fs * 0.22).toFixed(1) + 'px ' + THEME.font.body;
-    c.strokeStyle = 'rgba(0,0,0,0.60)';
-    c.strokeText(G.goalStreakLabel, 0, fs * 0.72);
-    c.fillStyle = THEME.ink;
-    c.fillText(G.goalStreakLabel, 0, fs * 0.72);
+    c.fillStyle = G.goalMomentLabel ? (yours ? gold : ink) : sub;
+    c.font = '700 ' + clamp(panelH * 0.065, 9, 14).toFixed(1) + 'px ' + THEME.font.body;
+    c.fillText(detail, w * 0.5, top + panelH * 0.88);
   }
   c.restore();
 }
