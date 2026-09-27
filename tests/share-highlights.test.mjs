@@ -53,7 +53,10 @@ test('GIF export captures real replay frames and burns in a replay marker', () =
   assert.match(game, /GifExport\.active\) GifExport\.capture\(t\)/);
   assert.match(share, /x\.drawImage\(canvas, 0, 0, w, h\)/);
   assert.match(share, /x\.fillText\('REPLAY',51,22\)/);
-  assert.match(share, /10 fps keeps mobile export light/);
+  assert.match(share, /10 fps: enough motion, sane mobile payload/);
+  assert.match(share, /this\.frames\.push\(gifIndex332/);
+  assert.match(share, /encodeGifIndexedAsync/);
+  assert.match(share, /preview\.decode/);
   assert.match(template, /id="gifPreview"/);
   assert.match(template, /id="btnGifShare"/);
 });
@@ -63,7 +66,7 @@ test('built-in encoder emits a GIF89a stream with trailer', async () => {
     Blob, Uint8Array, Map, Math, console,
     setTimeout(){}, clearTimeout(){},
   });
-  vm.runInContext(share + '\nthis.__gif = { encodeGif332 };', context, { filename:'src/share.js' });
+  vm.runInContext(share + '\nthis.__gif = { encodeGif332, gifLzw, gifIndex332 };', context, { filename:'src/share.js' });
   const f1 = new Uint8Array([
     255,0,0,255, 0,255,0,255,
     0,0,255,255, 255,255,255,255,
@@ -78,6 +81,61 @@ test('built-in encoder emits a GIF89a stream with trailer', async () => {
   assert.equal(new TextDecoder().decode(bytes.slice(0,6)), 'GIF89a');
   assert.equal(bytes[bytes.length - 1], 0x3b);
   assert.ok(bytes.length > 800, 'global palette + animated frames should be present');
+});
+
+test('GIF LZW stays decodable after crossing code-width boundaries', () => {
+  const context = vm.createContext({
+    Blob, Uint8Array, Map, Math, console,
+    setTimeout(){}, clearTimeout(){},
+  });
+  vm.runInContext(share + '\nthis.__gif = { gifLzw };', context, { filename:'src/share.js' });
+
+  const decode = (bytes, minSize = 8) => {
+    const clear = 1 << minSize, end = clear + 1;
+    let codeSize, nextCode, table, previous, bit = 0;
+    const reset = () => {
+      codeSize = minSize + 1; nextCode = end + 1; previous = null;
+      table = [];
+      for (let i = 0; i < clear; i++) table[i] = [i];
+      table.length = end + 1;
+    };
+    const readCode = () => {
+      let value = 0;
+      for (let k = 0; k < codeSize; k++, bit++) {
+        const byte = bytes[bit >> 3];
+        if (byte === undefined) throw new Error('unexpected end of LZW stream');
+        value |= ((byte >> (bit & 7)) & 1) << k;
+      }
+      return value;
+    };
+
+    reset();
+    const out = [];
+    for (;;) {
+      const code = readCode();
+      if (code === clear) { reset(); continue; }
+      if (code === end) break;
+      let entry;
+      if (code < table.length && table[code]) entry = table[code].slice();
+      else if (code === nextCode && previous) entry = previous.concat(previous[0]);
+      else throw new Error('invalid GIF LZW code ' + code + ' at table ' + nextCode);
+      out.push(...entry);
+      if (previous) {
+        table[nextCode++] = previous.concat(entry[0]);
+        if (nextCode === (1 << codeSize) && codeSize < 12) codeSize++;
+      }
+      previous = entry;
+    }
+    return Uint8Array.from(out);
+  };
+
+  // Large enough to cross 9 -> 10 -> 11-bit dictionary widths. The previous
+  // encoder passed tiny header tests but produced corrupt real-world GIFs.
+  const pixels = new Uint8Array(64 * 64);
+  for (let i = 0; i < pixels.length; i++) pixels[i] = (i * 37 + (i >> 4)) & 255;
+  const compressed = context.__gif.gifLzw(pixels);
+  const decoded = decode(compressed);
+  assert.deepEqual([...decoded], [...pixels]);
 });
 
 test('GIF share uses native file sharing with download fallback', () => {
