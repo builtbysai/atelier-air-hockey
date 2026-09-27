@@ -1529,6 +1529,8 @@ G.stats = freshStats();
 // while render() temporarily borrows interpolated puck/mallet positions.
 const REPLAY_HZ = 30;
 const REPLAY_MAX = REPLAY_HZ * 5;
+const REPLAY_OFFER_AT = 1.00;
+const REPLAY_START_AT = 1.28;
 function replayAngle(a, b, t) {
   let d = (b - a) % TAU;
   if (d > Math.PI) d -= TAU;
@@ -1595,7 +1597,7 @@ const Replay = {
     this.push();
     const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
     const clip = this.frames.slice(-keep);
-    if (Settings.instantReplay === 'goals') {
+    if (Settings.instantReplay === 'goals' && goalIsYours(scorer)) {
       this.pendingClip = clip;
       this.pendingScorer = scorer;
     }
@@ -3666,8 +3668,8 @@ function updateGoal(rdt) {
   // Replay is an optional reward after the goal has already landed. A choice
   // made during celebration waits for the emotional beat; ignoring it never
   // delays the next serve.
-  if (!winningGoal && G.goalT >= 1.05 && Replay.hasPending()) Replay.showOffer();
-  if (!winningGoal && Replay.requested && G.goalT >= 1.45) {
+  if (!winningGoal && G.goalT >= REPLAY_OFFER_AT && Replay.hasPending()) Replay.showOffer();
+  if (!winningGoal && Replay.requested && G.goalT >= REPLAY_START_AT) {
     clearCeremony();
     Replay.startPending('goal');
     return;

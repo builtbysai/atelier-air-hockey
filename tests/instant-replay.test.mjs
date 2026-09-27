@@ -114,11 +114,27 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
 test('a goal celebrates first and only starts replay after an explicit choice', () => {
   assert.match(game, /Replay\.capture\(scorer\);[\s\S]*?Highlights\.recordGoal\(scorer, goalClip\);[\s\S]*?beginGoalCeremony\(scorer\);/);
   assert.doesNotMatch(game, /Replay\.start\(scorer\)/);
-  assert.match(game, /G\.goalT >= 1\.05 && Replay\.hasPending\(\)/);
-  assert.match(game, /Replay\.requested && G\.goalT >= 1\.45/);
+  assert.match(game, /const REPLAY_OFFER_AT = 1\.00/);
+  assert.match(game, /const REPLAY_START_AT = 1\.28/);
+  assert.match(game, /G\.goalT >= REPLAY_OFFER_AT && Replay\.hasPending\(\)/);
+  assert.match(game, /Replay\.requested && G\.goalT >= REPLAY_START_AT/);
   assert.match(template, /id="replayOffer"/);
   assert.match(template, />Watch replay<\/span>/);
   assert.match(ui, /replayOffer'\)\.addEventListener\('click', \(\) => Replay\.request\(\)\)/);
+});
+
+
+test('mid-match replay prompts are player-relevant without discarding highlight clips', () => {
+  const start = game.indexOf('capture(scorer)');
+  const end = game.indexOf('hasPending()', start);
+  const capture = game.slice(start, end);
+  assert.match(capture, /const clip = this\.frames\.slice/);
+  assert.match(capture, /Settings\.instantReplay === 'goals' && goalIsYours\(scorer\)/);
+  assert.match(capture, /return clip/);
+  assert.match(game, /function goalIsYours\(scorer\)/);
+  assert.match(game, /G\.mode === '2p'\) return true/);
+  assert.match(game, /G\.mode === 'watch'\) return false/);
+  assert.match(game, /return scorer === 0/);
 });
 
 test('winning goal replay is offered from results instead of interrupting celebration', () => {
