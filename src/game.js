@@ -4259,7 +4259,7 @@ function renderTop(w, h) {
   drawTableFlat(ctx);
   drawPuck(ctx);
   drawMallet(ctx, G.m1);
-  drawMallet(ctx, G.m2);
+  if (!(G.mode === 'workshop' && Practice.id === 'free')) drawMallet(ctx, G.m2);
   drawFxFlat(ctx);
   drawTextsFlat(ctx);
   ctx.restore(); // ONLINE flip
@@ -4601,13 +4601,14 @@ function drawShadow25(cam, x, y, r) {
 // Puck and mallets, drawn far-to-near in true perspective.
 function drawObjects25(cam) {
   const p = G.puck;
+  const freeHit = G.mode === 'workshop' && Practice.id === 'free';
   drawShadow25(cam, p.x + 10, p.y + 14, PUCK_R * 1.05);
   drawShadow25(cam, G.m1.x + 8, G.m1.y + 12, G.m1.r);
-  drawShadow25(cam, G.m2.x + 8, G.m2.y + 12, G.m2.r);
+  if (!freeHit) drawShadow25(cam, G.m2.x + 8, G.m2.y + 12, G.m2.r);
   const items = [
     { z: camProject(cam, p.x, p.y, 0), f: () => drawPuck25(cam) },
     { z: camProject(cam, G.m1.x, G.m1.y, 0), f: () => drawMallet25(cam, G.m1) },
-    { z: camProject(cam, G.m2.x, G.m2.y, 0), f: () => drawMallet25(cam, G.m2) },
+    ...(freeHit ? [] : [{ z: camProject(cam, G.m2.x, G.m2.y, 0), f: () => drawMallet25(cam, G.m2) }]),
   ];
   // painter's order: far (large zc) first. A missing projection sorts last.
   items.sort((u, v) => (v.z ? v.z.zc : -1) - (u.z ? u.z.zc : -1));
