@@ -80,6 +80,27 @@
   .replay-offer small{ display:block; margin-top:1px; color:var(--sub); font-size:9px; letter-spacing:1.2px; text-transform:uppercase; }
   .replay-offer:active{ transform:translateX(-50%) scale(.96); }
 
+  .update-ready{
+    position:fixed;
+    left:calc(12px + env(safe-area-inset-left));
+    bottom:calc(12px + env(safe-area-inset-bottom));
+    z-index:45; display:flex; align-items:center; gap:9px;
+    min-height:44px; padding:7px 8px 7px 12px;
+    border:1px solid var(--pline); border-radius:10px;
+    background:rgba(12,9,6,.92); color:var(--title);
+    box-shadow:0 12px 34px rgba(0,0,0,.34);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+  }
+  .update-ready > span{ min-width:0; text-align:left; }
+  .update-ready strong{ display:block; font-size:11px; letter-spacing:.6px; }
+  .update-ready small{ display:block; margin-top:1px; color:var(--sub); font-size:9px; letter-spacing:.8px; }
+  .update-ready button{
+    min-height:30px; padding:5px 8px; border:1px solid var(--pline); border-radius:7px;
+    background:transparent; color:var(--title); font:600 10px var(--body); cursor:pointer;
+  }
+  #btnApplyUpdate{ background:var(--btnbg); color:var(--btnink); border-color:transparent; }
+  .update-ready button:disabled{ opacity:.5; cursor:default; }
+
   #hint{
     position:fixed; left:50%; bottom:18px; bottom:calc(18px + env(safe-area-inset-bottom));
     transform:translateX(-50%); z-index:25; pointer-events:none;
@@ -591,4 +612,13 @@
   }
   @media (prefers-reduced-motion: reduce){
     body.replay-mode #game{ transition:none; }
+  }
+
+  @media (max-width:480px){
+    .update-ready{
+      left:calc(9px + env(safe-area-inset-left));
+      right:calc(9px + env(safe-area-inset-right));
+      bottom:calc(9px + env(safe-area-inset-bottom));
+    }
+    .update-ready > span{ flex:1 1 auto; }
   }
