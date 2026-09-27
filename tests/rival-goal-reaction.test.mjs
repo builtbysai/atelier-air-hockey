@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+const [game, ui, visualQa] = await Promise.all([
+  readFile(new URL('../src/game.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/ui.js', import.meta.url), 'utf8'),
+  readFile(new URL('../scripts/visual-qa.mjs', import.meta.url), 'utf8'),
+]);
 
 test('rival goal body language is render-only and personality-scaled', () => {
   const start = game.indexOf('function goalRivalRenderPose');
@@ -44,4 +48,13 @@ test('top-down and 2.5D mallet renderers share the same reaction pose', () => {
   assert.match(game, /tableEll25\(cam, pose\.x, pose\.y, 0, r\)/);
   assert.match(game, /function drawMallet\(c, m\) \{[\s\S]*?pose = goalRivalRenderPose\(m\)/);
   assert.match(game, /c\.translate\(pose\.x, pose\.y\)/);
+});
+
+
+test('visual QA captures the reaction with motion enabled', () => {
+  assert.match(ui, /case 'goal-rival'/);
+  assert.match(ui, /PRM\.reduce = false; Settings\.effects = 'full'/);
+  assert.match(ui, /G\.goalT = 0\.52/);
+  const hits = visualQa.match(/'goal-rival'/g) || [];
+  assert.ok(hits.length >= 2, 'phone and short-landscape matrices should capture the rival reaction');
 });
