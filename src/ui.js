@@ -343,7 +343,8 @@ function renderProgress() {
   const unlocked = FEATS.filter(f => Feats.data[f.id]).length;
   const openRooms = THEME_ORDER.filter(tableUnlocked).length;
   summary.textContent = openRooms + '/' + THEME_ORDER.length + ' rooms open · ' +
-    Mastery.masteredCount() + ' mastered · ' + Workshop.count() + '/3 Workshop drills';
+    Mastery.masteredCount() + ' mastered · ' + TableChallenges.count() + '/10 challenges · ' +
+    Workshop.count() + '/3 Workshop drills';
   const featRows = FEATS.map(f => '<div class="progress-item"><span>' + (Feats.data[f.id] ? '★ ' : '○ ') + f.name + '</span><span>' + f.desc + '</span></div>').join('');
   const workshopRows = ['power','control','keeper'].map(id => {
     const best = Workshop.bestLabel(id);
@@ -358,8 +359,15 @@ function renderProgress() {
       (Mastery.mastered(id) ? '★ ' : Tour.won(id) ? '◆ ' : locked ? '◇ ' : '○ ') + THEMES[id].name +
       '</span><span>' + right + '</span></div>';
   }).join('');
+  const challengeRows = THEME_ORDER.map(id => {
+    const c = TABLE_CHALLENGES[id], done = TableChallenges.done(id);
+    return '<div class="progress-item challenge-row' + (done ? ' done' : '') + '"><span>' +
+      (done ? '★ ' : '○ ') + THEMES[id].name + ' · ' + c.name +
+      '</span><span>' + (done ? 'cleared' : c.desc.toLowerCase()) + '</span></div>';
+  }).join('');
   body.innerHTML = '<div class="seclabel">WORKSHOP</div>' + workshopRows +
     '<div class="seclabel">TABLE MASTERY</div>' + tableRows +
+    '<div class="seclabel">HOUSE CHALLENGES</div>' + challengeRows +
     '<div class="seclabel">ACHIEVEMENTS</div>' + featRows;
 }
 function shareResult() { return ShareSys.shareResult(); }
@@ -693,12 +701,12 @@ function wireUI() {
   $('btnResetProgress').addEventListener('click', async () => {
     const ok = await askConfirm({
       title: 'Reset progress',
-      message: 'Reset records, personal bests, achievements, Workshop clears, and Table Tour mastery on this device?',
+      message: 'Reset records, personal bests, achievements, Workshop clears, House challenges, and Table Tour mastery on this device?',
       ok: 'Reset everything', ret: 'progress',
     });
     if (!ok) return;
-    [Record.key, Best.key, Feats.key, Tour.key, Mastery.key, Workshop.key].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
-    Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); Workshop.load();
+    [Record.key, Best.key, Feats.key, Tour.key, Mastery.key, TableChallenges.key, Workshop.key].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); TableChallenges.load(); Workshop.load();
     refreshRecordLines(); refreshTour(); renderWorkshopMenu(); renderProgress();
   });
   $('helpClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
@@ -908,7 +916,7 @@ function applyVisualQaState(name) {
 function boot() {
   loadSettings();
   applyScreenOrientationPreference();
-  Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); Workshop.load();
+  Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); TableChallenges.load(); Workshop.load();
   refreshRecordLines(); // paint any stored records under the menu buttons
   refreshTour(); // tour counter + conquered-table pips
   // accessibility: prefers-reduced-motion drops Shake to Subtle for the

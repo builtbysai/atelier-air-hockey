@@ -111,8 +111,8 @@ test('House rivals expose distinct behavioral profiles', () => {
 });
 
 test('reset progress includes Workshop and mastery stores', () => {
-  assert.ok(ui.includes('Mastery.key, Workshop.key'));
-  assert.ok(ui.includes('Mastery.load(); Workshop.load()'));
+  assert.ok(ui.includes('Mastery.key, TableChallenges.key, Workshop.key'));
+  assert.ok(ui.includes('Mastery.load(); TableChallenges.load(); Workshop.load()'));
 });
 
 test('Workshop HUD is separate from the match scoreboard', () => {
