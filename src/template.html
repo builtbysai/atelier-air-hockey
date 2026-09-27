@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v30-victory-juice">
+<html lang="en" data-build="v31-share-highlights">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -280,12 +280,32 @@
       <div class="win-stat"><span>MATCH TIME</span><strong id="winTime">0:00</strong><small>FINAL</small></div>
     </div>
     <div id="winFeats" class="win-awards hidden" aria-live="polite"></div>
+    <section id="winHighlights" class="win-highlights hidden" aria-labelledby="winHighlightsTitle">
+      <div class="seclabel" id="winHighlightsTitle">MATCH MOMENTS</div>
+      <div id="winHighlightList" class="win-highlight-list"></div>
+    </section>
     <div class="win-moment-actions" id="winMomentActions">
       <button class="btn hidden" id="btnWinReplay">Watch winning goal</button>
       <button class="btn" id="btnShareResult">Share result</button>
     </div>
     <button class="btn primary win-rematch" id="btnRematch">Run it back<small>SAME TABLE · SAME RULES</small></button>
     <button class="btn win-exit" id="btnWinMenu">Change table</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="gifov" role="dialog" aria-modal="true" aria-labelledby="gifTitle">
+  <div class="card gif-card">
+    <div class="kicker">HIGHLIGHT EXPORT</div>
+    <h1 id="gifTitle">Replay GIF</h1>
+    <p class="tagline" id="gifStatus">Preparing replay...</p>
+    <div class="gif-preview-wrap hidden" id="gifPreviewWrap">
+      <img id="gifPreview" alt="Animated replay preview">
+    </div>
+    <div class="gif-actions">
+      <button class="btn primary" id="btnGifShare" disabled>Share GIF</button>
+      <button class="btn" id="btnGifDownload" disabled>Save GIF</button>
+    </div>
+    <button class="btn" id="btnGifClose">Back to results</button>
   </div>
 </div>
 
@@ -329,6 +349,7 @@
 <script src="./src/vendor/qrcode.js"></script>
 <script src="./src/net.js"></script>
 <script src="./src/game.js"></script>
+<script src="./src/share.js"></script>
 <script src="./src/ui.js"></script>
 </body>
 </html>

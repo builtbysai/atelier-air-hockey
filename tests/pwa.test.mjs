@@ -29,9 +29,10 @@ test('installed app exposes shortcuts, screenshots, and a real maskable icon', (
 });
 
 test('service worker caches the complete current app shell', () => {
-  assert.match(sw, /atelier-air-hockey-v30/);
+  assert.match(sw, /atelier-air-hockey-v31/);
   assert.doesNotMatch(sw, /atelier-air-hockey-v24\.2/);
   assert.match(sw, /src\/vendor\/qrcode\.js/);
+  assert.match(sw, /src\/share\.js/);
   assert.match(sw, /assets\/icon-maskable\.svg/);
   assert.match(sw, /staleWhileRevalidate/);
   assert.match(sw, /networkFirstNavigation/);

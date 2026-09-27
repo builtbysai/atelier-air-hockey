@@ -112,7 +112,7 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
 
 
 test('a goal celebrates first and only starts replay after an explicit choice', () => {
-  assert.match(game, /Replay\.capture\(scorer\);\s*beginGoalCeremony\(scorer\);/);
+  assert.match(game, /Replay\.capture\(scorer\);[\s\S]*?Highlights\.recordGoal\(scorer, goalClip\);[\s\S]*?beginGoalCeremony\(scorer\);/);
   assert.doesNotMatch(game, /Replay\.start\(scorer\)/);
   assert.match(game, /G\.goalT >= 1\.05 && Replay\.hasPending\(\)/);
   assert.match(game, /Replay\.requested && G\.goalT >= 1\.45/);

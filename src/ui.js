@@ -227,13 +227,7 @@ function renderProgress() {
   const tableRows = THEME_ORDER.map(id => '<div class="progress-item"><span>' + (Tour.won(id) ? '★ ' : '○ ') + THEMES[id].name + '</span><span>' + (Tour.data[id] || 0) + ' wins</span></div>').join('');
   body.innerHTML = '<div class="seclabel">ACHIEVEMENTS</div>' + featRows + '<div class="seclabel">TABLE TOUR</div>' + tableRows;
 }
-function shareResult() {
-  const score = G.score[0] + '–' + G.score[1];
-  const text = 'Atelier Air Hockey · ' + THEME.name + ' · ' + score;
-  const url = location.origin + location.pathname + '?table=' + encodeURIComponent(G.themeId);
-  if (navigator.share) navigator.share({ title: 'Atelier Air Hockey', text, url }).catch(e => { if (e && e.name !== 'AbortError') console.warn(e); });
-  else if (navigator.clipboard) navigator.clipboard.writeText(text + ' · ' + url).then(() => { const b = $('btnShareResult'); if (b) { b.textContent = 'Copied'; setTimeout(() => b.textContent = 'Share result', 1400); } }).catch(e => console.warn(e));
-}
+function shareResult() { return ShareSys.shareResult(); }
 
 const keyDrive = new Set();
 let keyLast = performance.now();
@@ -491,6 +485,7 @@ function settleConfirm(val) {
 
 function wireUI() {
   installDialogA11y();
+  wireShareUI();
   buildCarousel();
   $('carPrev').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(-1); });
   $('carNext').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(1); });
