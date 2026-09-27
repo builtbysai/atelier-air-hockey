@@ -753,7 +753,7 @@ function wireUI() {
     if (e.key === 'p' || e.key === 'P') togglePause();
     else if (e.key === 'm' || e.key === 'M') $('btnSound').click();
     else if (e.key === 'Escape') {
-      if (G.state === 'replay') Replay.finish();
+      if (G.state === 'replay') Replay.finish(true);
       else if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
@@ -855,7 +855,7 @@ function applyVisualQaState(name) {
     case 'goal':
       baseMatch('top'); G.score = [4,2]; G.goalSide = 0; G.goalT = 0.72; G.goalSlowT = 0.72;
       G.letterT = 1; G.goalStreakLabel = 'TWO IN A ROW'; G.goalMomentLabel = 'TWO IN A ROW';
-      G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 67;
+      G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 24;
       G.state = 'goal'; $('topbar').classList.add('hidden'); break;
     case 'replay': {
       baseMatch('top');
@@ -872,9 +872,12 @@ function applyVisualQaState(name) {
       G.stats.saves = [6,3]; G.stats.bestStreak = [3,1]; G.stats.worstDef = [-3,0];
       const clip = Array.from({ length:72 }, () => Replay.snapshot());
       Highlights.goals = [
-        { id:1, scorer:0, clip, speedKmh:61, rally:8, score:[2,1], themeId:G.themeId },
-        { id:2, scorer:0, clip, speedKmh:74, rally:12, score:[5,3], themeId:G.themeId },
-        { id:3, scorer:0, clip, speedKmh:66, rally:18, score:[7,4], themeId:G.themeId },
+        { id:1, scorer:0, clip, speedKmh:20, rally:8, score:[2,1], prevScore:[1,1], themeId:G.themeId,
+          bankShot:true, savesBeforeGoal:0, pressure:1, streak:1, tookLead:true },
+        { id:2, scorer:0, clip, speedKmh:24, rally:12, score:[5,3], prevScore:[4,3], themeId:G.themeId,
+          bankShot:false, savesBeforeGoal:2, pressure:2, streak:2, tookLead:false },
+        { id:3, scorer:0, clip, speedKmh:22, rally:18, score:[7,4], prevScore:[6,4], themeId:G.themeId,
+          bankShot:false, savesBeforeGoal:0, pressure:1, streak:3, winning:true },
       ];
       Highlights.nextId = 4;
       showWin(); break;
