@@ -23,7 +23,7 @@ test('match moments capture and rank goals, saves, post kisses, and skill contex
   assert.match(game, /kind:'goal'/);
   for (const flag of ['winning','equalizer','goAhead','comeback','bank'])
     assert.match(game, new RegExp(flag), flag + ' context missing');
-  assert.match(game, /title:'Match-point save'/);
+  assert.match(game, /moment\.clutch \? 'Match-point save'/);
   assert.match(game, /title:'Bank shot'/);
   assert.match(game, /title:'Comeback goal'/);
   assert.match(game, /'Fastest goal'/);
