@@ -16,7 +16,7 @@ test('visual QA route is localhost only', () => {
 });
 
 test('visual QA covers current critical surfaces', () => {
-  for (const state of ['menu','rules','preferences','workshop-menu','workshop','progress','top','elevated','surface','goal','replay','pause','win','update'])
+  for (const state of ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','replay','pause','win','update'])
     assert.match(ui, new RegExp("case '" + state + "'"), state + ' QA state missing');
 });
 
@@ -30,6 +30,7 @@ test('visual QA validates three viewport classes and no-scroll cards', () => {
   assert.match(runner, /width: 844, height: 390/);
   assert.match(runner, /width: 1440, height: 900/);
   assert.match(runner, /workshop-menu/);
+  assert.match(runner, /workshop-free/);
   assert.match(runner, /page\.on\('pageerror'/);
   assert.match(runner, /#btnMatchReel/);
   assert.match(runner, /replayContext/);
