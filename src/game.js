@@ -1349,21 +1349,21 @@ const DIFFS = [
     maxSpeed:1080, react:0.22, aimErr:68, strike:0.88, aggro:0.64, tick:0.105, whiff:0.06, windup:0.13,
     homeDepth:175, homeTrack:0.34, bankChance:0.08, centerBias:0.28, recover:0.43,
     readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
-    counterWindow:0.72, counterSpeed:1950, blockOffset:82,
+    counterWindow:1.05, counterSpeed:1950, blockOffset:82,
   },
   {
     name:'Club Pro', style:'PLACEMENT PLAYER',
     maxSpeed:1320, react:0.12, aimErr:38, strike:1.05, aggro:0.76, tick:0.075, whiff:0.02, windup:0.11,
     homeDepth:205, homeTrack:0.44, bankChance:0.22, centerBias:0.10, recover:0.32,
     readKeeper:0.72, rebound:0.35, engageSpeed:1780, attackDelay:0.05, pressureDepth:95, pressBoost:0.14,
-    counterWindow:0.50, counterSpeed:2200, blockOffset:72,
+    counterWindow:0.82, counterSpeed:2200, blockOffset:72,
   },
   {
     name:'Champion', style:'PRESSURE PLAYER',
     maxSpeed:1600, react:0.075, aimErr:20, strike:1.22, aggro:0.94, tick:0.05, whiff:0.005, windup:0.095,
     homeDepth:240, homeTrack:0.58, bankChance:0.36, centerBias:0.00, recover:0.22,
     readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
-    counterWindow:0.38, counterSpeed:2500, blockOffset:62,
+    counterWindow:0.62, counterSpeed:2500, blockOffset:62,
   },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
@@ -1667,7 +1667,7 @@ function resetPositions() {
     if (!b) continue;
     b.state = 'guard'; b.tState = 0; b.tickT = 0;
     b.behindH = false; b.sideH = false; b.threatH = false; b.abortCd = 0;
-    b.possessT = 0; b.pinT = 0; b.whiff = false; b.counterT = 0; b.lastReadKeeper = false;
+    b.possessT = 0; b.pinT = 0; b.whiff = false; b.counterT = 0; b.counterCommitted = false; b.lastReadKeeper = false;
     b.hist.length = 0;
     b.seen.x = CX; b.seen.y = CY; b.seen.vx = 0; b.seen.vy = 0;
   }
@@ -2074,6 +2074,7 @@ function collideMallet(p, m, dt) {
   if (m.ghostT > 0) { m.glueT = 0; m.contactActive = false; return; } // ghostT ticks in stepPhysics
   if (d2 >= minD * minD || d2 === 0) { m.contactActive = false; return; }
   const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+  const preTouchVx = p.vx, preTouchVy = p.vy;
   m.touching = true;
   // --- possession clock ---
   const vn0 = (p.vx - m.vx) * nx + (p.vy - m.vy) * ny;
@@ -2104,7 +2105,7 @@ function collideMallet(p, m, dt) {
       onMalletHit(p.x, p.y, 750, rx, ry);
     }
     m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
-    if (RivalLab.active) RivalLab.noteTouch(m.side, p.vx, p.vy);
+    if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
     return;
   }
   // --- normal contact ---
@@ -2138,7 +2139,7 @@ function collideMallet(p, m, dt) {
   const tang = (m.vx - p.vx) * tx + (m.vy - p.vy) * ty;
   p.w = clamp((p.w || 0) + tang / 260, -12, 12);
   G.lastTouch = m.side;
-  if (RivalLab.active) RivalLab.noteTouch(m.side, p.vx, p.vy);
+  if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
   G.stallT = 0;
   // hit-effects cascade (sound, particles, shake, save/whoosh, mallet recoil):
   // only on the leading edge of a contact episode. Continuous smothering
@@ -2302,6 +2303,7 @@ function mkBrain(side, diffIdx) {
     arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
     counterT: 0, // short possession window after a real save/block
+    counterCommitted: false,
     lastReadKeeper: false, // whether the current attack intentionally read the defender
     // commitment hysteresis (v24): sticky latches with deadbands so the AI
     // can't dither between strike/defend/reposition when the puck sits on a
@@ -2571,8 +2573,13 @@ function aiThink(b, dt, m) {
       // then cancelled the strike: pull back, retreat, repeat - the visible
       // feint loop. abortCd spaces out attempts after a cancelled windup so
       // one bad read can't strobe the telegraph.
-      if (b.abortCd <= 0 && b.behindH && liveD < MALLET_R + PUCK_R + 26 && (liveSpd < 700 || b.possessT > 0.35)) {
+      const counterShot = b.counterT > 0 && b.behindH &&
+        liveD < MALLET_R + PUCK_R + 58 && liveSpd < (D.counterSpeed || 1900);
+      if (b.abortCd <= 0 && b.behindH &&
+          ((liveD < MALLET_R + PUCK_R + 26 && (liveSpd < 700 || b.possessT > 0.35)) || counterShot)) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
+        b.counterCommitted = counterShot;
+        if (counterShot) b.counterT = 0;
         // pick aim: the FAR post, not the middle - the mouth corner farthest
         // from the puck's lane forces the keeper to travel across. aimErr
         // scatters the shot per difficulty, so Rookie sprays it (missing
@@ -2659,7 +2666,7 @@ function aiThink(b, dt, m) {
       }
       // a whiffed swing takes longer to gather - the embarrassment tax
       if (b.tState > (b.whiff ? recovery + 0.35 : recovery)) {
-        b.state = 'guard'; b.tState = 0; b.whiff = false;
+        b.state = 'guard'; b.tState = 0; b.whiff = false; b.counterCommitted = false;
       }
       break;
     }
@@ -2728,7 +2735,7 @@ const RivalLab = {
       style: DIFFS[diffIdx].style,
       stateTime: Object.create(null),
       transitions: Object.create(null),
-      strikes:0, windups:0, banks:0, keeperReads:0, whiffs:0,
+      strikes:0, windups:0, banks:0, keeperReads:0, whiffs:0, counterShots:0,
       defends:0, rebounds:0, detours:0, escapes:0,
       goals:0, ownGoals:0, ownGoalsByState:Object.create(null), saves:0,
     };
@@ -2746,6 +2753,7 @@ const RivalLab = {
       out.windups++;
       if (brain.bankY !== null) out.banks++;
       if (brain.lastReadKeeper) out.keeperReads++;
+      if (brain.counterCommitted) out.counterShots++;
     }
     if (brain.state === 'strike') {
       out.strikes++;
@@ -2753,18 +2761,27 @@ const RivalLab = {
     }
     if (previous === 'recover' && brain.state === 'engage') out.rebounds++;
   },
-  noteTouch(side, vx, vy) {
+  noteTouch(side, preVx, preVy, postVx, postVy) {
     if (!this.active) return;
-    const towardOwn = side === 0 ? vx < -250 : vx > 250;
+    const goalSign = side === 0 ? -1 : 1;
+    const before = Math.max(0, goalSign * preVx);
+    const after = Math.max(0, goalSign * postVx);
+    // A failed block that merely slows an inbound shot is not an own goal.
+    // Count only contacts that create or materially accelerate goalward speed.
+    const shank = after > 320 && after > before + 160;
     const brain = side === 0 ? G.ai1 : G.ai2;
-    this.lastTouchEvent = { side, time:this.clock, towardOwn, speed:hyp(vx,vy), state:brain?.state || 'unknown' };
+    this.lastTouchEvent = {
+      side, time:this.clock, shank,
+      beforeGoalward:before, afterGoalward:after,
+      speed:hyp(postVx,postVy), state:brain?.state || 'unknown'
+    };
   },
   onGoal(scorer) {
     const last = this.lastTouchEvent;
     G.score[scorer]++;
     const out = this.current.sides[scorer];
     out.goals++;
-    if (last && last.side !== scorer && last.towardOwn && this.clock - last.time < 1.2) {
+    if (last && last.side !== scorer && last.shank && this.clock - last.time < 1.2) {
       const own = this.current.sides[last.side];
       own.ownGoals++;
       own.ownGoalsByState[last.state] = (own.ownGoalsByState[last.state] || 0) + 1;
@@ -2799,6 +2816,7 @@ const RivalLab = {
       bankRate:+(out.banks / Math.max(1, out.windups)).toFixed(3),
       keeperReadRate:+(out.keeperReads / Math.max(1, out.windups)).toFixed(3),
       whiffRate:+(out.whiffs / Math.max(1, out.strikes)).toFixed(3),
+      counterShots:out.counterShots,
       defends:out.defends,
       rebounds:out.rebounds,
       detours:out.detours,
