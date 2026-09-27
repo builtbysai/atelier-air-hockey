@@ -10,7 +10,7 @@ const [game, runner, workflow] = await Promise.all([
 
 test('rival lab is public-build safe and deterministic', () => {
   assert.match(game, /const RivalLab = \{/);
-  assert.match(game, /\['localhost','127\.0\.0\.1'\]\.includes\(location\.hostname\)/);
+  assert.match(game, /\['localhost','127\.0\.0\.1'\]\.includes\(window\.location\?\.hostname\)/);
   assert.match(game, /window\.__atelierRivalLab = RivalLab/);
   assert.match(game, /seeded\(seed\)/);
   assert.match(game, /RivalLab\.active \? RivalLab\.clock : performance\.now\(\) \/ 1000/);
