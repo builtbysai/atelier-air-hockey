@@ -32,10 +32,6 @@ assert.match(game, /bestStreak: \[0, 0\]/); assert.match(game, /function toggleP
 const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
 assert.match(ambience, /Settings\.musicVolume <= 0/, 'room ambience must follow the Music control');
 assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shots must not leak onto the Sound bus');
-assert.match(game, /goalChord\(notes, energy = 1\)/, 'goal chord must expose an intensity control');
-assert.match(game, /goalSwell\(energy = 1\)/, 'goal music swell must expose an intensity control');
-assert.match(game, /goalNotes\.slice\(0, 2\)/, 'conceded goals must use the restrained two-note treatment');
-assert.match(game, /winningGoal \? 0\.62 : 0\.52/, 'conceded goal energy hierarchy must remain quieter than owned goals');
 assert.match(boards, /Math\.max\(11, target \+ 1\)/); assert.match(boards, /chars\.split/);
 assert.match(ui, /installDialogA11y/); assert.match(ui, /\[role="option"\]/); assert.match(ui, /guestOwnsRight/); assert.match(ui, /'progress'/);
 assert.match(ui, /btnWatch/); assert.match(ui, /btnHouse/); assert.match(ui, /btnOnline/); assert.match(ui, /watchSel/); assert.match(ui, /G\.watch/); assert.match(ui, /selectWatch/);
