@@ -3728,7 +3728,7 @@ function showWin() {
   const hasReplay = Replay.hasPending();
   if (winReplay) winReplay.classList.toggle('hidden', !hasReplay);
   const momentActions = $('winMomentActions');
-  if (momentActions) momentActions.classList.toggle('solo', !hasReplay);
+  if (momentActions) momentActions.classList.remove('solo');
   hideAll(); $('winov').classList.remove('hidden');
   G.hintLive = false;
 
