@@ -689,27 +689,27 @@ const AudioSys = {
     o.connect(lp); lp.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.1);
   },
-  goalChord(notes) {
+  goalChord(notes, energy = 1) {
     if (!this.ctx || this.muted) return;
-    const t0 = this.ctx.currentTime;
+    const t0 = this.ctx.currentTime, e = clamp(energy, 0.35, 1.15);
     notes.forEach((f, i) => {
       const t = t0 + i * 0.09;
       const o = this.ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = f;
       const g = this.ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.4, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.4 * e, t + 0.03);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
       o.connect(g); g.connect(this.sfxBus);
       o.start(t); o.stop(t + 0.75);
     });
-    // air swell
+    // air swell: scales harder than the notes so conceded goals stay restrained.
     const len = Math.floor(this.ctx.sampleRate * 0.5);
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / len);
     const src = this.ctx.createBufferSource(); src.buffer = buf;
     const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 0.7;
-    const g = this.ctx.createGain(); g.gain.value = 0.25;
+    const g = this.ctx.createGain(); g.gain.value = 0.25 * e * e;
     src.connect(bp); bp.connect(g); g.connect(this.sfxBus);
     src.start(t0);
   },
@@ -1351,14 +1351,14 @@ const MusicSys = {
     this.voices.push(g); // room switches kill live voices (see killVoices)
     osc.onended = () => { try { osc.disconnect(); flt.disconnect(); g.disconnect(); if (send) send.disconnect(); } catch (e) {} };
   },
-  padChord(freqs, t, dur) {
+  padChord(freqs, t, dur, level = 0.090) {
     const ac = this.ac(), n = this.nodes, c = this.cfg();
     if (!n) return;
     const lp = ac.createBiquadFilter(); lp.type = 'lowpass';
     lp.frequency.value = c.padCut * (this.intensity ? 1.2 : 1);
     const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.setTargetAtTime(0.090, t + 0.05, Math.min(2.5, dur / 6)); // slow bloom
+    g.gain.setTargetAtTime(Math.max(0.0002, level), t + 0.05, Math.min(2.5, dur / 6)); // slow bloom
     g.gain.setTargetAtTime(0.0001, t + dur * 0.8, 1.0);              // melt out before the next chord
     lp.connect(g); g.connect(n.musicG);
     this.voices.push(g); // the long pad tail is the main room-switch bleeder
@@ -1385,24 +1385,32 @@ const MusicSys = {
     o.onended = () => { try { o.disconnect(); g.disconnect(); } catch (e) {} };
   },
   // --- adaptive events ---
-  goalSwell() { // soft lift under the goal ceremony - never a jingle
+  goalSwell(energy = 1) { // hierarchy follows the visual ceremony; never a jingle
     if (!this.timer || !this.ac() || !this.nodes) return;
     const ac = this.ac(), n = this.nodes, t = ac.currentTime, c = this.cfg();
+    const e = clamp(energy, 0.4, 1.15);
+    const duck = 0.76 - 0.26 * e;
+    const returnAt = 0.45 + 0.65 * e;
+    const returnTau = 0.38 + 0.32 * e;
+    const swellPeak = 0.135 * e;
+    const swellPeakAt = 0.40 + 0.15 * e;
+    const swellEnd = 1.0 + 0.5 * e;
     n.duckG.gain.cancelScheduledValues(t);
-    n.duckG.gain.setTargetAtTime(0.5, t, 0.09);    // bed dips under the ceremony
-    n.duckG.gain.setTargetAtTime(1.0, t + 1.1, 0.7);
+    n.duckG.gain.setTargetAtTime(duck, t, 0.09);
+    n.duckG.gain.setTargetAtTime(1.0, t + returnAt, returnTau);
     const src = ac.createBufferSource(); src.buffer = AudioSys._noiseBuf(); src.loop = true;
     const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8;
     bp.frequency.setValueAtTime(500, t);
     bp.frequency.exponentialRampToValueAtTime(2600, t + 0.9);
     const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.135, t + 0.55);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    g.gain.exponentialRampToValueAtTime(swellPeak, t + swellPeakAt);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + swellEnd);
     src.connect(bp); bp.connect(g); g.connect(n.musicG);
-    src.start(t); src.stop(t + 1.6);
+    src.start(t); src.stop(t + swellEnd + 0.1);
     src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) {} };
-    this.padChord((this.curChord ? this.curChord.t : c.prog[0].t).map(s => this.mf(c.root + s)), t + 0.05, 2.4);
+    this.padChord((this.curChord ? this.curChord.t : c.prog[0].t).map(s => this.mf(c.root + s)),
+      t + 0.05, 1.4 + e, 0.090 * e);
   },
   setIntensity(i) {
     i = i ? 1 : 0;
@@ -3678,8 +3686,14 @@ function beginGoalCeremony(scorer) {
   announceStreak(scorer);
   G.goalScorerLabel = goalScorerCallout(scorer);
   G.goalMomentLabel = goalMomentContext(scorer);
-  AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
-  MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
+  const winningGoal = G.score[scorer] >= Settings.firstTo;
+  const goalNotes = THEME.goalChord || [523.25, 659.25, 783.99, 1046.5];
+  // Human-owned goals keep the full room signature. Conceded/exhibition goals
+  // use only the opening interval and a lighter swell so the mix mirrors the
+  // existing visual/haptic hierarchy instead of celebrating both sides equally.
+  const goalEnergy = yours ? (winningGoal ? 1.12 : 1.0) : (winningGoal ? 0.62 : 0.52);
+  AudioSys.goalChord(yours ? goalNotes : goalNotes.slice(0, 2), goalEnergy);
+  MusicSys.goalSwell(goalEnergy);
   Haptics.fire(yours ? 'goal' : 'concede');
 }
 function updateGoal(rdt) {
