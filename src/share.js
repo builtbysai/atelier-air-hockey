@@ -122,6 +122,8 @@ function renderWinHighlights() {
   const moments = Highlights.moments();
   list.innerHTML = '';
   section.classList.toggle('hidden', !moments.length);
+  const reel = $('btnMatchReel');
+  if (reel) reel.classList.toggle('hidden', Highlights.reel().length < 2);
   for (const item of moments) {
     const row = document.createElement('div');
     row.className = 'win-highlight';
@@ -135,10 +137,10 @@ function renderWinHighlights() {
     actions.className = 'win-highlight-actions';
     const watch = document.createElement('button');
     watch.type = 'button'; watch.textContent = 'Watch';
-    watch.dataset.highlightPlay = item.goal.id;
+    watch.dataset.highlightPlay = item.moment.id;
     const gif = document.createElement('button');
     gif.type = 'button'; gif.textContent = 'GIF';
-    gif.dataset.highlightGif = item.goal.id;
+    gif.dataset.highlightGif = item.moment.id;
     actions.append(watch, gif);
     row.append(copy, actions);
     list.appendChild(row);
@@ -264,8 +266,8 @@ const GifExport = {
   active:false, frames:[], nextCapture:0, width:0, height:0,
   canvas:null, ctx:null, blob:null, url:null, highlightId:null, job:0,
   start(id) {
-    const goal = Highlights.get(id);
-    if (!goal || this.active) return false;
+    const moment = Highlights.get(id);
+    if (!moment || this.active) return false;
     this.job++;
     if (this.url) { URL.revokeObjectURL(this.url); this.url = null; }
     this.blob = null;
@@ -275,11 +277,11 @@ const GifExport = {
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.width; this.canvas.height = this.height;
     this.ctx = this.canvas.getContext('2d', { willReadFrequently:true });
-    this.frames = []; this.nextCapture = 0; this.highlightId = goal.id; this.active = true;
+    this.frames = []; this.nextCapture = 0; this.highlightId = moment.id; this.active = true;
     document.body.classList.add('gif-capture');
+    if (!Replay.startClip(moment.clip, moment.scorer ?? moment.side ?? -1, 'win')) { this.cancel(); return false; }
     const word = document.querySelector('#replayHud .replay-word');
     if (word) word.textContent = 'CAPTURING GIF';
-    if (!Replay.startClip(goal.clip, goal.scorer, 'win')) { this.cancel(); return false; }
     return true;
   },
   capture(t) {
