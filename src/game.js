@@ -2719,83 +2719,125 @@ function advanceAfterGoal() {
   // ONLINE: the host's countdown mirrors to the guest so both start even
   if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
+function resultIsHumanWin() {
+  if (G.mode === 'ai') return G.winSide === 0;
+  if (G.mode === '2p') return true;
+  if (G.mode === 'online') return onlineSideLabel(G.winSide) === 'YOU';
+  return false; // exhibition has no human winner
+}
+function buildWinBurst(won) {
+  const host = $('winBurst');
+  if (!host) return;
+  host.innerHTML = '';
+  if (!won || PRM.reduce || Settings.effects === 'minimal') return;
+  const count = Settings.effects === 'subtle' ? 12 : 20;
+  const shape = (G.themeId === 'mid' || G.themeId === 'mem' || G.themeId === 'neon') ? 'alt'
+    : (G.themeId === 'sashi' || G.themeId === 'zel' || G.themeId === 'bil') ? 'diamond' : '';
+  for (let i = 0; i < count; i++) {
+    const p = document.createElement('i');
+    p.className = shape && i % 3 === 0 ? shape : (i % 4 === 0 ? 'alt' : '');
+    p.style.setProperty('--a', (i * 360 / count + rnd(-5, 5)).toFixed(1) + 'deg');
+    p.style.setProperty('--travel', (-rnd(95, 180)).toFixed(0) + 'px');
+    p.style.setProperty('--delay', Math.round(rnd(0, 140)) + 'ms');
+    host.appendChild(p);
+  }
+  setTimeout(() => { if (host) host.innerHTML = ''; }, 1500);
+}
+function addWinAward(type, label) {
+  const box = $('winFeats');
+  if (!box || !label) return;
+  const el = document.createElement('span');
+  el.className = 'win-award ' + type;
+  el.textContent = label;
+  box.appendChild(el);
+}
 function showWin() {
   clearCeremony(); // defensive: no ceremony visuals leak under the overlay
   MusicSys.setIntensity(0); // the room exhales - bed back to rest
   $('topbar').classList.add('hidden');
+  const humanWin = resultIsHumanWin();
   const you = G.winSide === 0;
-  // local rival record - AI rivals per difficulty, P1/P2 for same-screen 2P
-  // (online matches are session-only: no stored record)
+
+  // Local records stay exactly as before.
   if (G.mode === 'ai') Record.bump('ai' + G.difficulty, G.winSide === 0);
   else if (G.mode === '2p') { Record.bump('p1', G.winSide === 0); Record.bump('p2', G.winSide === 1); }
-  $('winTitle').textContent = G.mode === '2p'
-    ? (you ? 'Player One wins' : 'Player Two wins')
-    : G.mode === 'online' // ONLINE: labels by role, not by side
-    ? (onlineSideLabel(G.winSide) === 'YOU' ? 'You win' : 'Rival wins')
-    : G.mode === 'watch' // EXHIBITION: name the winning AI
-    ? DIFFS[G.watch[G.winSide === 0 ? 'a' : 'b']].name + ' wins'
-    : (you ? 'You win' : DIFFS[G.difficulty].name + ' wins');
-  $('winSub').textContent = G.score[0] + ':' + G.score[1];
-  // match stats: top puck speed (table-scale km/h), longest rally, saves
-  // per side (same side order as the score), and match duration. Two lines
-  // so the line never overflows a phone card; innerHTML is safe here -
-  // every value is numeric.
+
+  let winnerName;
+  if (G.mode === '2p') winnerName = you ? 'Player One' : 'Player Two';
+  else if (G.mode === 'online') winnerName = onlineSideLabel(G.winSide) === 'YOU' ? 'You' : 'Rival';
+  else if (G.mode === 'watch') winnerName = DIFFS[G.watch[G.winSide === 0 ? 'a' : 'b']].name;
+  else winnerName = you ? 'You' : DIFFS[G.difficulty].name;
+
+  const card = $('winov').querySelector('.win-card');
+  if (card) {
+    card.classList.remove('win-win', 'win-loss', 'win-neutral');
+    card.classList.add(humanWin ? 'win-win' : (G.mode === 'watch' ? 'win-neutral' : 'win-loss'));
+  }
+
+  $('winTitle').textContent = winnerName + (winnerName === 'You' ? ' took the table.' : ' takes the table.');
+  $('winScoreLeft').textContent = G.score[0];
+  $('winScoreRight').textContent = G.score[1];
+  $('winSub').setAttribute('aria-label', 'Final score ' + G.score[0] + ' to ' + G.score[1]);
+
+  const margin = Math.abs(G.score[0] - G.score[1]);
+  $('winResultLine').textContent = THEME.name.toUpperCase() + ' · ' + margin + ' GOAL' + (margin === 1 ? '' : 'S') + ' MARGIN';
+
+  // Real match highlights replace the old two-line stats paragraph.
   const st = G.stats || freshStats();
-  const kmh = st.topSpeed * (2.4384 / PW) * 3.6; // 8ft table mapping
+  const kmh = Math.round(st.topSpeed * (2.4384 / PW) * 3.6); // 8ft table mapping
   const secs = Math.max(1, Math.round((performance.now() - st.t0) / 1000));
-  try {
-    const mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, '0');
-    const sv = st.saves || [0, 0];
-    $('winStats').innerHTML = 'Top puck ' + Math.round(kmh) + ' km/h · Longest rally ' + st.bestRally +
-      '<br>Saves ' + sv[0] + '–' + sv[1] + ' · ' + mm + ':' + ss;
-    // v23 fun pass - personal bests, achievements, table tour. Local matches
-    // only: online stays session-only (no stored records, no feats, and the
-    // guest's snapshot is display-only).
-    if (G.mode === 'ai' || G.mode === '2p') {
-      const feats = $('winFeats');
-      if (G.mode === '2p' || G.winSide === 0) { // records + feats belong to a human winner
-        const margin = Math.abs(G.score[0] - G.score[1]);
-        const recs = checkBest(G.mode === 'ai' ? 'ai' + G.difficulty : 'p2p',
-          secs, Math.round(kmh), st.bestRally || 0, margin);
-        if (recs.length) $('winStats').innerHTML += '<br>★ New record: ' + recs.join(' · ');
-        const fresh = [];
-        if (G.score[1 - G.winSide] === 0 && Feats.unlock('shutout')) fresh.push('SHUTOUT');
-        if ((st.worstDef || [0, 0])[G.winSide] <= -3 && Feats.unlock('comeback')) fresh.push('COMEBACK');
-        if (((st.bestStreak || [0, 0])[G.winSide] || 0) >= 3 && Feats.unlock('hattrick')) fresh.push('HAT-TRICK');
-        if (Math.round(kmh) >= 60 && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
-        Tour.bump(G.themeId);
-        if (Tour.count() >= THEME_ORDER.length && Feats.unlock('grandtour')) fresh.push('GRAND TOUR');
-        feats.textContent = fresh.length ? '🏆 UNLOCKED: ' + fresh.join(' · ') : '';
-      } else {
-        feats.textContent = '';
-      }
-    } else {
-      $('winFeats').textContent = '';
-    }
-  } catch (e) {}
+  const mm = Math.floor(secs / 60), ss = String(secs % 60).padStart(2, '0');
+  const sv = st.saves || [0, 0];
+  $('winTopSpeed').textContent = kmh;
+  $('winLongestRally').textContent = st.bestRally || 0;
+  $('winSaves').textContent = sv[0] + '–' + sv[1];
+  $('winTime').textContent = mm + ':' + ss;
+  $('winSaveLabel').textContent = sideLabel(0) + ' · ' + sideLabel(1);
+
+  // Earned moments only. No filler badges.
+  const awards = $('winFeats');
+  if (awards) { awards.innerHTML = ''; awards.classList.add('hidden'); }
+  let firstTableWin = false;
+  if ((G.mode === 'ai' || G.mode === '2p') && (G.mode === '2p' || G.winSide === 0)) {
+    const key = G.mode === 'ai' ? 'ai' + G.difficulty : 'p2p';
+    const recs = checkBest(key, secs, kmh, st.bestRally || 0, margin);
+    recs.forEach(label => addWinAward('record', label));
+
+    const fresh = [];
+    if (G.score[1 - G.winSide] === 0 && Feats.unlock('shutout')) fresh.push('SHUTOUT');
+    if ((st.worstDef || [0, 0])[G.winSide] <= -3 && Feats.unlock('comeback')) fresh.push('COMEBACK');
+    if (((st.bestStreak || [0, 0])[G.winSide] || 0) >= 3 && Feats.unlock('hattrick')) fresh.push('HAT TRICK');
+    if (kmh >= 60 && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
+
+    firstTableWin = !Tour.won(G.themeId);
+    Tour.bump(G.themeId);
+    if (firstTableWin) addWinAward('feat', 'TABLE CONQUERED');
+    if (Tour.count() >= THEME_ORDER.length && Feats.unlock('grandtour')) fresh.push('GRAND TOUR');
+    fresh.forEach(label => addWinAward('feat', label));
+  }
+  if (awards && awards.children.length) awards.classList.remove('hidden');
+
+  const kicker = $('winKicker');
+  if (kicker) {
+    if (G.mode === 'watch') kicker.textContent = 'EXHIBITION · FULL TIME';
+    else if (humanWin && firstTableWin) kicker.textContent = 'TABLE CONQUERED';
+    else if (humanWin) kicker.textContent = 'FULL TIME · VICTORY';
+    else kicker.textContent = 'FULL TIME';
+  }
+
   const winReplay = $('btnWinReplay');
   if (winReplay) winReplay.classList.toggle('hidden', !Replay.hasPending());
   hideAll(); $('winov').classList.remove('hidden');
-  G.hintLive = false; // match over - the hint never survives a match end
-  AudioSys.goalChord([392, 523.25, 659.25, 783.99, 1046.5]);
-  // slow theme-colored confetti rain over the win card (DOM - the card
-  // is a positioned container; pieces clean themselves up)
-  if (!PRM.reduce && Settings.effects !== 'minimal') {
-    const card = $('winov').querySelector('.card');
-    const cols = confettiColors();
-    const n = Settings.effects === 'subtle' ? 22 : 46;
-    for (let i = 0; i < n; i++) {
-      const s = document.createElement('i');
-      s.className = 'confetti';
-      s.style.left = rnd(2, 96) + '%';
-      s.style.background = cols[i % cols.length];
-      s.style.animationDuration = rnd(1.8, 3.4) + 's';
-      s.style.animationDelay = rnd(0, 0.9) + 's';
-      s.style.width = rnd(6, 10) + 'px';
-      card.appendChild(s);
-      setTimeout(() => s.remove(), 4600);
-    }
-  }
+  G.hintLive = false;
+
+  // One short, theme-native payoff. No looping spectacle.
+  G.roomPulse = humanWin ? 1 : 0.35;
+  if (humanWin) addTrauma(0.28);
+  buildWinBurst(humanWin);
+  const chord = (THEME.goalChord || [392, 523.25, 659.25, 783.99]).slice();
+  if (humanWin && chord.length) chord.push(chord[0] * 2);
+  AudioSys.goalChord(chord);
+  buzz(humanWin ? [35, 28, 48, 30, 82] : [24, 38, 24]);
 }
 function togglePause(force, silent) {
   // ONLINE: silent=true applies a pause that arrived over the wire - it must
