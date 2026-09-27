@@ -44,3 +44,14 @@ test('short landscape goal composition clears the scoreboard band', () => {
   assert.match(block, /compactLandscape \? 0\.61 : 0\.50/);
   assert.match(block, /clamp\(h \* 0\.30, 112, 152\)/);
 });
+
+
+test('goal ceremony duration respects the player-facing hierarchy', () => {
+  assert.match(game, /const GOAL_HOLD_OWN = 1\.95/);
+  assert.match(game, /const GOAL_HOLD_CONCEDE = 1\.60/);
+  assert.match(game, /const GOAL_HOLD_WIN = 2\.70/);
+  assert.match(game, /winningGoal \? GOAL_HOLD_WIN/);
+  assert.match(game, /goalIsYours\(G\.goalSide\) \? GOAL_HOLD_OWN : GOAL_HOLD_CONCEDE/);
+  assert.ok(1.60 < 1.95, 'ordinary conceded goals should return to play sooner than player goals');
+  assert.ok(1.95 < 2.70, 'winning goals should retain the longest payoff');
+});
