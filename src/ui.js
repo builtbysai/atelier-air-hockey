@@ -807,6 +807,86 @@ function wireUI() {
   if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
 }
 
+// ---------- deterministic visual QA ----------
+// CI-only state composer. It is intentionally unreachable on builtbysai.com
+// and only activates on localhost/127.0.0.1 so QA helpers never become product UI.
+function applyVisualQaState(name) {
+  if (!name || !['localhost', '127.0.0.1'].includes(location.hostname)) return false;
+  window.__atelierVisualQA = { freeze:true, state:name };
+  document.documentElement.classList.add('visual-qa');
+  PRM.reduce = true;
+  Settings.shake = 'off';
+  Settings.effects = 'minimal';
+  Settings.instantReplay = 'off';
+
+  const baseMatch = camera => {
+    hideAll(); Replay.reset(); Highlights.reset(); Practice.cancel();
+    G.mode = 'ai'; G.difficulty = 1; G.demo = false; G.onlineFlip = false; G.focusLost = false;
+    G.score = [3,2]; G.winSide = 0; G.board = freshBoard(); G.stats = freshStats();
+    G.stats.t0 = performance.now() - 83000; G.stats.topSpeed = 2380; G.stats.bestRally = 12; G.stats.saves = [4,3];
+    resetPositions();
+    G.puck.x = CX + 86; G.puck.y = CY - 34; G.puck.vx = 920; G.puck.vy = -280;
+    G.m1.x = CX - 290; G.m1.y = CY + 110; G.m1.tx = G.m1.x; G.m1.ty = G.m1.y;
+    G.m2.x = CX + 290; G.m2.y = CY - 100; G.m2.tx = G.m2.x; G.m2.ty = G.m2.y;
+    Settings.camera = camera || 'top'; resize(); G.state = 'play';
+    $('topbar').classList.remove('hidden');
+  };
+
+  switch (name) {
+    case 'menu':
+      hideAll(); G.state = 'menu'; G.demo = false; G.idleT = 0; $('menu').classList.remove('hidden'); break;
+    case 'rules':
+      hideAll(); G.state = 'menu'; applySettingsToUI(); $('rules').classList.remove('hidden'); break;
+    case 'preferences':
+      hideAll(); G.state = 'menu'; applySettingsToUI(); $('settings').classList.remove('hidden'); break;
+    case 'workshop-menu':
+      renderWorkshopMenu(); hideAll(); G.state = 'menu'; $('workshop').classList.remove('hidden'); break;
+    case 'progress':
+      renderProgress(); hideAll(); G.state = 'menu'; $('progress').classList.remove('hidden'); break;
+    case 'workshop':
+      baseMatch('top');
+      G.mode = 'workshop'; G.difficulty = 0; G.ai1 = null; G.ai2 = mkBrain(1,0);
+      Practice.begin('power'); Practice.progress = 42; Practice.syncHud();
+      G.state = 'play'; $('workshopHud').classList.remove('hidden'); break;
+    case 'top':
+    case 'elevated':
+    case 'surface':
+      baseMatch(name); break;
+    case 'goal':
+      baseMatch('top'); G.score = [4,2]; G.goalSide = 0; G.goalT = 1.15; G.goalSlowT = 1.15;
+      G.letterT = 1; G.goalStreakLabel = 'TWO IN A ROW'; G.state = 'goal'; $('topbar').classList.add('hidden'); break;
+    case 'replay': {
+      baseMatch('top');
+      const a = Replay.snapshot(); G.puck.x += 90; G.m1.y -= 45; const b = Replay.snapshot();
+      Replay.clip = [a,b,a,b]; Replay.active = true; Replay.elapsed = 0.04; Replay.scorer = 0; Replay.returnMode = 'win';
+      G.state = 'replay'; document.body.classList.add('replay-mode'); $('topbar').classList.add('hidden');
+      $('replayHud').classList.remove('hidden'); $('replayProgress').style.transform = 'scaleX(.56)'; break;
+    }
+    case 'pause':
+      baseMatch('top'); G.pausedFrom = 'play'; G.state = 'pause'; hideAll(); $('pauseov').classList.remove('hidden'); break;
+    case 'win': {
+      baseMatch('top'); G.score = [7,4]; G.winSide = 0; G.state = 'win';
+      G.stats.t0 = performance.now() - 112000; G.stats.topSpeed = 2640; G.stats.bestRally = 18;
+      G.stats.saves = [6,3]; G.stats.bestStreak = [3,1]; G.stats.worstDef = [-3,0];
+      const clip = [Replay.snapshot(), Replay.snapshot()];
+      Highlights.goals = [
+        { id:1, scorer:0, clip, speedKmh:61, rally:8, score:[2,1], themeId:G.themeId },
+        { id:2, scorer:0, clip, speedKmh:74, rally:12, score:[5,3], themeId:G.themeId },
+        { id:3, scorer:0, clip, speedKmh:66, rally:18, score:[7,4], themeId:G.themeId },
+      ];
+      Highlights.nextId = 4;
+      showWin(); break;
+    }
+    case 'update':
+      hideAll(); G.state = 'menu'; G.demo = false; G.idleT = 0; $('menu').classList.remove('hidden');
+      $('updateReady').classList.remove('hidden'); break;
+    default:
+      hideAll(); G.state = 'menu'; $('menu').classList.remove('hidden'); break;
+  }
+  UpdateSys.sync();
+  return true;
+}
+
 // ---------- boot ----------
 function boot() {
   loadSettings();
@@ -841,6 +921,7 @@ function boot() {
     else if (q.has('play') && tableUnlocked(G.themeId)) startGame('ai', G.difficulty);
     else if (q.has('2p') && tableUnlocked(G.themeId)) startGame('2p');
     else if (q.has('demo')) { G.idleT = 99; }
+    applyVisualQaState(q.get('qa'));
   } catch (e) {}
   requestAnimationFrame(frame);
   requestAnimationFrame(keyboardGamepadDrive);
