@@ -107,7 +107,6 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
   assert.match(game, /style\.transform = 'scaleX\('/);
   assert.match(ui, /replaySkip'\)\.addEventListener\('click', \(\) => Replay\.finish\(\)\)/);
   assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(true\)/);
-  assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(\)/);
   assert.doesNotMatch(game, /drawPlaque\(ctx, CX, 128, 'REPLAY'\)/);
 });
 
