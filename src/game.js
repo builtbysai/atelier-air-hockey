@@ -274,6 +274,7 @@ const Workshop = {
   load() {
     try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
     catch (e) { this.data = {}; }
+    if (!this.data || typeof this.data !== 'object') this.data = {};
   },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
@@ -283,6 +284,25 @@ const Workshop = {
     if (!id || this.data[id]) return false;
     this.data[id] = 1; this.save();
     return true;
+  },
+  best(id) {
+    const n = Number(this.data._best && this.data._best[id]);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  },
+  bumpBest(id, value) {
+    value = Number(value) || 0;
+    if (!id || value <= this.best(id)) return false;
+    if (!this.data._best || typeof this.data._best !== 'object') this.data._best = {};
+    this.data._best[id] = value; this.save();
+    return true;
+  },
+  bestLabel(id) {
+    const n = this.best(id);
+    if (!n) return '';
+    if (id === 'power') return Math.round(n) + ' KM/H';
+    if (id === 'control') return Math.round(n) + ' HITS';
+    if (id === 'keeper') return Math.round(n) + ' SAVES';
+    return String(Math.round(n));
   },
   count() { return ['power','control','keeper'].filter(id => this.done(id)).length; },
 };
@@ -323,22 +343,33 @@ function tableUnlockSnapshot() {
 }
 
 const WORKSHOP_DRILLS = Object.freeze({
-  power:   { name:'Power',   target:'Score at 22 km/h',      goal:22, coach:0, serve:1 },
-  control: { name:'Control', target:'Build a 10-hit rally',   goal:10, coach:0, serve:1 },
-  keeper:  { name:'Keeper',  target:'Make 3 clean saves',     goal:3,  coach:1, serve:-1 },
+  power:   { name:'Power',    target:'Score at 22 km/h',        goal:22, coach:0,    serve:1 },
+  control: { name:'Control',  target:'Build a 10-hit rally',     goal:10, coach:0,    serve:1 },
+  keeper:  { name:'Keeper',   target:'Make 3 saves in a row',    goal:3,  coach:1,    serve:-1 },
+  free:    { name:'Free Hit', target:'Shots, banks, and control', goal:0,  coach:null, serve:1, free:true },
 });
 const Practice = {
-  active:false, id:null, progress:0,
+  active:false, id:null, progress:0, wasCleared:false,
   begin(id) {
     if (!WORKSHOP_DRILLS[id]) return false;
-    this.active = true; this.id = id; this.progress = 0;
+    this.active = true; this.id = id; this.progress = 0; this.wasCleared = Workshop.done(id);
     Workshop.current = id;
     this.syncHud();
     return true;
   },
   cancel() {
-    this.active = false; this.id = null; this.progress = 0; Workshop.current = null;
+    this.active = false; this.id = null; this.progress = 0; this.wasCleared = false; Workshop.current = null;
     const hud = $('workshopHud'); if (hud) hud.classList.add('hidden');
+  },
+  preparePoint() {
+    if (!this.active || this.id !== 'free') return;
+    // Free Hit is genuinely solo. Park the unused rival outside the rendered
+    // rink and keep it non-colliding instead of inventing a second physics mode.
+    G.ai2 = null;
+    G.m2.x = G.m2.tx = VW + MALLET_R * 4;
+    G.m2.y = G.m2.ty = CY;
+    G.m2.vx = G.m2.vy = 0;
+    G.m2.ghostT = 1e9;
   },
   syncHud(note) {
     const d = WORKSHOP_DRILLS[this.id]; if (!d) return;
@@ -346,38 +377,53 @@ const Practice = {
     if (hud) hud.classList.remove('hidden');
     if (title) title.textContent = 'WORKSHOP · ' + d.name.toUpperCase();
     if (target) target.textContent = note || d.target;
-    if (prog) {
-      const value = this.id === 'power' ? Math.min(d.goal, Math.round(this.progress)) : Math.min(d.goal, this.progress);
-      prog.textContent = value + ' / ' + d.goal + (this.id === 'power' ? ' KM/H' : '');
+    if (!prog) return;
+    if (d.free) {
+      prog.textContent = 'OPEN TABLE';
+      return;
     }
+    const value = this.id === 'power' ? Math.round(this.progress) : this.progress;
+    prog.textContent = value + ' / ' + d.goal + (this.id === 'power' ? ' KM/H' : '');
+  },
+  maybeClear() {
+    const d = WORKSHOP_DRILLS[this.id];
+    if (!d || d.free || this.wasCleared || this.progress < d.goal) return false;
+    this.complete(); return true;
   },
   onRally(n) {
-    if (!this.active || this.id !== 'control') return;
-    this.progress = Math.max(this.progress, n);
-    this.syncHud();
-    if (this.progress >= WORKSHOP_DRILLS.control.goal) this.complete();
+    if (!this.active) return;
+    if (this.id === 'control') {
+      this.progress = Math.max(this.progress, n);
+      Workshop.bumpBest('control', this.progress);
+      this.syncHud();
+      this.maybeClear();
+    }
   },
   onSave(side) {
     if (!this.active || this.id !== 'keeper' || side !== 0) return;
     this.progress++;
+    Workshop.bumpBest('keeper', this.progress);
     this.syncHud();
-    if (this.progress >= WORKSHOP_DRILLS.keeper.goal) this.complete();
+    this.maybeClear();
   },
   onGoal(scorer, speedKmh) {
     if (!this.active) return;
     if (this.id === 'power' && scorer === 0) {
       this.progress = Math.max(this.progress, speedKmh);
+      Workshop.bumpBest('power', speedKmh);
       this.syncHud(speedKmh >= WORKSHOP_DRILLS.power.goal ? 'Power target hit' : 'Keep driving through the puck');
-      if (speedKmh >= WORKSHOP_DRILLS.power.goal) { this.complete(); return; }
-    }
-    if (this.id === 'control') {
+      if (this.maybeClear()) return;
+    } else if (this.id === 'control') {
       this.progress = 0; this.syncHud('Rally reset · build it again');
+    } else if (this.id === 'keeper') {
+      this.progress = 0; this.syncHud('Save streak reset · hold the line');
     }
     this.resetPoint();
   },
   resetPoint() {
     if (!this.active) return;
     resetPositions();
+    this.preparePoint();
     if (G.stats) G.stats.rally = 0;
     startCount();
     rollServe(WORKSHOP_DRILLS[this.id].serve);
@@ -389,17 +435,19 @@ const Practice = {
     const id = this.id, d = WORKSHOP_DRILLS[id], before = tableUnlockSnapshot();
     const fresh = Workshop.complete(id);
     const unlocked = newlyUnlockedTables(before);
+    const best = Workshop.bestLabel(id);
     this.active = false;
     G.state = 'practiceDone';
     clearCeremony(); Replay.reset();
     hideAll();
     const hud = $('workshopHud'); if (hud) hud.classList.add('hidden');
     const title = $('workshopDoneTitle'), copy = $('workshopDoneText');
-    if (title) title.textContent = fresh ? d.name + ' complete.' : d.name + ' complete.';
+    if (title) title.textContent = d.name + ' complete.';
     if (copy) {
+      const pb = best ? 'PB ' + best + '. ' : '';
       copy.textContent = unlocked.length
-        ? 'Unlocked ' + unlocked.map(x => THEMES[x].name).join(', ') + '.'
-        : 'Drill cleared. Your Workshop progress is saved on this device.';
+        ? pb + 'Unlocked ' + unlocked.map(x => THEMES[x].name).join(', ') + '.'
+        : pb + 'Clear saved. Replay the drill to push your best.';
     }
     $('workshopDone').classList.remove('hidden');
     Haptics.fire('win');
@@ -3298,17 +3346,18 @@ function startWorkshop(id) {
   AudioSys.init(); AudioSys.resume();
   Practice.returnTheme = G.themeId;
   if (!tableUnlocked(G.themeId)) setTheme('deco', true);
-  G.mode = 'workshop'; G.difficulty = d.coach;
+  G.mode = 'workshop'; G.difficulty = d.coach == null ? 0 : d.coach;
   G.watch = null; G.score = [0,0]; G.winSide = 0;
   Replay.reset(); Highlights.reset();
   G.demo = false; G.idleT = 0; G.gwNet = 0;
   clearCeremony(); G.freezeT = 0; G.trauma = 0; G.board = freshBoard();
   G.scuffs.length = 0; G.texts.length = 0;
   resetPositions();
-  G.ai1 = null; G.ai2 = mkBrain(1, d.coach);
+  G.ai1 = null; G.ai2 = d.coach == null ? null : mkBrain(1, d.coach);
   G.stats = freshStats(); G.stats.t0 = performance.now();
   pointers.clear();
   if (!Practice.begin(id)) return;
+  Practice.preparePoint();
   hideAll();
   $('topbar').classList.remove('hidden');
   $('workshopHud').classList.remove('hidden');
@@ -3812,6 +3861,11 @@ function playStep(rdt) {
       // authoritative sim and the guest can never touch the puck.
       driveMallet(G.m1, sdt, PLAYER_CAP);
       Net.driveRemoteMallet(sdt);
+    } else if (G.mode === 'workshop' && Practice.id === 'free') {
+      const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
+      if (pointers.size > 0 || kbFresh) driveMallet(G.m1, sdt, PLAYER_CAP);
+      else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
+      Practice.preparePoint();
     } else if (G.mode === 'watch') {
       // EXHIBITION: both mallets are AI-driven.
       aiDrive(G.ai1, sdt, G.m1);
