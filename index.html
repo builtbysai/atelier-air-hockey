@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v30-victory-juice">
+<html lang="en" data-build="v31-practice-visual-qa">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -28,6 +28,19 @@
 </head>
 <body>
 <canvas id="game"></canvas>
+
+<div id="practiceHud" class="practice-hud hidden" role="status" aria-live="polite">
+  <div class="practice-copy">
+    <span class="practice-kicker">PRACTICE LAB</span>
+    <strong id="practiceTitle">Free Hit</strong>
+    <small id="practiceObjective">Explore touch, banks and spin.</small>
+  </div>
+  <div class="practice-readout">
+    <span id="practiceMetric">BEST SPEED</span>
+    <strong id="practiceValue">0 KM/H</strong>
+  </div>
+  <button id="practiceExit" type="button">Exit</button>
+</div>
 
 <div id="topbar" class="hidden">
   <span class="connchip hidden" id="connChip" title="Connection quality"><i class="unknown"></i><em>–ms</em></span>
@@ -67,6 +80,7 @@
           <button class="btn" id="btn2p">Two Players<small>SAME SCREEN</small><span class="rec" data-rec="p2p"></span></button>
           <button class="btn" id="btnOnline">Online<small>PLAY A RIVAL ANYWHERE</small></button>
           <button class="btn" id="btnWatch">Exhibition<small>AI VS AI</small></button>
+          <button class="btn" id="btnPractice">Practice<small>SKILL LAB</small></button>
         </div>
         <div id="houseSel">
           <div class="seclabel">THE RIVAL</div>
@@ -74,6 +88,14 @@
             <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small><span class="rec" data-rec="ai0"></span></button>
             <button class="btn" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small><span class="rec" data-rec="ai1"></span></button>
             <button class="btn" data-diff="2">Champion<small>NO MERCY</small><span class="rec" data-rec="ai2"></span></button>
+          </div>
+        </div>
+        <div class="practice-sel hidden" id="practiceSel">
+          <div class="seclabel">THE DRILL</div>
+          <div class="seg3">
+            <button class="btn" data-practice="free">Free Hit<small>TOUCH · BANKS · SPIN</small><span class="rec" id="practiceFreeBest"></span></button>
+            <button class="btn" data-practice="power">Power Shot<small>60 KM/H GOAL</small><span class="rec" id="practicePowerBest"></span></button>
+            <button class="btn" data-practice="keeper">Goalkeeper<small>5 SAVES IN A ROW</small><span class="rec" id="practiceKeeperBest"></span></button>
           </div>
         </div>
         <div class="watchsel hidden" id="watchSel">
@@ -90,14 +112,16 @@
             <button class="btn" data-watch="2" data-side="b">Champion</button>
           </div>
         </div>
-        <div class="seclabel">MATCH RULES</div>
-        <button class="rulebar" id="btnRules" type="button" aria-label="Edit match rules">
-          <span class="rule-summary-grid">
-            <span><small>SCORE</small><strong id="ruleSumScore">7</strong></span>
-            <span><small>PACE</small><strong id="ruleSumPace">Classic</strong></span>
-            <span><small>GOAL</small><strong id="ruleSumGoal">Standard</strong></span>
-          </span>
-        </button>
+        <div id="matchRulesBlock">
+          <div class="seclabel">MATCH RULES</div>
+          <button class="rulebar" id="btnRules" type="button" aria-label="Edit match rules">
+            <span class="rule-summary-grid">
+              <span><small>SCORE</small><strong id="ruleSumScore">7</strong></span>
+              <span><small>PACE</small><strong id="ruleSumPace">Classic</strong></span>
+              <span><small>GOAL</small><strong id="ruleSumGoal">Standard</strong></span>
+            </span>
+          </button>
+        </div>
         <button class="btn primary bigstart" id="btnStart"><span id="startLabel">START MATCH</span><small id="startSub">CLUB PRO · FIRST TO 7</small></button>
       </div>
     </div>
