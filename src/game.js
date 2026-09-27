@@ -214,8 +214,17 @@ const Tour = {
 // repaint the tour counter + conquered pips - call on boot and whenever the
 // menu is shown (Tour data only changes at match end)
 function refreshTour() {
-  document.querySelectorAll('.tslide').forEach(el =>
-    el.classList.toggle('won', Tour.won(el.dataset.theme)));
+  document.querySelectorAll('.tslide').forEach(el => {
+    const id = el.dataset.theme, locked = !tableUnlocked(id);
+    el.classList.toggle('won', Tour.won(id));
+    el.classList.toggle('mastered', Mastery.mastered(id));
+    el.classList.toggle('locked', locked);
+    const lock = el.querySelector('.tlock'), why = el.querySelector('[data-lock-reason]');
+    if (lock) lock.classList.toggle('hidden', !locked);
+    if (why) why.textContent = locked ? tableLockReason(id) : '';
+    const base = THEMES[id] ? THEMES[id].name + ' table' : 'Table';
+    el.setAttribute('aria-label', locked ? base + '. Locked. ' + tableLockReason(id) : base);
+  });
   const tc = $('tourCount');
   if (tc) tc.textContent = 'TOUR ' + Tour.count() + '/' + THEME_ORDER.length;
 }
@@ -289,6 +298,7 @@ const TABLE_GATES = Object.freeze({
 });
 function tableUnlocked(id) {
   if (['deco','mid','brut','bil'].includes(id)) return true;
+  if (Tour.won(id)) return true; // never revoke a room a returning player already conquered
   const g = TABLE_GATES[id];
   if (!g) return true;
   if (g.mastery && Mastery.mastered(g.mastery)) return true;
@@ -1445,7 +1455,7 @@ const Replay = {
     if (this.frames.length > REPLAY_MAX) this.frames.shift();
   },
   record(dt) {
-    if (this.active || G.mode === 'online' || G.demo || G.state !== 'play') return;
+    if (this.active || G.mode === 'online' || G.mode === 'workshop' || G.demo || G.state !== 'play') return;
     this.acc += dt;
     const step = 1 / REPLAY_HZ;
     while (this.acc >= step) { this.acc -= step; this.push(); }
@@ -3198,6 +3208,7 @@ function togglePause(force, silent) {
     G.state = G.pausedFrom;
     hideAll();
     if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
+    if (G.mode === 'workshop' && Practice.active) $('workshopHud').classList.remove('hidden');
     if (G.hintLive) $('hint').classList.remove('hidden'); // hint survives pause/resume
     if (!silent) {
       // a local resume is always a user gesture, so the context may restart
