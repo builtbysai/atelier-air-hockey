@@ -2832,8 +2832,8 @@ function startWorkshop(id) {
   const d = WORKSHOP_DRILLS[id];
   if (!d) return;
   AudioSys.init(); AudioSys.resume();
-  Practice.returnTheme = tableUnlocked(G.themeId) ? G.themeId : 'deco';
-  if (!tableUnlocked(G.themeId)) setTheme('deco');
+  Practice.returnTheme = G.themeId;
+  if (!tableUnlocked(G.themeId)) setTheme('deco', true);
   G.mode = 'workshop'; G.difficulty = d.coach;
   G.watch = null; G.score = [0,0]; G.winSide = 0;
   Replay.reset(); Highlights.reset();
@@ -3267,8 +3267,10 @@ function restartMatch() {
   else startGame(G.mode, G.difficulty);
 }
 function quitToMenu() {
+  const wasWorkshop = G.mode === 'workshop';
+  const workshopTheme = Practice.returnTheme;
   if (G.mode === 'online') Net.leave();
-  if (G.mode === 'workshop' || Practice.active) Practice.cancel(); // ONLINE: leave the room first - leave() resets mode
+  if (wasWorkshop || Practice.active) Practice.cancel();
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
   clearCeremony();
@@ -3277,6 +3279,7 @@ function quitToMenu() {
   G.board = freshBoard();
   pointers.clear();
   resetPositions();
+  if (wasWorkshop && workshopTheme && THEMES[workshopTheme]) setTheme(workshopTheme, true);
   hideAll(); $('menu').classList.remove('hidden');
   $('topbar').classList.add('hidden');
   G.hintLive = false; // match over - the hint never survives a match end
