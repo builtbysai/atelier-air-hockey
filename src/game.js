@@ -2723,7 +2723,8 @@ function resultIsHumanWin() {
   if (G.mode === 'ai') return G.winSide === 0;
   if (G.mode === '2p') return true;
   if (G.mode === 'online') return onlineSideLabel(G.winSide) === 'YOU';
-  return false; // exhibition has no human winner
+  if (G.mode === 'watch') return false; // exhibition has no human winner
+  return false;
 }
 function buildWinBurst(won) {
   const host = $('winBurst');
