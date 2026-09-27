@@ -1208,7 +1208,7 @@ const Practice = {
     this.render();
   },
   stop() {
-    this.active = false; this.shotActive = false; this.hide(); this.renderMenu();
+    this.active = false; this.shotActive = false; this.save(); this.hide(); this.renderMenu();
   },
   hide() { const hud = $('practiceHud'); if (hud) hud.classList.add('hidden'); },
   show() { if (this.active) { const hud = $('practiceHud'); if (hud) hud.classList.remove('hidden'); } },
@@ -1268,7 +1268,7 @@ const Practice = {
       }
     } else if (G.lastTouch === 0) {
       this.shotPeak = Math.max(this.shotPeak, puckKmh());
-      if (this.drill === 'free' && this.shotPeak > this.data.freeBest) { this.data.freeBest = this.shotPeak; this.save(); }
+      if (this.drill === 'free' && this.shotPeak > this.data.freeBest) this.data.freeBest = this.shotPeak;
     }
     this.hudT += dt;
     if (this.hudT >= 0.10) { this.hudT = 0; this.render(); }
@@ -2723,7 +2723,7 @@ function updateCount(rdt) {
   }
 }
 function onGoal(scorer) {
-  if (G.mode === 'practice') { Practice.onGoal(scorer); return; }
+  if (G.mode === 'practice' && Practice.active) { Practice.onGoal(scorer); return; }
   if (G.demo) { // attract mode: no ceremony, just play on
     burst(G.puck.x, G.puck.y, 24, THEME.particle, 420);
     AudioSys.hit(0.8);
