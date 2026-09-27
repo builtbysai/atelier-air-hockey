@@ -1175,7 +1175,7 @@ const PRACTICE_DRILLS = {
 function puckKmh(speed = puckSpeed()) { return Math.round(speed * (2.4384 / PW) * 3.6); }
 const Practice = {
   active:false, drill:'free', data:{ freeBest:0, powerBest:0, keeperBest:0 },
-  goals:0, shotPeak:0, saves:0, misses:0, saveStreak:0, feedT:0, shotT:0, shotActive:false, shotSaved:false,
+  goals:0, shotPeak:0, saves:0, misses:0, saveStreak:0, feedT:0, shotT:0, hudT:0, shotActive:false, shotSaved:false,
   load() {
     try {
       const d = JSON.parse(localStorage.getItem(PRACTICE_KEY) || '{}');
@@ -1185,7 +1185,7 @@ const Practice = {
   save() { try { localStorage.setItem(PRACTICE_KEY, JSON.stringify(this.data)); } catch (e) {} },
   resetRun() {
     this.goals = 0; this.shotPeak = 0; this.saves = 0; this.misses = 0; this.saveStreak = 0;
-    this.feedT = 0; this.shotT = 0; this.shotActive = false; this.shotSaved = false;
+    this.feedT = 0; this.shotT = 0; this.hudT = 0; this.shotActive = false; this.shotSaved = false;
   },
   start(drill = 'free') {
     if (!PRACTICE_DRILLS[drill]) drill = 'free';
@@ -1208,7 +1208,7 @@ const Practice = {
     this.render();
   },
   stop() {
-    this.active = false; this.shotActive = false; this.hide();
+    this.active = false; this.shotActive = false; this.hide(); this.renderMenu();
   },
   hide() { const hud = $('practiceHud'); if (hud) hud.classList.add('hidden'); },
   show() { if (this.active) { const hud = $('practiceHud'); if (hud) hud.classList.remove('hidden'); } },
@@ -1270,7 +1270,8 @@ const Practice = {
       this.shotPeak = Math.max(this.shotPeak, puckKmh());
       if (this.drill === 'free' && this.shotPeak > this.data.freeBest) { this.data.freeBest = this.shotPeak; this.save(); }
     }
-    this.render();
+    this.hudT += dt;
+    if (this.hudT >= 0.10) { this.hudT = 0; this.render(); }
   },
   render() {
     const D = PRACTICE_DRILLS[this.drill] || PRACTICE_DRILLS.free;
