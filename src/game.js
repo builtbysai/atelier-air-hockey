@@ -4417,9 +4417,15 @@ function drawGoalTextScreen(c, w, h) {
   const alpha = clamp((G.letterT - 0.08) * 2.7, 0, 1) * clamp((1.12 - t) * 4.2, 0.35, 1);
   const titlePop = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT * 1.35, 0, 1));
   const scorePop = PRM.reduce ? 1 : 0.94 + 0.06 * easeOutBack(clamp((G.goalT - 0.12) * 2.9, 0, 1));
-  const cy = h * 0.50;
+  // Short landscape has a permanent scoreboard + rule plaque across the
+  // upper band. Keep the cinematic beat below that chrome instead of letting
+  // YOU SCORE / GOAL compete with it. Portrait and roomy screens are unchanged.
+  const compactLandscape = w / Math.max(1, h) > 1.55 && h < 520;
+  const cy = h * (compactLandscape ? 0.61 : 0.50);
   const panelW = Math.min(w * 0.82, 720);
-  const panelH = clamp(h * 0.34, 126, 250);
+  const panelH = compactLandscape
+    ? clamp(h * 0.30, 112, 152)
+    : clamp(h * 0.34, 126, 250);
   const left = (w - panelW) * 0.5, top = cy - panelH * 0.5;
 
   c.save();
