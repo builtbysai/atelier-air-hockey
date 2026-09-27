@@ -34,3 +34,13 @@ test('goal copy stays concise and avoids redundant +1 text', () => {
   assert.match(game, /return who === 'YOU' \? 'YOU SCORE' : who \+ ' SCORES'/);
   assert.match(block, /KM\/H/);
 });
+
+
+test('short landscape goal composition clears the scoreboard band', () => {
+  const start = game.indexOf('function drawGoalTextScreen');
+  const end = game.indexOf('function renderScreenTail', start);
+  const block = game.slice(start, end);
+  assert.match(block, /const compactLandscape = w \/ Math\.max\(1, h\) > 1\.55 && h < 520/);
+  assert.match(block, /compactLandscape \? 0\.61 : 0\.50/);
+  assert.match(block, /clamp\(h \* 0\.30, 112, 152\)/);
+});
