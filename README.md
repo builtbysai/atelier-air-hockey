@@ -49,6 +49,16 @@ Preferences control presentation on this device:
 - Haptics
 - Camera and orientation
 
+## Practice Lab
+
+Practice uses the same puck physics, cameras, audio, haptics, and player controls as a real match:
+
+- **Free Hit** — explore touch, banks, spin, and chase a personal speed best
+- **Power Shot** — score a goal at 60 km/h or faster
+- **Goalkeeper** — save five progressively faster shots in a row
+
+Practice bests are saved locally on the device.
+
 ## Controls
 
 - Mouse / touch: direct mallet control.
