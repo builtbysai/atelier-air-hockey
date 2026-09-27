@@ -1510,8 +1510,8 @@ const G = {
 };
 function freshStats() {
   return {
-    topSpeed:0, rally:0, bestRally:0, bestGoalRally:0, bankGoals:[0,0],
-    saves:[0,0], t0:0, streak:[0,0], bestStreak:[0,0], worstDef:[0,0],
+    topSpeed: 0, rally: 0, bestRally: 0, bestGoalRally: 0, bankGoals: [0, 0],
+    saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0],
   };
 }
 G.stats = freshStats();
