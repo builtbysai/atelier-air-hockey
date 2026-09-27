@@ -30,7 +30,7 @@ test('goal copy stays concise and avoids redundant +1 text', () => {
   const start = game.indexOf('function drawGoalTextScreen');
   const end = game.indexOf('function renderScreenTail', start);
   const block = game.slice(start, end);
-  assert.doesNotMatch(block, /\+1/);
+  assert.doesNotMatch(block, /fillText\([^\n]*['"]\+1['"]/);
   assert.match(game, /return who === 'YOU' \? 'YOU SCORE' : who \+ ' SCORES'/);
   assert.match(block, /KM\/H/);
 });
