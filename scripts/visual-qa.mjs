@@ -77,8 +77,29 @@ try {
       url.searchParams.set('qa', 'win');
       await page.goto(url.href, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => window.__atelierVisualQA?.freeze === true, null, { timeout:5000 });
-      // Resume only the replay/export path. The fixture itself stays
-      // deterministic until the user-equivalent GIF action begins.
+      // Resume only the replay paths. The fixture itself stays
+      // deterministic until user-equivalent highlight actions begin.
+      await page.evaluate(() => { window.__atelierVisualQA.freeze = false; });
+      await page.click('#btnMatchReel');
+      await page.waitForFunction(() =>
+        document.querySelector('#replayHud .replay-word')?.textContent === 'MATCH REEL 1/3',
+        null, { timeout:5000 });
+      await page.screenshot({
+        path: path.join(dir, 'match-reel.png'),
+        fullPage:false,
+        animations:'disabled',
+      });
+      await page.click('#replaySkip');
+      await page.waitForFunction(() =>
+        document.querySelector('#replayHud .replay-word')?.textContent === 'MATCH REEL 2/3',
+        null, { timeout:5000 });
+      await page.keyboard.press('Escape');
+      await page.waitForFunction(() => !document.getElementById('winov')?.classList.contains('hidden'), null, { timeout:5000 });
+
+      // Reload the deterministic result fixture so GIF export is exercised
+      // independently from sequence playback.
+      await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => window.__atelierVisualQA?.freeze === true, null, { timeout:5000 });
       await page.evaluate(() => { window.__atelierVisualQA.freeze = false; });
       await page.click('[data-highlight-gif]');
       await page.waitForFunction(() => {
