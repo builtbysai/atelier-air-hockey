@@ -1324,6 +1324,8 @@ const Replay = {
     } else {
       advanceAfterGoal();
     }
+    if (typeof GifExport !== 'undefined' && GifExport.active)
+      setTimeout(() => GifExport.finish(), 0);
   },
   applyFrame() {
     if (!this.active) return null;
