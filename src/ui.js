@@ -758,6 +758,8 @@ function wireUI() {
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
       else if (!$('rules').classList.contains('hidden')) $('rulesClose').click();
+      else if (!$('workshop').classList.contains('hidden')) $('workshopClose').click();
+      else if (!$('workshopDone').classList.contains('hidden')) $('workshopDoneMenu').click();
       else if (!$('progress').classList.contains('hidden')) $('progressClose').click();
       else if (!$('onlineov').classList.contains('hidden') && !Net.active) Net.cancelLobby();
       else if (G.state === 'pause') togglePause();
