@@ -628,6 +628,7 @@
     border-radius:8px; background:color-mix(in srgb,var(--ghost) 45%,transparent);
     text-align:left;
   }
+  .progress-item.locked{ opacity:.58; }
   .win-highlight-copy{ min-width:0; }
   .win-highlight-copy strong{ display:block; color:var(--title); font:700 12px var(--body); letter-spacing:.25px; }
   .win-highlight-copy span{ display:block; margin-top:2px; color:var(--sub); font-size:9px; letter-spacing:1.15px; text-transform:uppercase; }
