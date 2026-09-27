@@ -222,10 +222,18 @@ function refreshTour() {
     el.classList.toggle('challenged', TableChallenges.done(id));
     el.classList.toggle('locked', locked);
     const lock = el.querySelector('.tlock'), why = el.querySelector('[data-lock-reason]');
+    const chip = el.querySelector('[data-challenge]');
     if (lock) lock.classList.toggle('hidden', !locked);
     if (why) why.textContent = locked ? tableLockReason(id) : '';
+    const def = TABLE_CHALLENGES[id], challengeDone = TableChallenges.done(id);
+    if (chip) {
+      chip.classList.toggle('done', challengeDone);
+      chip.textContent = challengeDone ? '◆ CHALLENGE CLEARED' : (def ? '◆ ' + def.name.toUpperCase() : '');
+    }
     const base = THEMES[id] ? THEMES[id].name + ' table' : 'Table';
-    const challenge = TableChallenges.done(id) ? '. House challenge cleared.' : '';
+    const challenge = !locked && def
+      ? '. House challenge: ' + def.name + '. ' + def.desc + (challengeDone ? '. Cleared.' : '.')
+      : '';
     el.setAttribute('aria-label', locked ? base + '. Locked. ' + tableLockReason(id) : base + challenge);
   });
   const tc = $('tourCount');
