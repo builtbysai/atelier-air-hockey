@@ -3347,6 +3347,9 @@ function frame(t) {
   requestAnimationFrame(frame);
   const rdt = Math.min(0.05, (t - lastT) / 1000 || 0.016);
   lastT = t;
+  // Local visual QA freezes the simulation after ui.js composes a deterministic
+  // state. Public builds can never enable this: the QA route is localhost-only.
+  if (window.__atelierVisualQA?.freeze) { render(); return; }
   // focus-loss freeze: sim, demo, particles, and the net pump all hold; the
   // frozen frame keeps rendering under the veil. lastT keeps updating so
   // resume can't time-jump.
