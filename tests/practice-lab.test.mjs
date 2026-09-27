@@ -29,7 +29,7 @@ test('Practice goals never change match score or start replay', () => {
   const start = game.indexOf('function onGoal(scorer)');
   const end = game.indexOf('// ONLINE: start the goal ceremony', start);
   const block = game.slice(start, end);
-  assert.match(block, /G\.mode === 'practice'\) \{ Practice\.onGoal\(scorer\); return; \}/);
+  assert.match(block, /G\.mode === 'practice' && Practice\.active\) \{ Practice\.onGoal\(scorer\); return; \}/);
   assert.ok(block.indexOf('Practice.onGoal') < block.indexOf('G.score[scorer]++'));
   assert.match(game, /G\.mode === 'practice' \|\| G\.demo/);
 });
