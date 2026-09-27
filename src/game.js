@@ -289,11 +289,11 @@ const Workshop = {
 // The first four rooms are always open. Later rooms use related skill gates
 // with a Workshop alternate route so progression never becomes a single wall.
 const TABLE_GATES = Object.freeze({
-  mem:   { mastery:'brut', drill:'power',   text:'Master Beton or complete Power in Workshop' },
-  sashi: { mastery:'mem',  drill:'control', text:'Master Memphis Milano or complete Control in Workshop' },
-  bau:   { mastery:'sashi',drill:'keeper',  text:'Master Wabi-Sabi Sashiko or complete Keeper in Workshop' },
-  zel:   { mastery:'bau',  count:3,         text:'Master Bauhaus Dessau ’23 or master 3 tables' },
-  swi:   { mastery:'zel',  count:5,         text:'Master Zellige Riad or master 5 tables' },
+  mem:   { mastery:'brut', drill:'power',   text:'Master Beton or clear Power' },
+  sashi: { mastery:'mem',  drill:'control', text:'Master Memphis or clear Control' },
+  bau:   { mastery:'sashi',drill:'keeper',  text:'Master Sashiko or clear Keeper' },
+  zel:   { mastery:'bau',  count:3,         text:'Master Bauhaus or master 3 tables' },
+  swi:   { mastery:'zel',  count:5,         text:'Master Zellige or master 5 tables' },
   neon:  { mastery:'swi',  count:6,         text:'Master Swiss Grid or master 6 tables' },
 });
 function tableUnlocked(id) {
