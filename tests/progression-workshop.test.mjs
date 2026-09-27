@@ -16,7 +16,7 @@ test('Workshop is a real playable practice surface', () => {
   assert.match(game, /function startWorkshop(id)/);
   assert.match(game, /G.mode = 'workshop'/);
   assert.match(game, /const WORKSHOP_DRILLS =/);
-  assert.match(game, /Score at 55 km/h/);
+  assert.match(game, /Score at 55 km\/h/);
   assert.match(game, /Build a 10-hit rally/);
   assert.match(game, /Make 3 clean saves/);
 });
