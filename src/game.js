@@ -1248,9 +1248,21 @@ function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibra
 // whiff: per-strike chance the AI swings clean through (a human error, never a
 // superhuman stat - it only ever makes rivals weaker). windup: telegraph time.
 const DIFFS = [
-  { name: 'Rookie',   maxSpeed: 780,  react: 0.30, aimErr: 100, strike: 0.62, aggro: 0.50, tick: 0.14, whiff: 0.12, windup: 0.11 },
-  { name: 'Club Pro', maxSpeed: 1180, react: 0.13, aimErr: 45,  strike: 1.00, aggro: 0.70, tick: 0.09, whiff: 0.03, windup: 0.11 },
-  { name: 'Champion', maxSpeed: 1520, react: 0.10, aimErr: 34,  strike: 1.25, aggro: 0.95, tick: 0.06, whiff: 0.01, windup: 0.14 },
+  {
+    name:'Rookie', style:'COUNTER PUNCHER',
+    maxSpeed:780, react:0.30, aimErr:100, strike:0.62, aggro:0.50, tick:0.14, whiff:0.12, windup:0.11,
+    homeDepth:155, homeTrack:0.22, bankChance:0.04, centerBias:0.52, recover:0.58,
+  },
+  {
+    name:'Club Pro', style:'PLACEMENT PLAYER',
+    maxSpeed:1180, react:0.13, aimErr:45, strike:1.00, aggro:0.70, tick:0.09, whiff:0.03, windup:0.11,
+    homeDepth:190, homeTrack:0.36, bankChance:0.18, centerBias:0.12, recover:0.42,
+  },
+  {
+    name:'Champion', style:'PRESSURE PLAYER',
+    maxSpeed:1520, react:0.10, aimErr:34, strike:1.25, aggro:0.95, tick:0.06, whiff:0.01, windup:0.14,
+    homeDepth:230, homeTrack:0.50, bankChance:0.38, centerBias:0.00, recover:0.30,
+  },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
 
@@ -2211,10 +2223,14 @@ function predictPuck(x, y, vx, vy, t) {
   return { x: px, y: py };
 }
 function aiHome(b) {
-  // home: goal-side, slightly favoring puck's vertical zone - with idle sway
+  // Each rival occupies a visibly different defensive line. Rookie protects
+  // the mouth, Club Pro shadows lanes, Champion holds high and pressures.
   b.swayT += 1 / 60;
-  const hx = b.side === 0 ? PX + 190 : PX + PW - 190;
-  const hy = CY + (b.seen.y - CY) * 0.35 + Math.sin(b.swayT * 1.7) * 14;
+  const D = b.diff;
+  const depth = D.homeDepth || 190;
+  const track = D.homeTrack == null ? 0.35 : D.homeTrack;
+  const hx = b.side === 0 ? PX + depth : PX + PW - depth;
+  const hy = CY + (b.seen.y - CY) * track + Math.sin(b.swayT * 1.7) * 14;
   return { x: hx, y: clamp(hy, PY + 90, PY + PH - 90) };
 }
 function aiThink(b, dt, m) {
@@ -2409,11 +2425,12 @@ function aiThink(b, dt, m) {
         // from the puck's lane forces the keeper to travel across. aimErr
         // scatters the shot per difficulty, so Rookie sprays it (missing
         // often) while Champion pins the post.
-        const bank = Math.random() < (b.diff === DIFFS[2] ? 0.35 : 0.12);
+        const bank = Math.random() < (D.bankChance == null ? 0.12 : D.bankChance);
         b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
         const farSide = s.y < CY ? 1 : -1;
+        const farY = CY + farSide * (goalW() / 2 - 12);
         b.aimX = foeGoalX;
-        b.aimY = CY + farSide * (goalW() / 2 - 12) + rnd(-1, 1) * D.aimErr;
+        b.aimY = lerp(farY, CY, D.centerBias || 0) + rnd(-1, 1) * D.aimErr;
       }
       // give up the chase only once the puck is clearly gone: the latched
       // side plus a higher speed bar than the engage-entry bar (hysteresis)
@@ -2472,7 +2489,9 @@ function aiThink(b, dt, m) {
     case 'recover': {
       goHome();
       // a whiffed swing takes longer to gather - the embarrassment tax
-      if (b.tState > (b.whiff ? 0.75 : 0.4)) { b.state = 'guard'; b.tState = 0; b.whiff = false; }
+      if (b.tState > (b.whiff ? (D.recover || 0.4) + 0.35 : (D.recover || 0.4))) {
+        b.state = 'guard'; b.tState = 0; b.whiff = false;
+      }
       break;
     }
     case 'escape': {
