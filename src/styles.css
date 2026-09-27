@@ -264,7 +264,7 @@
   /* short-but-wide (landscape phones): tables left, rivals right - no scroll */
   @media (max-height:540px) and (min-width:700px){
     #menu{ padding:8px; }
-    #menu .card{ padding:6px 18px; text-align:left; }
+    #menu .card{ padding:2px 16px; text-align:left; }
     #menu .kicker{ margin-bottom:2px; }
     #menu .lobby-title{ font-size:18px; text-align:center; }
     #menu .tagline{ display:none; }
@@ -286,7 +286,7 @@
     #menu .menugrid + .foot{ display:none; }
     #menu .rulebar{ padding:6px 7px; margin-top:3px; }
     #menu .seg3 .btn{ padding:6px 3px; margin:2px 0; }
-    #menu .foot{ margin-top:2px; text-align:center; font-size:9px; }
+    #menu .foot{ margin-top:0; text-align:center; font-size:9px; line-height:1.05; }
     #menu .foot button, #menu .lobfoot .ver{ padding:3px; font-size:9px; }
   }
   .kicker{ display:flex; align-items:center; gap:12px; font-size:11px; letter-spacing:4px; color:var(--sub); margin-bottom:8px; }
@@ -614,22 +614,22 @@
   }
   @media (max-height:540px) and (min-width:700px){
     #winov .win-card{
-      max-width:810px; padding:7px 10px;
+      max-width:810px; padding:3px 10px;
       display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.05fr) minmax(0,.72fr);
-      grid-template-rows:auto auto auto auto; column-gap:10px; row-gap:3px; align-items:start;
+      grid-template-rows:auto auto auto auto; column-gap:10px; row-gap:1px; align-items:start;
     }
     #winov .kicker{ grid-column:1 / -1; grid-row:1; margin:0; font-size:9px; }
     #winov .win-hero{ grid-column:1; grid-row:2; min-width:0; }
     #winTitle{ font-size:18px; margin:0; white-space:nowrap; }
     .win-score{ margin:0; gap:6px; }
-    .win-score strong{ font-size:36px; letter-spacing:-2px; }
+    .win-score strong{ font-size:32px; letter-spacing:-2px; }
     .win-score span{ font-size:22px; transform:none; }
     .win-resultline{ margin:1px 0 3px; font-size:7px; letter-spacing:1.3px; }
     .win-statgrid{
       grid-column:1; grid-row:3; grid-template-columns:repeat(2,minmax(0,1fr));
       margin:0; align-self:start;
     }
-    .win-stat{ padding:3px 4px; }
+    .win-stat{ padding:2px 4px; }
     .win-stat span,.win-stat small{ font-size:7px; letter-spacing:.8px; }
     .win-stat strong{ margin:1px 0; font-size:14px; }
     .win-stat:nth-child(2){ border-right:0; }
@@ -639,16 +639,16 @@
     .win-highlights{ grid-column:2; grid-row:2 / span 3; margin:0; padding:0; min-width:0; }
     .win-highlights .seclabel{ margin:0 0 3px; font-size:8px; }
     .win-highlight-list{ gap:3px; }
-    .win-highlight{ min-height:30px; padding:3px 5px; gap:6px; }
+    .win-highlight{ min-height:26px; padding:2px 5px; gap:6px; }
     .win-highlight-copy strong{ font-size:9px; }
     .win-highlight-copy span{ margin-top:0; font-size:7px; }
     .win-highlight-actions{ gap:3px; }
     .win-highlight-actions button{ min-width:36px; min-height:24px; padding:2px 4px; font-size:8px; }
     .win-moment-actions{ grid-column:3; grid-row:2; margin:0; gap:4px; grid-template-columns:1fr; }
-    .win-moment-actions .btn{ margin:0; padding:6px 6px; font-size:9px; }
-    .win-rematch{ grid-column:3; grid-row:3; margin:0; padding:7px 6px; font-size:10px; }
+    .win-moment-actions .btn{ margin:0; padding:5px 6px; font-size:9px; }
+    .win-rematch{ grid-column:3; grid-row:3; margin:0; padding:5px 6px; font-size:10px; }
     .win-rematch small{ display:block; margin:1px 0 0; font-size:7px; letter-spacing:.7px; }
-    .win-exit{ grid-column:3; grid-row:4; margin:0; padding:6px; font-size:9px; align-self:start; }
+    .win-exit{ grid-column:3; grid-row:4; margin:0; padding:4px 6px; font-size:9px; align-self:start; }
   }
 
   body.replay-mode #game{
