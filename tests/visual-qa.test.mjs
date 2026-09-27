@@ -31,6 +31,10 @@ test('visual QA validates three viewport classes and no-scroll cards', () => {
   assert.match(runner, /width: 1440, height: 900/);
   assert.match(runner, /workshop-menu/);
   assert.match(runner, /page\.on\('pageerror'/);
+  assert.match(runner, /#btnMatchReel/);
+  assert.match(runner, /MATCH REEL 1\/3/);
+  assert.match(runner, /MATCH REEL 2\/3/);
+  assert.match(runner, /match-reel\.png/);
   assert.match(runner, /\[data-highlight-gif\]/);
   assert.match(runner, /status\.startsWith\('Ready'\)/);
   assert.match(runner, /preview\?\.naturalWidth > 0/);
