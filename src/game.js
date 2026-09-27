@@ -310,6 +310,92 @@ function tableUnlockSnapshot() {
     out[id] = tableUnlocked(id);
   return out;
 }
+
+const WORKSHOP_DRILLS = Object.freeze({
+  power:   { name:'Power',   target:'Score at 55 km/h',      goal:55, coach:0, serve:1 },
+  control: { name:'Control', target:'Build a 10-hit rally',   goal:10, coach:0, serve:1 },
+  keeper:  { name:'Keeper',  target:'Make 3 clean saves',     goal:3,  coach:1, serve:-1 },
+});
+const Practice = {
+  active:false, id:null, progress:0,
+  begin(id) {
+    if (!WORKSHOP_DRILLS[id]) return false;
+    this.active = true; this.id = id; this.progress = 0;
+    Workshop.current = id;
+    this.syncHud();
+    return true;
+  },
+  cancel() {
+    this.active = false; this.id = null; this.progress = 0; Workshop.current = null;
+    const hud = $('workshopHud'); if (hud) hud.classList.add('hidden');
+  },
+  syncHud(note) {
+    const d = WORKSHOP_DRILLS[this.id]; if (!d) return;
+    const hud = $('workshopHud'), title = $('workshopHudTitle'), target = $('workshopHudTarget'), prog = $('workshopHudProgress');
+    if (hud) hud.classList.remove('hidden');
+    if (title) title.textContent = 'WORKSHOP · ' + d.name.toUpperCase();
+    if (target) target.textContent = note || d.target;
+    if (prog) {
+      const value = this.id === 'power' ? Math.min(d.goal, Math.round(this.progress)) : Math.min(d.goal, this.progress);
+      prog.textContent = value + ' / ' + d.goal + (this.id === 'power' ? ' KM/H' : '');
+    }
+  },
+  onRally(n) {
+    if (!this.active || this.id !== 'control') return;
+    this.progress = Math.max(this.progress, n);
+    this.syncHud();
+    if (this.progress >= WORKSHOP_DRILLS.control.goal) this.complete();
+  },
+  onSave(side) {
+    if (!this.active || this.id !== 'keeper' || side !== 0) return;
+    this.progress++;
+    this.syncHud();
+    if (this.progress >= WORKSHOP_DRILLS.keeper.goal) this.complete();
+  },
+  onGoal(scorer, speedKmh) {
+    if (!this.active) return;
+    if (this.id === 'power' && scorer === 0) {
+      this.progress = Math.max(this.progress, speedKmh);
+      this.syncHud(speedKmh >= WORKSHOP_DRILLS.power.goal ? 'Power target hit' : 'Keep driving through the puck');
+      if (speedKmh >= WORKSHOP_DRILLS.power.goal) { this.complete(); return; }
+    }
+    if (this.id === 'control') {
+      this.progress = 0; this.syncHud('Rally reset · build it again');
+    }
+    this.resetPoint();
+  },
+  resetPoint() {
+    if (!this.active) return;
+    resetPositions();
+    if (G.stats) G.stats.rally = 0;
+    startCount();
+    rollServe(WORKSHOP_DRILLS[this.id].serve);
+    $('topbar').classList.remove('hidden');
+    this.syncHud();
+  },
+  complete() {
+    if (!this.active || !this.id) return;
+    const id = this.id, d = WORKSHOP_DRILLS[id], before = tableUnlockSnapshot();
+    const fresh = Workshop.complete(id);
+    const unlocked = newlyUnlockedTables(before);
+    this.active = false;
+    G.state = 'practiceDone';
+    clearCeremony(); Replay.reset();
+    hideAll();
+    const hud = $('workshopHud'); if (hud) hud.classList.add('hidden');
+    const title = $('workshopDoneTitle'), copy = $('workshopDoneText');
+    if (title) title.textContent = fresh ? d.name + ' complete.' : d.name + ' complete.';
+    if (copy) {
+      copy.textContent = unlocked.length
+        ? 'Unlocked ' + unlocked.map(x => THEMES[x].name).join(', ') + '.'
+        : 'Drill cleared. Your Workshop progress is saved on this device.';
+    }
+    $('workshopDone').classList.remove('hidden');
+    Haptics.fire('win');
+    AudioSys.goalChord(THEME.goalChord || [392,523.25,659.25,783.99]);
+    Workshop.current = null;
+  },
+};
 // puck pace: how lively the table plays
 const PACES = {
   casual:    { damp: 0.22,  wall: 0.88, serve: 560, label: 'Casual' },
@@ -1267,7 +1353,7 @@ const DIFFS = [
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
 
 const G = {
-  state: 'menu',            // menu | count | play | replay | goal | win | pause
+  state: 'menu',            // menu | count | play | replay | goal | win | pause | practiceDone
   mode: 'ai', difficulty: 1,
   score: [0, 0], winSide: 0,
   m1: null, m2: null, puck: null,
@@ -1766,6 +1852,7 @@ function sideLabel(side) {
   // mode recorded at pause time instead of the flipped one.
   const mode = (G._lobbyPaused && G._lobbyPausedMode) ? G._lobbyPausedMode : G.mode;
   if (mode === '2p') return side === 0 ? 'P1' : 'P2';
+  if (mode === 'workshop') return side === 0 ? 'YOU' : 'COACH';
   if (mode === 'online') return onlineSideLabel(side);
   if (mode === 'watch' && G.watch) return DIFFS[G.watch[side === 0 ? 'a' : 'b']].name.toUpperCase();
   return side === 0 ? 'YOU' : DIFFS[G.difficulty].name.toUpperCase();
@@ -2055,6 +2142,7 @@ function collideMallet(p, m, dt) {
       savedThisHit = true;
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
+      if (G.mode === 'workshop') Practice.onSave(m.side);
     }
     // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
     if (msp0 > 1300 && m.whooshT <= 0) {
@@ -2617,6 +2705,7 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
     G.stats.rally++;
     if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
     rallyN = G.stats.rally;
+    if (G.mode === 'workshop') Practice.onRally(rallyN);
     if (G.mode !== 'online' && rallyN >= 5 && rallyN % 5 === 0) {
       G.rallyHudN = rallyN;
       G.rallyHudT = 0.9;
@@ -2729,6 +2818,29 @@ function startGame(mode, diff) {
   // ONLINE: the host's countdown mirrors to the guest so both start even
   if (mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
+function startWorkshop(id) {
+  const d = WORKSHOP_DRILLS[id];
+  if (!d) return;
+  AudioSys.init(); AudioSys.resume();
+  Practice.returnTheme = tableUnlocked(G.themeId) ? G.themeId : 'deco';
+  if (!tableUnlocked(G.themeId)) setTheme('deco');
+  G.mode = 'workshop'; G.difficulty = d.coach;
+  G.watch = null; G.score = [0,0]; G.winSide = 0;
+  Replay.reset(); Highlights.reset();
+  G.demo = false; G.idleT = 0; G.gwNet = 0;
+  clearCeremony(); G.freezeT = 0; G.trauma = 0; G.board = freshBoard();
+  G.scuffs.length = 0; G.texts.length = 0;
+  resetPositions();
+  G.ai1 = null; G.ai2 = mkBrain(1, d.coach);
+  G.stats = freshStats(); G.stats.t0 = performance.now();
+  pointers.clear();
+  if (!Practice.begin(id)) return;
+  hideAll();
+  $('topbar').classList.remove('hidden');
+  $('workshopHud').classList.remove('hidden');
+  startCount();
+  rollServe(d.serve);
+}
 // First-time hint: one line on the first local match ("Drag to move your
 // mallet"), dismissed forever after the first goal. Persisted in
 // localStorage so it never returns. Online/demo never get the hint - it's a
@@ -2812,6 +2924,11 @@ function onGoal(scorer) {
   if (G.state !== 'play') return;
   // ONLINE: the host owns the simulation; a guest never scores locally.
   if (G.mode === 'online' && Net.role !== 'host') return;
+  if (G.mode === 'workshop') {
+    const kmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
+    Practice.onGoal(scorer, kmh);
+    return;
+  }
   G.score[scorer]++; // the single place a goal changes the score
   // match-point lift: the music gains its pulse layer when someone is one away
   MusicSys.setIntensity(G.score[0] >= Settings.firstTo - 1 || G.score[1] >= Settings.firstTo - 1 ? 1 : 0);
@@ -3024,9 +3141,14 @@ function showWin() {
     if (((st.bestStreak || [0, 0])[G.winSide] || 0) >= 3 && Feats.unlock('hattrick')) fresh.push('HAT TRICK');
     if (kmh >= 60 && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
 
+    const unlockBefore = tableUnlockSnapshot();
+    if (G.mode === 'ai' && G.winSide === 0) {
+      Mastery.award(G.themeId, G.difficulty).forEach(label => addWinAward('feat', label));
+    }
     firstTableWin = !Tour.won(G.themeId);
     Tour.bump(G.themeId);
     if (firstTableWin) addWinAward('feat', 'TABLE CONQUERED');
+    newlyUnlockedTables(unlockBefore).forEach(id => addWinAward('feat', 'UNLOCKED · ' + THEMES[id].name));
     if (Tour.count() >= THEME_ORDER.length && Feats.unlock('grandtour')) fresh.push('GRAND TOUR');
     fresh.forEach(label => addWinAward('feat', label));
   }
@@ -3129,11 +3251,13 @@ function restartMatch() {
     else if (Net.wire) Net.wire.sendEv({ t: 'restart-req' });
     return;
   }
-  if (G.mode === 'watch') startGame('watch', G.watch); // EXHIBITION: preserve the AI matchup
+  if (G.mode === 'workshop' && Practice.id) startWorkshop(Practice.id);
+  else if (G.mode === 'watch') startGame('watch', G.watch); // EXHIBITION: preserve the AI matchup
   else startGame(G.mode, G.difficulty);
 }
 function quitToMenu() {
-  if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first - leave() resets mode
+  if (G.mode === 'online') Net.leave();
+  if (G.mode === 'workshop' || Practice.active) Practice.cancel(); // ONLINE: leave the room first - leave() resets mode
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
   clearCeremony();
@@ -3152,9 +3276,10 @@ function quitToMenu() {
 function hideAll() {
   // ONLINE: online overlays are part of the overlay stack too. Gameplay chrome
   // is hidden centrally so Pause/Audio can never float over a dialog.
-  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'workshop', 'workshopDone', 'pauseov', 'winov', 'gifov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer']) $(id).classList.add('hidden');
   $('topbar').classList.add('hidden');
   const replayHud = $('replayHud'); if (replayHud) replayHud.classList.add('hidden');
+  const workshopHud = $('workshopHud'); if (workshopHud) workshopHud.classList.add('hidden');
 }
 function $(id) { return document.getElementById(id); }
 
@@ -3281,6 +3406,7 @@ function frame(t) {
       break;
     case 'win':
     case 'pause':
+    case 'practiceDone':
       updateParts(rdt * 0.25);
       break;
   }
@@ -3602,7 +3728,7 @@ function hudStatusText() {
 // The scoreboard device still comes from the active room; only its placement
 // is standardized so controls, labels, and camera transforms cannot collide.
 function drawHudCore(c, w, h) {
-  if (G.demo) return;
+  if (G.demo || G.mode === 'workshop') return;
   const controlLane = w <= 600 ? 112 : 150;
   const maxHudW = Math.max(190, Math.min(440, w - controlLane));
   const hs = clamp(maxHudW / 440, 0.43, 1);
