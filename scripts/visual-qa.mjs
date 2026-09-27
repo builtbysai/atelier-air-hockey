@@ -72,6 +72,27 @@ try {
       });
     }
     if (group.dir === 'mobile') {
+      // Match Reel smoke test: queue three selected moments, advance them with
+      // the same Skip/Next control a player sees, then land back on results.
+      pageErrors = [];
+      const reelUrl = new URL(BASE);
+      reelUrl.searchParams.set('qa', 'win');
+      await page.goto(reelUrl.href, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => window.__atelierVisualQA?.freeze === true, null, { timeout:5000 });
+      await page.evaluate(() => { window.__atelierVisualQA.freeze = false; });
+      await page.click('#btnMatchReel');
+      await page.waitForFunction(() =>
+        document.body.classList.contains('replay-mode') &&
+        (document.getElementById('replayContext')?.textContent || '').length > 0
+      , null, { timeout:5000 });
+      for (let i = 0; i < 3; i++) await page.click('#replaySkip');
+      await page.waitForFunction(() =>
+        !document.getElementById('winov')?.classList.contains('hidden') &&
+        !document.body.classList.contains('replay-mode')
+      , null, { timeout:5000 });
+      if (pageErrors.length) failures.push('mobile/match-reel: ' + pageErrors.join(' | '));
+
+      // GIF export remains a separate single-moment path.
       pageErrors = [];
       const url = new URL(BASE);
       url.searchParams.set('qa', 'win');
