@@ -322,7 +322,7 @@ function tableUnlockSnapshot() {
 }
 
 const WORKSHOP_DRILLS = Object.freeze({
-  power:   { name:'Power',   target:'Score at 55 km/h',      goal:55, coach:0, serve:1 },
+  power:   { name:'Power',   target:'Score at 22 km/h',      goal:22, coach:0, serve:1 },
   control: { name:'Control', target:'Build a 10-hit rally',   goal:10, coach:0, serve:1 },
   keeper:  { name:'Keeper',  target:'Make 3 clean saves',     goal:3,  coach:1, serve:-1 },
 });
@@ -1349,18 +1349,21 @@ const DIFFS = [
     maxSpeed:1080, react:0.22, aimErr:68, strike:0.88, aggro:0.64, tick:0.105, whiff:0.06, windup:0.13,
     homeDepth:175, homeTrack:0.34, bankChance:0.08, centerBias:0.28, recover:0.43,
     readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
+    counterWindow:0.72, counterSpeed:1950,
   },
   {
     name:'Club Pro', style:'PLACEMENT PLAYER',
     maxSpeed:1320, react:0.12, aimErr:38, strike:1.05, aggro:0.76, tick:0.075, whiff:0.02, windup:0.11,
     homeDepth:205, homeTrack:0.44, bankChance:0.22, centerBias:0.10, recover:0.32,
     readKeeper:0.72, rebound:0.35, engageSpeed:1780, attackDelay:0.05, pressureDepth:95, pressBoost:0.14,
+    counterWindow:0.50, counterSpeed:2200,
   },
   {
     name:'Champion', style:'PRESSURE PLAYER',
     maxSpeed:1600, react:0.075, aimErr:20, strike:1.22, aggro:0.94, tick:0.05, whiff:0.005, windup:0.095,
     homeDepth:240, homeTrack:0.58, bankChance:0.36, centerBias:0.00, recover:0.22,
     readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
+    counterWindow:0.38, counterSpeed:2500,
   },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
@@ -1664,7 +1667,7 @@ function resetPositions() {
     if (!b) continue;
     b.state = 'guard'; b.tState = 0; b.tickT = 0;
     b.behindH = false; b.sideH = false; b.threatH = false; b.abortCd = 0;
-    b.possessT = 0; b.pinT = 0; b.whiff = false; b.lastReadKeeper = false;
+    b.possessT = 0; b.pinT = 0; b.whiff = false; b.counterT = 0; b.lastReadKeeper = false;
     b.hist.length = 0;
     b.seen.x = CX; b.seen.y = CY; b.seen.vx = 0; b.seen.vy = 0;
   }
@@ -2101,6 +2104,7 @@ function collideMallet(p, m, dt) {
       onMalletHit(p.x, p.y, 750, rx, ry);
     }
     m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
+    if (RivalLab.active) RivalLab.noteTouch(m.side, p.vx, p.vy);
     return;
   }
   // --- normal contact ---
@@ -2134,6 +2138,7 @@ function collideMallet(p, m, dt) {
   const tang = (m.vx - p.vx) * tx + (m.vy - p.vy) * ty;
   p.w = clamp((p.w || 0) + tang / 260, -12, 12);
   G.lastTouch = m.side;
+  if (RivalLab.active) RivalLab.noteTouch(m.side, p.vx, p.vy);
   G.stallT = 0;
   // hit-effects cascade (sound, particles, shake, save/whoosh, mallet recoil):
   // only on the leading edge of a contact episode. Continuous smothering
@@ -2159,6 +2164,9 @@ function collideMallet(p, m, dt) {
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
       if (G.mode === 'workshop') Practice.onSave(m.side);
+      const saveBrain = m.side === 0 ? G.ai1 : G.ai2;
+      if (saveBrain && (G.mode === 'ai' || G.mode === 'watch'))
+        saveBrain.counterT = saveBrain.diff.counterWindow || 0;
     }
     // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
     if (msp0 > 1300 && m.whooshT <= 0) {
@@ -2291,6 +2299,7 @@ function mkBrain(side, diffIdx) {
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
     arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
+    counterT: 0, // short possession window after a real save/block
     lastReadKeeper: false, // whether the current attack intentionally read the defender
     // commitment hysteresis (v24): sticky latches with deadbands so the AI
     // can't dither between strike/defend/reposition when the puck sits on a
@@ -2357,6 +2366,7 @@ function aiThink(b, dt, m) {
   const D = b.diff;
   b.tState += dt; b.tickT += dt;
   if (b.state !== 'recover') b.reboundTried = false;
+  if (b.counterT > 0) b.counterT = Math.max(0, b.counterT - dt);
   if (b.abortCd > 0) b.abortCd -= dt;
   if (b.tickT < D.tick) return; // decisions at 7–16 Hz, like a human
   b.tickT = 0;
@@ -2455,9 +2465,12 @@ function aiThink(b, dt, m) {
       if (threat) { b.state = 'defend'; b.tState = 0; }
       else {
         const pressure = aiMatchPressure(b);
-        const attackChance = clamp(D.aggro + pressure * (D.pressBoost || 0.12), 0.20, 0.99);
-        const attackDelay = D.attackDelay || 0;
-        if (b.sideH && puckSpeed < (D.engageSpeed || 1500) && b.tState >= attackDelay && Math.random() < attackChance) {
+        const countering = b.counterT > 0;
+        const attackChance = countering ? 1
+          : clamp(D.aggro + pressure * (D.pressBoost || 0.12), 0.20, 0.99);
+        const attackDelay = countering ? 0 : (D.attackDelay || 0);
+        const engageSpeed = countering ? (D.counterSpeed || D.engageSpeed || 1500) : (D.engageSpeed || 1500);
+        if (b.sideH && puckSpeed < engageSpeed && b.tState >= attackDelay && Math.random() < attackChance) {
           b.state = 'engage'; b.tState = 0;
         }
       }
@@ -2499,7 +2512,9 @@ function aiThink(b, dt, m) {
       // read, so after a block the AI would skate home for a beat and then
       // come back - the visible "backing away from a hittable puck".
       const liveSpd = hyp(p.vx, p.vy);
-      if (liveSpd < 900 && hyp(p.x - m.x, p.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
+      const counterReach = b.counterT > 0 ? 380 : 220;
+      const counterSpeed = b.counterT > 0 ? (D.counterSpeed || 1800) : 900;
+      if (liveSpd < counterSpeed && hyp(p.x - m.x, p.y - m.y) < counterReach) { b.state = 'engage'; b.tState = 0; }
       else if (!threat) { b.state = 'guard'; b.tState = 0; }
       break;
     }
@@ -2685,6 +2700,7 @@ const RivalLab = {
   active:false,
   clock:0,
   current:null,
+  lastTouchEvent:null,
 
   seeded(seed) {
     let x = (Number(seed) || 1) >>> 0;
@@ -2728,12 +2744,18 @@ const RivalLab = {
     }
     if (previous === 'recover' && brain.state === 'engage') out.rebounds++;
   },
+  noteTouch(side, vx, vy) {
+    if (!this.active) return;
+    const towardOwn = side === 0 ? vx < -250 : vx > 250;
+    this.lastTouchEvent = { side, time:this.clock, towardOwn, speed:hyp(vx,vy) };
+  },
   onGoal(scorer) {
-    const last = G.lastTouch;
+    const last = this.lastTouchEvent;
     G.score[scorer]++;
     const out = this.current.sides[scorer];
     out.goals++;
-    if (last >= 0 && last !== scorer) this.current.sides[last].ownGoals++;
+    if (last && last.side !== scorer && last.towardOwn && this.clock - last.time < 1.2)
+      this.current.sides[last.side].ownGoals++;
     this.current.goalSpeeds.push(Math.round(puckSpeed() * (2.4384 / PW) * 3.6));
     this.current.rallies.push(G.stats ? G.stats.rally || 0 : 0);
     if (G.stats) {
@@ -2786,7 +2808,7 @@ const RivalLab = {
       shake:Settings.shake, instantReplay:Settings.instantReplay,
     };
     Math.random = this.seeded(seed);
-    this.active = true; this.clock = 0;
+    this.active = true; this.clock = 0; this.lastTouchEvent = null;
     this.current = {
       seed, firstTo, matchup:[a,b], sides:[this.freshSide(a), this.freshSide(b)],
       goalSpeeds:[], rallies:[], stalled:false,
