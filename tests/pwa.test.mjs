@@ -29,7 +29,7 @@ test('installed app exposes shortcuts, screenshots, and a real maskable icon', (
 });
 
 test('service worker caches the complete current app shell', () => {
-  assert.match(sw, /atelier-air-hockey-v31/);
+  assert.match(sw, /atelier-air-hockey-v32/);
   assert.doesNotMatch(sw, /atelier-air-hockey-v24\.2/);
   assert.match(sw, /src\/vendor\/qrcode\.js/);
   assert.match(sw, /src\/share\.js/);
@@ -58,4 +58,23 @@ test('fullscreen UI respects device safe areas', () => {
   assert.match(css, /env\(safe-area-inset-bottom\)/);
   assert.match(css, /env\(safe-area-inset-left\)/);
   assert.match(css, /display-mode: fullscreen/);
+});
+
+
+test('new service workers wait for a safe user-approved activation', () => {
+  const install = sw.match(/self\.addEventListener\('install'[\s\S]*?\n\}\);/)?.[0] || '';
+  assert.ok(install, 'install handler missing');
+  assert.doesNotMatch(install, /skipWaiting/);
+  assert.match(sw, /event\.data && event\.data\.type === 'SKIP_WAITING'/);
+  assert.match(sw, /self\.skipWaiting\(\)/);
+});
+
+test('update UX only surfaces at safe game states', () => {
+  assert.match(ui, /const UpdateSys =/);
+  assert.match(ui, /G\.state === 'menu'/);
+  assert.match(ui, /G\.state === 'win'/);
+  assert.match(ui, /btnApplyUpdate/);
+  assert.match(ui, /btnDismissUpdate/);
+  assert.match(ui, /waiting\.postMessage\(\{ type:'SKIP_WAITING' \}\)/);
+  assert.match(ui, /controllerChanged = true/);
 });

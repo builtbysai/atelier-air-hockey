@@ -110,6 +110,103 @@ function applyScreenOrientationPreference() {
   }
 }
 
+// ---------- runtime quality ----------
+const WakeSys = {
+  sentinel: null, requesting: false, retryAt: 0,
+  wanted() {
+    return !!(navigator.wakeLock && !document.hidden && !G.focusLost && !G.demo &&
+      (G.state === 'count' || G.state === 'play' || G.state === 'goal' || G.state === 'replay'));
+  },
+  async sync() {
+    const want = this.wanted();
+    if (!want) { this.release(); return; }
+    if (this.sentinel || this.requesting || performance.now() < this.retryAt) return;
+    this.requesting = true;
+    try {
+      const sentinel = await navigator.wakeLock.request('screen');
+      this.sentinel = sentinel;
+      sentinel.addEventListener('release', () => {
+        if (this.sentinel === sentinel) this.sentinel = null;
+        this.retryAt = performance.now() + 1800;
+      }, { once:true });
+    } catch (e) {
+      this.retryAt = performance.now() + 5000;
+    } finally {
+      this.requesting = false;
+    }
+  },
+  release() {
+    const s = this.sentinel;
+    this.sentinel = null;
+    if (s) { try { const p = s.release(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
+  }
+};
+
+const UpdateSys = {
+  reg: null, waiting: null, dismissed: false, wired: false,
+  applying: false, controllerChanged: false, reloading: false,
+  safeSurface() {
+    const menu = G.state === 'menu' && !$('menu').classList.contains('hidden');
+    const win = G.state === 'win' && !$('winov').classList.contains('hidden');
+    return menu || win;
+  },
+  sync() {
+    const el = $('updateReady');
+    if (!el) return;
+    if (this.controllerChanged && this.applying && this.safeSurface() && !this.reloading) {
+      this.reloading = true;
+      location.reload();
+      return;
+    }
+    const show = !!(this.waiting || this.controllerChanged) && !this.dismissed && this.safeSurface();
+    el.classList.toggle('hidden', !show);
+  },
+  ready(worker) {
+    if (!worker) return;
+    this.waiting = worker;
+    this.dismissed = false;
+    const b = $('btnApplyUpdate');
+    if (b) { b.disabled = false; b.textContent = 'Update'; }
+    this.sync();
+  },
+  install(reg) {
+    this.reg = reg;
+    if (reg.waiting && navigator.serviceWorker.controller) this.ready(reg.waiting);
+    reg.addEventListener('updatefound', () => {
+      const worker = reg.installing;
+      if (!worker) return;
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed' && navigator.serviceWorker.controller)
+          this.ready(reg.waiting || worker);
+      });
+    });
+    if (!this.wired) {
+      this.wired = true;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        this.controllerChanged = true;
+        this.waiting = null;
+        this.sync();
+      });
+    }
+  },
+  apply() {
+    if (this.controllerChanged && !this.waiting) {
+      this.reloading = true;
+      location.reload();
+      return;
+    }
+    if (!this.waiting) return;
+    this.applying = true;
+    const b = $('btnApplyUpdate');
+    if (b) { b.disabled = true; b.textContent = 'Updating…'; }
+    this.waiting.postMessage({ type:'SKIP_WAITING' });
+  },
+  dismiss() {
+    this.dismissed = true;
+    this.sync();
+  }
+};
+
 // ---------- settings ----------
 function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
@@ -486,6 +583,8 @@ function settleConfirm(val) {
 function wireUI() {
   installDialogA11y();
   wireShareUI();
+  $('btnApplyUpdate').addEventListener('click', () => UpdateSys.apply());
+  $('btnDismissUpdate').addEventListener('click', () => UpdateSys.dismiss());
   buildCarousel();
   $('carPrev').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(-1); });
   $('carNext').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(1); });
@@ -626,9 +725,16 @@ function wireUI() {
   // must be a user gesture or the AudioContext stays suspended (policy).
   document.addEventListener('visibilitychange', () => {
     keyDrive.clear();
-    if (document.hidden) pauseForFocusLoss();
+    if (document.hidden) {
+      WakeSys.release();
+      pauseForFocusLoss();
+    } else {
+      WakeSys.sync();
+      UpdateSys.sync();
+    }
   });
   window.addEventListener('blur', () => { keyDrive.clear(); pauseForFocusLoss(); });
+  window.addEventListener('pagehide', () => WakeSys.release());
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   window.addEventListener('pointerup', onPointerUp);
@@ -684,7 +790,10 @@ function boot() {
   requestAnimationFrame(keyboardGamepadDrive);
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('./sw.js')
-      .then(reg => { try { reg.update(); } catch (e) {} })
+      .then(reg => {
+        UpdateSys.install(reg);
+        try { reg.update(); } catch (e) {}
+      })
       .catch(e => console.warn('Service worker registration failed', e));
   }
 }

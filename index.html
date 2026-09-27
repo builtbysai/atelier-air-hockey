@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v31-share-highlights">
+<html lang="en" data-build="v32-runtime-quality">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -43,6 +43,11 @@
   <button id="replaySkip" type="button">Skip</button>
 </div>
 <button id="replayOffer" class="replay-offer hidden" type="button"><span>Watch replay</span><small>before the next serve</small></button>
+<div id="updateReady" class="update-ready hidden" role="status" aria-live="polite">
+  <span><strong>Update ready</strong><small>Reload when you’re ready</small></span>
+  <button id="btnApplyUpdate" type="button">Update</button>
+  <button id="btnDismissUpdate" type="button" aria-label="Dismiss update for now">Later</button>
+</div>
 
 <div class="overlay" id="menu">
   <div class="card menusheet">
