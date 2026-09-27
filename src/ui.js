@@ -650,6 +650,62 @@ function wireUI() {
   if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
 }
 
+// ---------- deterministic visual QA ----------
+// Localhost-only states for CI screenshots. Never enabled on the public build.
+function applyVisualQaState(name) {
+  if (!name || !['localhost', '127.0.0.1'].includes(location.hostname)) return false;
+  window.__atelierVisualQA = { freeze: true, state: name };
+  document.documentElement.classList.add('visual-qa');
+  PRM.reduce = true;
+  Settings.shake = 'off';
+  Settings.effects = 'minimal';
+  Settings.instantReplay = 'off';
+
+  const baseMatch = camera => {
+    hideAll(); Replay.reset();
+    G.mode = 'ai'; G.difficulty = 1; G.demo = false; G.onlineFlip = false; G.focusLost = false;
+    G.score = [3, 2]; G.winSide = 0; G.board = freshBoard(); G.stats = freshStats();
+    G.stats.t0 = performance.now() - 83000; G.stats.topSpeed = 2380; G.stats.bestRally = 12; G.stats.saves = [4, 3];
+    resetPositions();
+    G.puck.x = CX + 86; G.puck.y = CY - 34; G.puck.vx = 920; G.puck.vy = -280;
+    G.m1.x = CX - 290; G.m1.y = CY + 110; G.m1.tx = G.m1.x; G.m1.ty = G.m1.y;
+    G.m2.x = CX + 290; G.m2.y = CY - 100; G.m2.tx = G.m2.x; G.m2.ty = G.m2.y;
+    Settings.camera = camera || 'top'; resize();
+    G.state = 'play';
+    $('topbar').classList.remove('hidden');
+  };
+
+  switch (name) {
+    case 'menu':
+      hideAll(); G.state = 'menu'; $('menu').classList.remove('hidden'); break;
+    case 'rules':
+      hideAll(); G.state = 'menu'; applySettingsToUI(); $('rules').classList.remove('hidden'); break;
+    case 'preferences':
+      hideAll(); G.state = 'menu'; applySettingsToUI(); $('settings').classList.remove('hidden'); break;
+    case 'top':
+    case 'elevated':
+    case 'surface':
+      baseMatch(name === 'top' ? 'top' : name); break;
+    case 'goal':
+      baseMatch('top'); G.score = [4, 2]; G.goalSide = 0; G.goalT = 1.15; G.letterT = 1;
+      G.goalStreakLabel = 'TWO IN A ROW'; G.state = 'goal'; break;
+    case 'replay':
+      baseMatch('top'); G.state = 'replay'; $('topbar').classList.add('hidden');
+      $('replayHud').classList.remove('hidden'); $('replayProgress').style.transform = 'scaleX(.56)'; break;
+    case 'pause':
+      baseMatch('top'); hideAll(); G.pausedFrom = 'play'; G.state = 'pause'; $('pauseov').classList.remove('hidden'); break;
+    case 'win':
+      hideAll(); Replay.reset(); Settings.camera = 'top'; resize();
+      G.mode = 'ai'; G.difficulty = 1; G.demo = false; G.score = [7, 4]; G.winSide = 0; G.stats = freshStats();
+      G.stats.t0 = performance.now() - 112000; G.stats.topSpeed = 2640; G.stats.bestRally = 18;
+      G.stats.saves = [6, 3]; G.stats.bestStreak = [3, 1]; G.stats.worstDef = [-3, 0];
+      showWin(); break;
+    default:
+      hideAll(); G.state = 'menu'; $('menu').classList.remove('hidden'); break;
+  }
+  return true;
+}
+
 // ---------- boot ----------
 function boot() {
   loadSettings();
@@ -684,6 +740,7 @@ function boot() {
     else if (q.has('play')) startGame('ai', G.difficulty);
     else if (q.has('2p')) startGame('2p');
     else if (q.has('demo')) { G.idleT = 99; }
+    applyVisualQaState(q.get('qa'));
   } catch (e) {}
   requestAnimationFrame(frame);
   requestAnimationFrame(keyboardGamepadDrive);
