@@ -3879,6 +3879,7 @@ function drawGoalTextScreen(c, w, h) {
   const fs = clamp(Math.min(w * 0.15, panelH * 0.42), 44, 98);
   c.save();
   c.translate(w * 0.5, top + panelH * 0.42); c.scale(titlePop, titlePop);
+  c.font = '800 ' + fs.toFixed(1) + 'px ' + THEME.font.display;
   c.lineWidth = Math.max(3, fs * 0.065);
   c.strokeStyle = 'rgba(0,0,0,.58)';
   c.strokeText('GOAL', 0, 0);
