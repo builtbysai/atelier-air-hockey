@@ -85,6 +85,11 @@ try {
         document.body.classList.contains('replay-mode') &&
         (document.getElementById('replayContext')?.textContent || '').length > 0
       , null, { timeout:5000 });
+      await page.screenshot({
+        path: path.join(dir, 'match-reel.png'),
+        fullPage:false,
+        animations:'disabled',
+      });
       for (let i = 0; i < 3; i++) await page.click('#replaySkip');
       await page.waitForFunction(() =>
         !document.getElementById('winov')?.classList.contains('hidden') &&
