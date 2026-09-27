@@ -1632,44 +1632,193 @@ const Replay = {
 // pick meaningful match moments without adding any network traffic or another
 // simulation path.
 const Highlights = {
-  goals: [], nextId: 1,
-  reset() { this.goals.length = 0; this.nextId = 1; },
+  goals: [], events: [], pending: [], nextId: 1,
+  matchT:0, lastQueued:Object.create(null), recentRail:null, touchSerial:0,
+
+  reset() {
+    this.goals.length = 0; this.events.length = 0; this.pending.length = 0;
+    this.nextId = 1; this.matchT = 0; this.recentRail = null; this.touchSerial = 0;
+    this.lastQueued = Object.create(null);
+  },
+  enabled() {
+    return G.mode !== 'online' && G.mode !== 'workshop' && !G.demo;
+  },
+  tick(dt) { if (this.enabled()) this.matchT += dt; },
+  noteTouch(side) {
+    if (!this.enabled()) return;
+    this.touchSerial++;
+    // A new touch invalidates a previous player's bank setup. A side-rail
+    // contact recorded after this touch can still mark the shot as a bank.
+    if (this.recentRail && this.recentRail.side !== side) this.recentRail = null;
+  },
+  noteRail(x, y, impact) {
+    if (!this.enabled() || G.lastTouch < 0 || impact < 450) return;
+    const sideRail = Math.abs(y - PY) < 2 || Math.abs(y - (PY + PH)) < 2;
+    if (!sideRail) return;
+    this.recentRail = {
+      side:G.lastTouch, t:this.matchT, impact,
+      touchSerial:this.touchSerial,
+    };
+  },
+  queue(kind, data = {}) {
+    if (!this.enabled() || Replay.active) return false;
+    const now = this.matchT;
+    if (now - (this.lastQueued[kind] ?? -99) < (kind === 'save' ? 0.8 : 1.25)) return false;
+    const preCount = Math.round(REPLAY_HZ * 1.15);
+    const pre = Replay.frames.slice(-preCount);
+    if (pre.length < Math.round(REPLAY_HZ * 0.45)) return false;
+    this.lastQueued[kind] = now;
+    this.pending.push({
+      kind, ...data, t:now, pre, post:[],
+      remaining:Math.round(REPLAY_HZ * (kind === 'save' ? 0.72 : 0.60)),
+    });
+    if (this.pending.length > 3) this.pending.shift();
+    return true;
+  },
+  onReplayFrame(frame) {
+    if (!this.pending.length) return;
+    const done = [];
+    for (const item of this.pending) {
+      if (item.remaining <= 0) continue;
+      item.post.push(frame);
+      item.remaining--;
+      if (item.remaining <= 0) done.push(item);
+    }
+    if (!done.length) return;
+    this.pending = this.pending.filter(item => !done.includes(item));
+    done.forEach(item => this.commitPending(item));
+  },
+  flushPending() {
+    if (!this.pending.length) return;
+    const pending = this.pending.slice();
+    this.pending.length = 0;
+    pending.forEach(item => this.commitPending(item));
+  },
+  commitPending(item) {
+    const clip = item.pre.concat(item.post);
+    if (clip.length < Math.round(REPLAY_HZ * 0.55)) return;
+    const score = item.score ? item.score.slice() : [G.score[0], G.score[1]];
+    const speedKmh = Math.max(0, Math.round(item.speedKmh || 0));
+    let excitement = 45 + speedKmh * 1.15;
+    let clutch = false;
+    if (item.kind === 'save') {
+      const opponent = 1 - item.side;
+      clutch = score[opponent] >= Settings.firstTo - 1;
+      excitement += 14 + Math.min(18, (item.impact || 0) / 120);
+      if (clutch) excitement += 45;
+      if (Math.abs(score[0] - score[1]) <= 1) excitement += 8;
+    } else if (item.kind === 'post') {
+      excitement += 5;
+      if (Math.abs(score[0] - score[1]) <= 1) excitement += 10;
+    }
+    this.addEvent({
+      id:this.nextId++, kind:item.kind, scorer:item.scorer ?? -1, side:item.side ?? -1,
+      clip, speedKmh, rally:item.rally || 0, score, t:item.t,
+      impact:item.impact || 0, clutch, excitement,
+      themeId:G.themeId,
+    });
+  },
+  addEvent(event) {
+    this.events.push(event);
+    if (this.events.length > 18) this.events.shift();
+    return event;
+  },
   recordGoal(scorer, clip) {
-    if (!clip || clip.length < 2 || G.mode === 'online' || G.demo) return;
+    if (!clip || clip.length < 2 || !this.enabled()) return;
     const st = G.stats || freshStats();
     const speedKmh = Math.round(hyp(G.puck.vx, G.puck.vy) * (2.4384 / PW) * 3.6);
-    this.goals.push({
-      id: this.nextId++,
-      scorer,
-      clip,
-      speedKmh,
-      rally: st.rally || 0,
-      score: [G.score[0], G.score[1]],
-      themeId: G.themeId,
+    const score = [G.score[0], G.score[1]];
+    const before = score.slice(); before[scorer]--;
+    const deficitBefore = before[1 - scorer] - before[scorer];
+    const winning = score[scorer] >= Settings.firstTo;
+    const equalizer = deficitBefore > 0 && score[scorer] === score[1 - scorer];
+    const goAhead = before[scorer] === before[1 - scorer] && score[scorer] > score[1 - scorer];
+    const comeback = deficitBefore >= 2;
+    const bank = !!(this.recentRail &&
+      this.recentRail.side === scorer &&
+      this.recentRail.touchSerial === this.touchSerial &&
+      this.matchT - this.recentRail.t <= 1.35);
+    const rally = st.rally || 0;
+    let excitement = 55 + speedKmh * 1.35 + Math.min(30, rally * 0.85);
+    if (winning) excitement += 100;
+    if (comeback) excitement += 42;
+    else if (equalizer) excitement += 30;
+    else if (goAhead) excitement += 20;
+    if (bank) excitement += 28;
+    if (score[scorer] >= Settings.firstTo - 1) excitement += 16;
+
+    const goal = this.addEvent({
+      id:this.nextId++, kind:'goal', scorer, side:scorer, clip, speedKmh, rally,
+      score, before, deficitBefore, winning, equalizer, goAhead, comeback, bank,
+      excitement, t:this.matchT, themeId:G.themeId,
     });
+    this.goals.push(goal);
     if (this.goals.length > 12) this.goals.shift();
+    this.recentRail = null;
   },
-  get(id) { return this.goals.find(g => g.id === Number(id)) || null; },
-  moments() {
-    if (!this.goals.length) return [];
-    const last = this.goals[this.goals.length - 1];
-    const fastest = this.goals.reduce((a,b) => b.speedKmh > a.speedKmh ? b : a);
-    const rally = this.goals.reduce((a,b) => b.rally > a.rally ? b : a);
-    const candidates = [
-      { kind:'winning', title:'Winning goal', detail:last.score[0] + '–' + last.score[1], goal:last },
-      { kind:'speed', title:'Fastest goal', detail:fastest.speedKmh + ' km/h', goal:fastest },
-      { kind:'rally', title:'Longest rally', detail:rally.rally + ' hits', goal:rally },
-    ];
-    const seen = new Set(), out = [];
-    for (const item of candidates) {
-      if (!item.goal || seen.has(item.goal.id)) continue;
-      seen.add(item.goal.id); out.push(item);
+  get(id) {
+    const n = Number(id);
+    return this.events.find(event => event.id === n) || this.goals.find(goal => goal.id === n) || null;
+  },
+  describe(moment) {
+    if (moment.kind === 'save') {
+      return {
+        title:moment.clutch ? 'Match-point save' : 'Big save',
+        detail:(moment.speedKmh ? moment.speedKmh + ' km/h · ' : '') +
+          moment.score[0] + '–' + moment.score[1],
+      };
     }
-    return out;
+    if (moment.kind === 'post') {
+      return {
+        title:'Off the post',
+        detail:(moment.speedKmh ? moment.speedKmh + ' km/h · ' : '') +
+          moment.score[0] + '–' + moment.score[1],
+      };
+    }
+    if (moment.winning) return { title:'Winning goal', detail:moment.score[0] + '–' + moment.score[1] };
+    if (moment.comeback) return { title:'Comeback goal', detail:'Down ' + moment.deficitBefore + ' · ' + moment.score[0] + '–' + moment.score[1] };
+    if (moment.equalizer) return { title:'Equalizer', detail:moment.score[0] + '–' + moment.score[1] };
+    if (moment.bank) return { title:'Bank shot', detail:moment.speedKmh + ' km/h' };
+    if (moment.goAhead) return { title:'Go-ahead goal', detail:moment.score[0] + '–' + moment.score[1] };
+    if (moment.speedKmh >= 22) return { title:'Rocket goal', detail:moment.speedKmh + ' km/h' };
+    if (moment.rally >= 10) return { title:'Rally winner', detail:moment.rally + ' hits' };
+    return { title:'Goal', detail:moment.speedKmh + ' km/h · ' + moment.score[0] + '–' + moment.score[1] };
+  },
+  moments() {
+    if (!this.events.length) return [];
+    const best = new Map();
+    const offer = (moment, title, detail, score) => {
+      if (!moment || !moment.clip || moment.clip.length < 2) return;
+      const old = best.get(moment.id);
+      if (!old || score > old.rank) best.set(moment.id, { moment, title, detail, rank:score });
+    };
+
+    for (const moment of this.events) {
+      const desc = this.describe(moment);
+      offer(moment, desc.title, desc.detail, moment.excitement || 0);
+    }
+
+    if (this.goals.length) {
+      const fastest = this.goals.reduce((a,b) => b.speedKmh > a.speedKmh ? b : a);
+      const longest = this.goals.reduce((a,b) => b.rally > a.rally ? b : a);
+      offer(fastest, 'Fastest goal', fastest.speedKmh + ' km/h', 76 + fastest.speedKmh);
+      if (longest.rally >= 5)
+        offer(longest, 'Longest rally', longest.rally + ' hits', 74 + Math.min(32, longest.rally));
+    }
+
+    return [...best.values()]
+      .sort((a,b) => b.rank - a.rank || b.moment.t - a.moment.t)
+      .slice(0, 3);
+  },
+  reel() {
+    return this.moments().map(item => item.moment).sort((a,b) => a.t - b.t);
   },
   play(id, returnMode = 'win') {
-    const goal = this.get(id);
-    return goal ? Replay.startClip(goal.clip, goal.scorer, returnMode) : false;
+    const moment = this.get(id);
+    return moment ? Replay.startClip(moment.clip, moment.scorer ?? moment.side ?? -1, returnMode) : false;
+  },
+  playReel(returnMode = 'win') {
+    return Replay.startSequence(this.reel(), returnMode);
   },
 };
 
