@@ -68,10 +68,17 @@ test('House rivals expose distinct behavioral profiles', () => {
     assert.ok(game.includes(x), x + ' profile missing in engine');
     assert.ok(template.includes(x), x + ' profile missing in menu');
   }
-  assert.ok(game.includes('homeDepth:155'));
-  assert.ok(game.includes('homeDepth:230'));
-  assert.ok(game.includes('bankChance:0.04'));
-  assert.ok(game.includes('bankChance:0.38'));
+  assert.ok(game.includes('homeDepth:175'));
+  assert.ok(game.includes('homeDepth:240'));
+  assert.ok(game.includes('bankChance:0.08'));
+  assert.ok(game.includes('bankChance:0.36'));
+  assert.ok(game.includes('readKeeper:0.30'));
+  assert.ok(game.includes('readKeeper:0.92'));
+  assert.ok(game.includes('rebound:0.12'));
+  assert.ok(game.includes('rebound:0.62'));
+  assert.ok(game.includes('function aiMatchPressure(b)'));
+  assert.ok(game.includes('const readsKeeper = Math.random() < (D.readKeeper || 0)'));
+  assert.ok(game.includes('b.reboundTried'));
 });
 
 test('reset progress includes Workshop and mastery stores', () => {

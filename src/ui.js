@@ -853,8 +853,10 @@ function applyVisualQaState(name) {
     case 'surface':
       baseMatch(name); break;
     case 'goal':
-      baseMatch('top'); G.score = [4,2]; G.goalSide = 0; G.goalT = 1.15; G.goalSlowT = 1.15;
-      G.letterT = 1; G.goalStreakLabel = 'TWO IN A ROW'; G.state = 'goal'; $('topbar').classList.add('hidden'); break;
+      baseMatch('top'); G.score = [4,2]; G.goalSide = 0; G.goalT = 0.72; G.goalSlowT = 0.72;
+      G.letterT = 1; G.goalStreakLabel = 'TWO IN A ROW'; G.goalMomentLabel = 'TWO IN A ROW';
+      G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 67;
+      G.state = 'goal'; $('topbar').classList.add('hidden'); break;
     case 'replay': {
       baseMatch('top');
       const a = Replay.snapshot(); G.puck.x += 90; G.m1.y -= 45; const b = Replay.snapshot();
@@ -868,7 +870,7 @@ function applyVisualQaState(name) {
       baseMatch('top'); G.score = [7,4]; G.winSide = 0; G.state = 'win';
       G.stats.t0 = performance.now() - 112000; G.stats.topSpeed = 2640; G.stats.bestRally = 18;
       G.stats.saves = [6,3]; G.stats.bestStreak = [3,1]; G.stats.worstDef = [-3,0];
-      const clip = [Replay.snapshot(), Replay.snapshot()];
+      const clip = Array.from({ length:72 }, () => Replay.snapshot());
       Highlights.goals = [
         { id:1, scorer:0, clip, speedKmh:61, rally:8, score:[2,1], themeId:G.themeId },
         { id:2, scorer:0, clip, speedKmh:74, rally:12, score:[5,3], themeId:G.themeId },
