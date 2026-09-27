@@ -31,6 +31,10 @@ test('visual QA validates three viewport classes and no-scroll cards', () => {
   assert.match(runner, /width: 1440, height: 900/);
   assert.match(runner, /workshop-menu/);
   assert.match(runner, /page\.on\('pageerror'/);
+  assert.match(runner, /\[data-highlight-gif\]/);
+  assert.match(runner, /status\.startsWith\('Ready'\)/);
+  assert.match(runner, /preview\?\.naturalWidth > 0/);
+  assert.match(runner, /gif-export\.png/);
   assert.match(runner, /closest\('\.overlay'\)\?\.id !== 'progress'/);
   assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
   assert.match(runner, /vertical card overflow/);
