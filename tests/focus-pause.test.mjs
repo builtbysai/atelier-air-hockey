@@ -199,3 +199,64 @@ test('frame() holds the sim and the net pump while frozen', async () => {
   t.frame(1032);
   assert.notEqual(t.G.puck.x, 500, 'the sim must advance again after resume');
 });
+
+
+test('pausing mid-goal preserves ceremony copy and restarts the visual beat on resume', async () => {
+  const { t, vis } = await loadGame();
+  t.G.state = 'goal'; t.G.mode = 'ai'; t.G.goalSide = 0;
+  t.G.goalT = 1.1; t.G.goalSlowT = 1.1; t.G.letterT = 1;
+  t.G.timeScale = 0.6;
+  t.G.goalScorerLabel = 'YOU SCORE';
+  t.G.goalMomentLabel = 'LEAD TAKEN';
+  t.G.goalStreakLabel = 'TWO IN A ROW';
+  t.G.goalSpeedKmh = 24;
+
+  t.togglePause(true);
+  assert.equal(t.G.state, 'pause');
+  assert.equal(t.G.pausedFrom, 'goal');
+  assert.equal(t.G.goalScorerLabel, '', 'live ceremony should be cleared under pause card');
+  assert.equal(t.G.goalSpeedKmh, 0);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(t.G.pausedGoalCeremony)),
+    {
+      goalSide:0,
+      goalStreakLabel:'TWO IN A ROW',
+      goalMomentLabel:'LEAD TAKEN',
+      goalScorerLabel:'YOU SCORE',
+      goalSpeedKmh:24,
+    }
+  );
+  assert.ok(vis('pauseov'));
+
+  t.togglePause();
+  assert.equal(t.G.state, 'goal');
+  assert.equal(t.G.goalScorerLabel, 'YOU SCORE');
+  assert.equal(t.G.goalMomentLabel, 'LEAD TAKEN');
+  assert.equal(t.G.goalStreakLabel, 'TWO IN A ROW');
+  assert.equal(t.G.goalSpeedKmh, 24);
+  assert.equal(t.G.goalT, 0, 'visual ceremony restarts from its first beat');
+  assert.equal(t.G.goalSlowT, 0);
+  assert.equal(t.G.letterT, 0);
+  assert.equal(t.G.timeScale, 0.22, 'goal slow-motion channel restarts');
+  assert.equal(t.G.pausedGoalCeremony, null, 'held payload is consumed on resume');
+  assert.ok(!vis('topbar'), 'cinematic goal resume must keep the match HUD hidden');
+});
+
+test('focus loss during a goal uses the same preserved-ceremony pause path', async () => {
+  const { t, ac, vis } = await loadGame();
+  t.G.state = 'goal'; t.G.mode = 'ai'; t.G.goalSide = 0;
+  t.G.goalScorerLabel = 'YOU SCORE'; t.G.goalMomentLabel = 'MATCH POINT'; t.G.goalSpeedKmh = 23;
+
+  t.pauseForFocusLoss();
+  assert.equal(t.G.state, 'pause');
+  assert.equal(t.G.focusLost, true);
+  assert.equal(ac.state, 'suspended');
+  assert.equal(t.G.pausedGoalCeremony.goalMomentLabel, 'MATCH POINT');
+  assert.ok(vis('pauseov'));
+
+  t.togglePause();
+  assert.equal(t.G.state, 'goal');
+  assert.equal(t.G.focusLost, false);
+  assert.equal(t.G.goalMomentLabel, 'MATCH POINT');
+  assert.equal(t.G.goalSpeedKmh, 23);
+});
