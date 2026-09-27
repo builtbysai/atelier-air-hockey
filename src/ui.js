@@ -322,12 +322,16 @@ function masteryLabel(id) {
   return n >= 3 ? 'MASTERED' : n === 2 ? 'HOUSE STANDARD' : n === 1 ? 'ROOKIE CLEARED' : 'UNTESTED';
 }
 function renderWorkshopMenu() {
-  for (const id of ['power','control','keeper']) {
+  for (const id of ['power','control','keeper','free']) {
     const el = document.querySelector('[data-workshop="' + id + '"]');
     const state = $('workshop' + id[0].toUpperCase() + id.slice(1) + 'State');
-    const done = Workshop.done(id);
+    const free = id === 'free', done = !free && Workshop.done(id), best = free ? '' : Workshop.bestLabel(id);
     if (el) el.classList.toggle('cleared', done);
-    if (state) state.textContent = done ? 'CLEARED' : 'NOT CLEARED';
+    if (state) {
+      if (free) state.textContent = 'OPEN TABLE';
+      else if (done) state.textContent = best ? 'CLEARED · PB ' + best : 'CLEARED';
+      else state.textContent = best ? 'PB ' + best : 'NOT CLEARED';
+    }
   }
 }
 function openWorkshop() {
@@ -341,9 +345,12 @@ function renderProgress() {
   summary.textContent = openRooms + '/' + THEME_ORDER.length + ' rooms open · ' +
     Mastery.masteredCount() + ' mastered · ' + Workshop.count() + '/3 Workshop drills';
   const featRows = FEATS.map(f => '<div class="progress-item"><span>' + (Feats.data[f.id] ? '★ ' : '○ ') + f.name + '</span><span>' + f.desc + '</span></div>').join('');
-  const workshopRows = ['power','control','keeper'].map(id =>
-    '<div class="progress-item"><span>' + (Workshop.done(id) ? '★ ' : '○ ') + WORKSHOP_DRILLS[id].name + '</span><span>' +
-    (Workshop.done(id) ? 'cleared' : WORKSHOP_DRILLS[id].target.toLowerCase()) + '</span></div>').join('');
+  const workshopRows = ['power','control','keeper'].map(id => {
+    const best = Workshop.bestLabel(id);
+    const status = Workshop.done(id) ? 'cleared' : WORKSHOP_DRILLS[id].target.toLowerCase();
+    return '<div class="progress-item"><span>' + (Workshop.done(id) ? '★ ' : '○ ') + WORKSHOP_DRILLS[id].name + '</span><span>' +
+      status + (best ? ' · PB ' + best : '') + '</span></div>';
+  }).join('');
   const tableRows = THEME_ORDER.map(id => {
     const locked = !tableUnlocked(id);
     const right = locked ? 'LOCKED · ' + tableLockReason(id) : masteryLabel(id);
@@ -846,7 +853,12 @@ function applyVisualQaState(name) {
     case 'workshop':
       baseMatch('top');
       G.mode = 'workshop'; G.difficulty = 0; G.ai1 = null; G.ai2 = mkBrain(1,0);
-      Practice.begin('power'); Practice.progress = 42; Practice.syncHud();
+      Practice.begin('power'); Practice.progress = 24; Practice.syncHud();
+      G.state = 'play'; $('workshopHud').classList.remove('hidden'); break;
+    case 'workshop-free':
+      baseMatch('top');
+      G.mode = 'workshop'; G.difficulty = 0; G.ai1 = null; G.ai2 = null;
+      Practice.begin('free'); Practice.preparePoint();
       G.state = 'play'; $('workshopHud').classList.remove('hidden'); break;
     case 'top':
     case 'elevated':
