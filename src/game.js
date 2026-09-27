@@ -219,6 +219,97 @@ function refreshTour() {
   const tc = $('tourCount');
   if (tc) tc.textContent = 'TOUR ' + Tour.count() + '/' + THEME_ORDER.length;
 }
+
+// ---------- table mastery + workshop ----------
+// Mastery is deliberately separate from raw win counts. It measures which
+// House rival the player has actually beaten on each table and feeds the
+// skill gates below. Stronger wins grant the lower marks automatically.
+const Mastery = {
+  key: 'atelier-ah-mastery',
+  data: {},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  level(id) {
+    const n = Number(this.data[id]) || 0;
+    return clamp(Math.round(n), 0, 3);
+  },
+  award(id, diffIdx) {
+    if (!id || diffIdx == null) return [];
+    const before = this.level(id);
+    const after = Math.max(before, clamp(Number(diffIdx) + 1, 1, 3));
+    if (after === before) return [];
+    this.data[id] = after; this.save();
+    const out = [];
+    if (before < 2 && after >= 2) out.push('HOUSE STANDARD');
+    if (before < 3 && after >= 3) out.push('TABLE MASTERED');
+    return out;
+  },
+  mastered(id) { return this.level(id) >= 3; },
+  masteredCount() {
+    return ['deco','mid','brut','bil','mem','sashi','bau','zel','swi','neon']
+      .filter(id => this.mastered(id)).length;
+  },
+};
+
+const Workshop = {
+  key: 'atelier-ah-workshop',
+  data: {},
+  current: null,
+  returnTheme: 'deco',
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  done(id) { return !!this.data[id]; },
+  complete(id) {
+    if (!id || this.data[id]) return false;
+    this.data[id] = 1; this.save();
+    return true;
+  },
+  count() { return ['power','control','keeper'].filter(id => this.done(id)).length; },
+};
+
+// The first four rooms are always open. Later rooms use related skill gates
+// with a Workshop alternate route so progression never becomes a single wall.
+const TABLE_GATES = Object.freeze({
+  mem:   { mastery:'brut', drill:'power',   text:'Master Beton or complete Power in Workshop' },
+  sashi: { mastery:'mem',  drill:'control', text:'Master Memphis Milano or complete Control in Workshop' },
+  bau:   { mastery:'sashi',drill:'keeper',  text:'Master Wabi-Sabi Sashiko or complete Keeper in Workshop' },
+  zel:   { mastery:'bau',  count:3,         text:'Master Bauhaus Dessau ’23 or master 3 tables' },
+  swi:   { mastery:'zel',  count:5,         text:'Master Zellige Riad or master 5 tables' },
+  neon:  { mastery:'swi',  count:6,         text:'Master Swiss Grid or master 6 tables' },
+});
+function tableUnlocked(id) {
+  if (['deco','mid','brut','bil'].includes(id)) return true;
+  const g = TABLE_GATES[id];
+  if (!g) return true;
+  if (g.mastery && Mastery.mastered(g.mastery)) return true;
+  if (g.drill && Workshop.done(g.drill)) return true;
+  if (g.count && Mastery.masteredCount() >= g.count) return true;
+  return false;
+}
+function tableLockReason(id) {
+  const g = TABLE_GATES[id];
+  return g && !tableUnlocked(id) ? g.text : '';
+}
+function newlyUnlockedTables(before) {
+  const ids = ['deco','mid','brut','bil','mem','sashi','bau','zel','swi','neon'];
+  return ids.filter(id => !before[id] && tableUnlocked(id));
+}
+function tableUnlockSnapshot() {
+  const out = {};
+  for (const id of ['deco','mid','brut','bil','mem','sashi','bau','zel','swi','neon'])
+    out[id] = tableUnlocked(id);
+  return out;
+}
 // puck pace: how lively the table plays
 const PACES = {
   casual:    { damp: 0.22,  wall: 0.88, serve: 560, label: 'Casual' },
