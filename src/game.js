@@ -219,12 +219,14 @@ function refreshTour() {
     const id = el.dataset.theme, locked = !tableUnlocked(id);
     el.classList.toggle('won', Tour.won(id));
     el.classList.toggle('mastered', Mastery.mastered(id));
+    el.classList.toggle('challenged', TableChallenges.done(id));
     el.classList.toggle('locked', locked);
     const lock = el.querySelector('.tlock'), why = el.querySelector('[data-lock-reason]');
     if (lock) lock.classList.toggle('hidden', !locked);
     if (why) why.textContent = locked ? tableLockReason(id) : '';
     const base = THEMES[id] ? THEMES[id].name + ' table' : 'Table';
-    el.setAttribute('aria-label', locked ? base + '. Locked. ' + tableLockReason(id) : base);
+    const challenge = TableChallenges.done(id) ? '. House challenge cleared.' : '';
+    el.setAttribute('aria-label', locked ? base + '. Locked. ' + tableLockReason(id) : base + challenge);
   });
   const tc = $('tourCount');
   if (tc) tc.textContent = 'TOUR ' + Tour.count() + '/' + THEME_ORDER.length;
@@ -263,6 +265,57 @@ const Mastery = {
   masteredCount() {
     return ['deco','mid','brut','bil','mem','sashi','bau','zel','swi','neon']
       .filter(id => this.mastered(id)).length;
+  },
+};
+
+const TABLE_CHALLENGES = Object.freeze({
+  deco:  { name:'Clean Finish',   desc:'Win while allowing 2 goals or fewer', kind:'concede', value:2 },
+  mid:   { name:'Keep It Moving', desc:'Win with an 8-hit rally',             kind:'rally',   value:8 },
+  brut:  { name:'Heavy Hand',     desc:'Reach 22 km/h and win',               kind:'speed',   value:22 },
+  bil:   { name:'Banker',         desc:'Score a bank goal and win',           kind:'bank',    value:1 },
+  mem:   { name:'Turnaround',     desc:'Win after trailing by 2',             kind:'deficit', value:2 },
+  sashi: { name:'Last Line',      desc:'Make 4 saves and win',                kind:'saves',   value:4 },
+  bau:   { name:'Form & Function',desc:'Win by 3 goals or more',              kind:'margin',  value:3 },
+  zel:   { name:'Pattern Play',   desc:'Score after a 12-hit rally',          kind:'goalRally', value:12 },
+  swi:   { name:'Grid Lock',      desc:'Score 3 in a row and win',            kind:'streak',  value:3 },
+  neon:  { name:'After Dark',     desc:'Reach 24 km/h and win by 2',          kind:'neon',    value:24 },
+});
+const TableChallenges = {
+  key:'atelier-ah-table-challenges',
+  data:{},
+  load() {
+    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
+    catch (e) { this.data = {}; }
+  },
+  save() {
+    try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
+  },
+  done(id) { return !!this.data[id]; },
+  complete(id) {
+    if (!TABLE_CHALLENGES[id] || this.data[id]) return false;
+    this.data[id] = 1; this.save(); return true;
+  },
+  count() { return THEME_ORDER.filter(id => this.done(id)).length; },
+  met(id, ctx) {
+    const c = TABLE_CHALLENGES[id];
+    if (!c || !ctx) return false;
+    switch (c.kind) {
+      case 'concede': return ctx.oppScore <= c.value;
+      case 'rally': return ctx.bestRally >= c.value;
+      case 'speed': return ctx.topSpeedKmh >= c.value;
+      case 'bank': return ctx.bankGoals >= c.value;
+      case 'deficit': return ctx.worstDef <= -c.value;
+      case 'saves': return ctx.saves >= c.value;
+      case 'margin': return ctx.margin >= c.value;
+      case 'goalRally': return ctx.bestGoalRally >= c.value;
+      case 'streak': return ctx.bestStreak >= c.value;
+      case 'neon': return ctx.topSpeedKmh >= c.value && ctx.margin >= 2;
+      default: return false;
+    }
+  },
+  check(id, ctx) {
+    if (this.done(id) || !this.met(id, ctx)) return false;
+    return this.complete(id);
   },
 };
 
@@ -313,9 +366,9 @@ const TABLE_GATES = Object.freeze({
   mem:   { mastery:'brut', drill:'power',   text:'Master Beton or clear Power' },
   sashi: { mastery:'mem',  drill:'control', text:'Master Memphis or clear Control' },
   bau:   { mastery:'sashi',drill:'keeper',  text:'Master Sashiko or clear Keeper' },
-  zel:   { mastery:'bau',  count:3,         text:'Master Bauhaus or master 3 tables' },
-  swi:   { mastery:'zel',  count:5,         text:'Master Zellige or master 5 tables' },
-  neon:  { mastery:'swi',  count:6,         text:'Master Swiss Grid or master 6 tables' },
+  zel:   { mastery:'bau',  challenge:'bau', count:3, text:'Master Bauhaus, clear its challenge, or master 3 tables' },
+  swi:   { mastery:'zel',  challenge:'zel', count:5, text:'Master Zellige, clear its challenge, or master 5 tables' },
+  neon:  { mastery:'swi',  challenge:'swi', count:6, text:'Master Swiss Grid, clear its challenge, or master 6 tables' },
 });
 function tableUnlocked(id) {
   if (['deco','mid','brut','bil'].includes(id)) return true;
@@ -324,6 +377,7 @@ function tableUnlocked(id) {
   if (!g) return true;
   if (g.mastery && Mastery.mastered(g.mastery)) return true;
   if (g.drill && Workshop.done(g.drill)) return true;
+  if (g.challenge && TableChallenges.done(g.challenge)) return true;
   if (g.count && Mastery.masteredCount() >= g.count) return true;
   return false;
 }
@@ -1454,7 +1508,12 @@ const G = {
   goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
-function freshStats() { return { topSpeed: 0, rally: 0, bestRally: 0, saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0] }; }
+function freshStats() {
+  return {
+    topSpeed:0, rally:0, bestRally:0, bestGoalRally:0, bankGoals:[0,0],
+    saves:[0,0], t0:0, streak:[0,0], bestStreak:[0,0], worstDef:[0,0],
+  };
+}
 G.stats = freshStats();
 
 // ---------- instant replay ----------
@@ -3469,6 +3528,12 @@ function onGoal(scorer) {
     st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
   }
   if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
+  if (G.stats) {
+    G.stats.bestGoalRally = Math.max(G.stats.bestGoalRally || 0, G.stats.rally || 0);
+    const hp = Highlights.point;
+    if (hp && hp.bankBy === scorer && hp.bankSerial === Highlights.touchSerial)
+      G.stats.bankGoals[scorer]++;
+  }
   const goalClip = Replay.capture(scorer);
   Highlights.recordGoal(scorer, goalClip);
   beginGoalCeremony(scorer);
@@ -3687,6 +3752,19 @@ function showWin() {
 
     const unlockBefore = tableUnlockSnapshot();
     if (G.mode === 'ai' && G.winSide === 0) {
+      const challengeContext = {
+        oppScore:G.score[1],
+        bestRally:st.bestRally || 0,
+        topSpeedKmh:kmh,
+        bankGoals:(st.bankGoals && st.bankGoals[0]) || 0,
+        worstDef:(st.worstDef && st.worstDef[0]) || 0,
+        saves:(st.saves && st.saves[0]) || 0,
+        margin,
+        bestGoalRally:st.bestGoalRally || 0,
+        bestStreak:(st.bestStreak && st.bestStreak[0]) || 0,
+      };
+      if (TableChallenges.check(G.themeId, challengeContext))
+        addWinAward('feat', 'CHALLENGE CLEARED · ' + TABLE_CHALLENGES[G.themeId].name.toUpperCase());
       Mastery.award(G.themeId, G.difficulty).forEach(label => addWinAward('feat', label));
     }
     firstTableWin = !Tour.won(G.themeId);
