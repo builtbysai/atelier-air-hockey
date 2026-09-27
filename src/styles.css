@@ -677,3 +677,11 @@
     .tlock{ left:7px; right:7px; top:7px; padding:6px 7px; }
     .tlock small{ max-width:65%; }
   }
+
+
+  /* CI visual QA: class is only added by the localhost-only QA state composer. */
+  .visual-qa *, .visual-qa *::before, .visual-qa *::after{
+    animation:none !important;
+    transition:none !important;
+    scroll-behavior:auto !important;
+  }
