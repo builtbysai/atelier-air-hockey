@@ -277,9 +277,9 @@ const GifExport = {
     this.ctx = this.canvas.getContext('2d', { willReadFrequently:true });
     this.frames = []; this.nextCapture = 0; this.highlightId = goal.id; this.active = true;
     document.body.classList.add('gif-capture');
+    if (!Replay.startClip(goal.clip, goal.scorer, 'win')) { this.cancel(); return false; }
     const word = document.querySelector('#replayHud .replay-word');
     if (word) word.textContent = 'CAPTURING GIF';
-    if (!Replay.startClip(goal.clip, goal.scorer, 'win')) { this.cancel(); return false; }
     return true;
   },
   capture(t) {
@@ -375,6 +375,8 @@ function wireShareUI() {
     if (play) Highlights.play(play.dataset.highlightPlay, 'win');
     else if (gif) GifExport.start(gif.dataset.highlightGif);
   });
+  const reel = $('btnMatchReel');
+  if (reel) reel.addEventListener('click', () => Highlights.playReel('win'));
   $('btnGifShare').addEventListener('click', () => GifExport.share());
   $('btnGifDownload').addEventListener('click', () => GifExport.download());
   $('btnGifClose').addEventListener('click', () => GifExport.close());
