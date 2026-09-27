@@ -193,7 +193,11 @@ function gifLzw(indices) {
     emit(prefix);
     if (nextCode < 4096) {
       dict.set(key, nextCode++);
-      if (nextCode === (1 << codeSize) && codeSize < 12) codeSize++;
+      // GIF's decoder learns dictionary entries one code later than the
+      // compressor. Keep the current width through the boundary code, then
+      // widen the *next* code. Growing at === corrupts streams once the table
+      // crosses 9 -> 10 bits (small fixture tests never reached that point).
+      if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++;
     } else {
       emit(clear); reset();
     }
@@ -203,7 +207,7 @@ function gifLzw(indices) {
   if (bitCount > 0) bytes.push(bitBuf & 255);
   return bytes;
 }
-function encodeGif332(frames, width, height, delayMs) {
+function gifStart332(width, height) {
   const out = [];
   const ascii = str => { for (let i = 0; i < str.length; i++) out.push(str.charCodeAt(i)); };
   ascii('GIF89a');
@@ -213,30 +217,58 @@ function encodeGif332(frames, width, height, delayMs) {
   // Netscape loop extension.
   out.push(0x21,0xff,0x0b); ascii('NETSCAPE2.0');
   out.push(0x03,0x01,0x00,0x00,0x00);
+  return out;
+}
+function gifAppendIndexedFrame(out, indexed, width, height, delayMs) {
   const delay = Math.max(2, Math.round(delayMs / 10));
-
-  for (const rgba of frames) {
-    out.push(0x21,0xf9,0x04,0x00,delay & 255,(delay >> 8) & 255,0x00,0x00);
-    out.push(0x2c,0,0,0,0); gifPushU16(out,width); gifPushU16(out,height); out.push(0x00);
-    const compressed = gifLzw(gifIndex332(rgba));
-    out.push(0x08);
-    for (let i = 0; i < compressed.length; i += 255) {
-      const n = Math.min(255, compressed.length - i);
-      out.push(n);
-      for (let j = 0; j < n; j++) out.push(compressed[i+j]);
-    }
-    out.push(0x00);
+  out.push(0x21,0xf9,0x04,0x00,delay & 255,(delay >> 8) & 255,0x00,0x00);
+  out.push(0x2c,0,0,0,0); gifPushU16(out,width); gifPushU16(out,height); out.push(0x00);
+  const compressed = gifLzw(indexed);
+  out.push(0x08);
+  for (let i = 0; i < compressed.length; i += 255) {
+    const n = Math.min(255, compressed.length - i);
+    out.push(n);
+    for (let j = 0; j < n; j++) out.push(compressed[i+j]);
   }
+  out.push(0x00);
+}
+function gifBlob(out) {
   out.push(0x3b);
   return new Blob([new Uint8Array(out)], { type:'image/gif' });
+}
+function encodeGifIndexed(frames, width, height, delayMs) {
+  const out = gifStart332(width, height);
+  for (const indexed of frames) gifAppendIndexedFrame(out, indexed, width, height, delayMs);
+  return gifBlob(out);
+}
+// Kept as a small public-test seam: callers with RGBA frames still get the
+// same encoder, while the live exporter quantizes during capture to use ~1/4
+// the memory on mobile.
+function encodeGif332(frames, width, height, delayMs) {
+  return encodeGifIndexed(frames.map(gifIndex332), width, height, delayMs);
+}
+function gifYield() { return new Promise(resolve => setTimeout(resolve, 0)); }
+async function encodeGifIndexedAsync(frames, width, height, delayMs, onProgress) {
+  const out = gifStart332(width, height);
+  for (let i = 0; i < frames.length; i++) {
+    gifAppendIndexedFrame(out, frames[i], width, height, delayMs);
+    if (onProgress) onProgress(i + 1, frames.length);
+    // Encoding a replay should never freeze the result screen for seconds.
+    // Yield every other frame so taps/paint remain responsive on phones.
+    if ((i & 1) === 1) await gifYield();
+  }
+  return gifBlob(out);
 }
 
 const GifExport = {
   active:false, frames:[], nextCapture:0, width:0, height:0,
-  canvas:null, ctx:null, blob:null, url:null, highlightId:null,
+  canvas:null, ctx:null, blob:null, url:null, highlightId:null, job:0,
   start(id) {
     const goal = Highlights.get(id);
     if (!goal || this.active) return false;
+    this.job++;
+    if (this.url) { URL.revokeObjectURL(this.url); this.url = null; }
+    this.blob = null;
     const aspect = Math.max(0.35, Math.min(2.2, (view.w || 16) / (view.h || 9)));
     if (aspect >= 1) { this.width = 420; this.height = Math.max(190, Math.round(420 / aspect)); }
     else { this.height = 420; this.width = Math.max(190, Math.round(420 * aspect)); }
@@ -246,14 +278,14 @@ const GifExport = {
     this.frames = []; this.nextCapture = 0; this.highlightId = goal.id; this.active = true;
     document.body.classList.add('gif-capture');
     const word = document.querySelector('#replayHud .replay-word');
-    if (word) word.textContent = 'EXPORTING REPLAY';
+    if (word) word.textContent = 'CAPTURING GIF';
     if (!Replay.startClip(goal.clip, goal.scorer, 'win')) { this.cancel(); return false; }
     return true;
   },
   capture(t) {
     if (!this.active || G.state !== 'replay' || !this.ctx) return;
     if (t < this.nextCapture) return;
-    this.nextCapture = t + 100; // 10 fps keeps mobile export light.
+    this.nextCapture = t + 100; // 10 fps: enough motion, sane mobile payload.
     const x = this.ctx, w = this.width, h = this.height;
     x.drawImage(canvas, 0, 0, w, h);
     // Burn a restrained replay treatment into the GIF itself.
@@ -263,7 +295,9 @@ const GifExport = {
     x.fillStyle = 'rgba(10,8,7,0.78)'; x.fillRect(10,10,82,24);
     x.fillStyle = THEME.gold || '#d8a93f'; x.font = '700 11px sans-serif';
     x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('REPLAY',51,22);
-    this.frames.push(new Uint8Array(x.getImageData(0,0,w,h).data));
+    // Store palette indices, not 4-byte RGBA. A typical mobile replay drops
+    // from ~10-20 MB of raw frame memory to ~2-5 MB before encoding begins.
+    this.frames.push(gifIndex332(x.getImageData(0,0,w,h).data));
   },
   finish() {
     if (!this.active) return;
@@ -273,41 +307,61 @@ const GifExport = {
     if (word) word.textContent = 'REPLAY';
     const frames = this.frames.slice(), w=this.width, h=this.height;
     this.frames.length = 0;
+    const job = ++this.job;
     hideAll(); $('gifov').classList.remove('hidden');
-    $('gifStatus').textContent = 'Encoding ' + frames.length + ' frames…';
+    $('gifStatus').textContent = frames.length ? 'Encoding 0 / ' + frames.length + ' frames…' : 'No replay frames captured.';
     $('gifPreviewWrap').classList.add('hidden');
     $('btnGifShare').disabled = true; $('btnGifDownload').disabled = true;
-    setTimeout(() => {
-      try {
-        if (this.url) URL.revokeObjectURL(this.url);
-        this.blob = encodeGif332(frames, w, h, 100);
-        this.url = URL.createObjectURL(this.blob);
-        $('gifPreview').src = this.url;
-        $('gifPreviewWrap').classList.remove('hidden');
-        $('gifStatus').textContent = 'Ready · ' + w + '×' + h + ' · ' + frames.length + ' frames';
-        $('btnGifShare').disabled = false; $('btnGifDownload').disabled = false;
-      } catch (e) {
-        console.warn('GIF export failed', e);
-        $('gifStatus').textContent = 'GIF export failed on this device.';
-      }
-    }, 30);
+    if (!frames.length) return;
+    this.encode(frames, w, h, job);
+  },
+  async encode(frames, w, h, job) {
+    try {
+      const blob = await encodeGifIndexedAsync(frames, w, h, 100, (done, total) => {
+        if (job === this.job) $('gifStatus').textContent = 'Encoding ' + done + ' / ' + total + ' frames…';
+      });
+      if (job !== this.job) return;
+      if (this.url) URL.revokeObjectURL(this.url);
+      this.blob = blob;
+      this.url = URL.createObjectURL(blob);
+      const preview = $('gifPreview');
+      preview.src = this.url;
+      // Do not claim success until the browser itself can decode the file.
+      if (typeof preview.decode === 'function') await preview.decode();
+      if (job !== this.job) return;
+      $('gifPreviewWrap').classList.remove('hidden');
+      const kb = Math.max(1, Math.round(blob.size / 1024));
+      $('gifStatus').textContent = 'Ready · ' + w + '×' + h + ' · ' + frames.length + ' frames · ' + kb + ' KB';
+      $('btnGifShare').disabled = false; $('btnGifDownload').disabled = false;
+    } catch (e) {
+      if (job !== this.job) return;
+      console.warn('GIF export failed', e);
+      this.blob = null;
+      $('gifStatus').textContent = 'Could not build this GIF. Try another highlight.';
+    }
   },
   cancel() {
-    this.active=false; this.frames.length=0; document.body.classList.remove('gif-capture');
+    this.job++; this.active=false; this.frames.length=0; document.body.classList.remove('gif-capture');
   },
   async share() {
     if (!this.blob) return;
     const file = new File([this.blob], 'atelier-air-hockey-replay.gif', { type:'image/gif' });
     try {
+      // File sharing is not universal even where navigator.share exists, so
+      // validate the exact file payload first and fall back to a save.
       if (navigator.share && navigator.canShare && navigator.canShare({ files:[file] }))
         await navigator.share({ files:[file], title:'Atelier Air Hockey replay', text:'Match highlight · ' + THEME.name });
       else shareDownload(this.blob, file.name);
     } catch (e) {
-      if (e && e.name !== 'AbortError') console.warn('GIF share failed', e);
+      if (e && e.name !== 'AbortError') {
+        console.warn('GIF share failed', e);
+        shareDownload(this.blob, file.name);
+      }
     }
   },
   download() { if (this.blob) shareDownload(this.blob, 'atelier-air-hockey-replay.gif'); },
   close() {
+    this.job++;
     if (this.url) { URL.revokeObjectURL(this.url); this.url=null; }
     this.blob=null; hideAll(); $('winov').classList.remove('hidden');
   }
