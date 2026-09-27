@@ -391,19 +391,34 @@
   .win-award.record::before{ content:"BEST"; margin-right:6px; color:var(--btnbg); font-size:8px; }
   .win-award.feat::before{ content:"UNLOCKED"; margin-right:6px; color:var(--btnbg); font-size:8px; }
   .win-moment-actions{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:0 0 4px; }
+  .win-moment-actions.solo{ grid-template-columns:1fr; }
   .win-moment-actions .btn{ margin:0; padding:10px 9px; font-size:12px; }
   .win-rematch{ margin-top:8px; }
   .win-exit{ margin-bottom:0; }
   #winov .win-card.win-win{ animation:wincardin .42s cubic-bezier(.16,.8,.2,1); }
   #winov .win-card.win-loss{ animation:cardin .28s cubic-bezier(.16,.7,.2,1); }
+  .win-card.win-win .win-score{ animation:winscorein .46s cubic-bezier(.12,.82,.16,1) .10s backwards; }
+  .win-card.win-win .win-stat{ animation:winstatin .32s ease-out backwards; }
+  .win-card.win-win .win-stat:nth-child(1){ animation-delay:.22s; }
+  .win-card.win-win .win-stat:nth-child(2){ animation-delay:.27s; }
+  .win-card.win-win .win-stat:nth-child(3){ animation-delay:.32s; }
+  .win-card.win-win .win-stat:nth-child(4){ animation-delay:.37s; }
+  .win-card.win-win .win-award{ animation:winawardin .32s cubic-bezier(.16,.8,.2,1) .42s backwards; }
   @keyframes wincardin{
     0%{ opacity:0; transform:translateY(14px) scale(.965); }
     64%{ opacity:1; transform:translateY(-2px) scale(1.012); }
     100%{ transform:none; }
   }
+  @keyframes winscorein{
+    0%{ opacity:0; transform:scale(.72); filter:blur(4px); }
+    70%{ opacity:1; transform:scale(1.045); filter:none; }
+    100%{ transform:none; filter:none; }
+  }
+  @keyframes winstatin{ from{ opacity:0; transform:translateY(5px); } to{ opacity:1; transform:none; } }
+  @keyframes winawardin{ from{ opacity:0; transform:translateY(4px) scale(.94); } to{ opacity:1; transform:none; } }
   @media (prefers-reduced-motion: reduce){
     *, *::before, *::after{ scroll-behavior:auto !important; }
-    .pulse, .win-burst i{ animation:none !important; }
+    .pulse, .win-burst i, .win-score, .win-stat, .win-award{ animation:none !important; }
     .overlay .card, #hint{ animation:none !important; }
     .tslide, .cdots i{ transition:none !important; }
   }
