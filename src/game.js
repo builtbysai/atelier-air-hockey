@@ -1664,7 +1664,7 @@ function resetPositions() {
     if (!b) continue;
     b.state = 'guard'; b.tState = 0; b.tickT = 0;
     b.behindH = false; b.sideH = false; b.threatH = false; b.abortCd = 0;
-    b.possessT = 0; b.pinT = 0; b.whiff = false;
+    b.possessT = 0; b.pinT = 0; b.whiff = false; b.lastReadKeeper = false;
     b.hist.length = 0;
     b.seen.x = CX; b.seen.y = CY; b.seen.vx = 0; b.seen.vy = 0;
   }
@@ -2291,6 +2291,7 @@ function mkBrain(side, diffIdx) {
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
     arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
+    lastReadKeeper: false, // whether the current attack intentionally read the defender
     // commitment hysteresis (v24): sticky latches with deadbands so the AI
     // can't dither between strike/defend/reposition when the puck sits on a
     // decision boundary - the feint-loop fix. behindH: mallet truly behind
@@ -2310,7 +2311,9 @@ function aiPerceive(b, dt) {
   const s = b.hist[0];
   b.seen.x = s.x; b.seen.y = s.y; b.seen.vx = s.vx; b.seen.vy = s.vy;
 }
-function perfNow() { return performance.now() / 1000; }
+function perfNow() {
+  return RivalLab.active ? RivalLab.clock : performance.now() / 1000;
+}
 
 // predict puck position t seconds ahead, with top/bottom wall bounces
 function predictPuck(x, y, vx, vy, t) {
@@ -2554,6 +2557,7 @@ function aiThink(b, dt, m) {
         b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
         const keeper = b.side === 0 ? G.m2 : G.m1;
         const readsKeeper = Math.random() < (D.readKeeper || 0);
+        b.lastReadKeeper = readsKeeper;
         const laneY = readsKeeper && keeper ? keeper.y : s.y;
         const farSide = laneY < CY ? 1 : -1;
         const farY = CY + farSide * (goalW() / 2 - 12);
@@ -2666,6 +2670,200 @@ function aiDrive(b, dt, m) {
   if (b.careful) cap *= 0.45; // wrong side of the puck: soft touches only
   driveMallet(m, dt, cap);
 }
+
+/* ---------- rival balance lab ----------
+ * A deterministic, localhost-only soak runner for real game physics + brains.
+ * It never ships a debug UI and public pages do not expose its API.
+ *
+ * Why it lives beside the AI:
+ * - unit tests can verify profile math, but emergent bugs (stalls, own goals,
+ *   over-defending, zero-shot matches) only appear when the real state
+ *   machine and physics run together.
+ * - fixed-step seeded matches make tuning changes comparable across commits.
+ */
+const RivalLab = {
+  active:false,
+  clock:0,
+  current:null,
+
+  seeded(seed) {
+    let x = (Number(seed) || 1) >>> 0;
+    return () => {
+      x += 0x6D2B79F5;
+      let t = x;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  },
+  freshSide(diffIdx) {
+    return {
+      difficulty: diffIdx,
+      name: DIFFS[diffIdx].name,
+      style: DIFFS[diffIdx].style,
+      stateTime: Object.create(null),
+      transitions: Object.create(null),
+      strikes:0, windups:0, banks:0, keeperReads:0, whiffs:0,
+      defends:0, rebounds:0, detours:0, escapes:0,
+      goals:0, ownGoals:0, saves:0,
+    };
+  },
+  observe(side, brain, previous, dt) {
+    const out = this.current.sides[side];
+    out.stateTime[brain.state] = (out.stateTime[brain.state] || 0) + dt;
+    if (previous === brain.state) return;
+    const key = previous + '>' + brain.state;
+    out.transitions[key] = (out.transitions[key] || 0) + 1;
+    if (brain.state === 'defend') out.defends++;
+    if (brain.state === 'around') out.detours++;
+    if (brain.state === 'escape') out.escapes++;
+    if (brain.state === 'windup') {
+      out.windups++;
+      if (brain.bankY !== null) out.banks++;
+      if (brain.lastReadKeeper) out.keeperReads++;
+    }
+    if (brain.state === 'strike') {
+      out.strikes++;
+      if (brain.whiff) out.whiffs++;
+    }
+    if (previous === 'recover' && brain.state === 'engage') out.rebounds++;
+  },
+  onGoal(scorer) {
+    const last = G.lastTouch;
+    G.score[scorer]++;
+    const out = this.current.sides[scorer];
+    out.goals++;
+    if (last >= 0 && last !== scorer) this.current.sides[last].ownGoals++;
+    this.current.goalSpeeds.push(Math.round(puckSpeed() * (2.4384 / PW) * 3.6));
+    this.current.rallies.push(G.stats ? G.stats.rally || 0 : 0);
+    if (G.stats) {
+      G.stats.streak[scorer]++; G.stats.streak[1 - scorer] = 0;
+      G.stats.rally = 0;
+    }
+    if (G.score[scorer] >= this.current.firstTo) {
+      G.winSide = scorer;
+      G.state = 'win';
+      return;
+    }
+    resetPositions();
+    rollServe(scorer === 0 ? 1 : -1);
+    G.state = 'play';
+    G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
+  },
+  summarizeSide(out, seconds) {
+    const stateShare = {};
+    for (const [key, value] of Object.entries(out.stateTime))
+      stateShare[key] = +(value / Math.max(0.001, seconds)).toFixed(3);
+    return {
+      difficulty: out.difficulty,
+      name: out.name,
+      style: out.style,
+      strikes:out.strikes,
+      strikesPerMinute:+(out.strikes / Math.max(0.001, seconds) * 60).toFixed(2),
+      windups:out.windups,
+      bankRate:+(out.banks / Math.max(1, out.windups)).toFixed(3),
+      keeperReadRate:+(out.keeperReads / Math.max(1, out.windups)).toFixed(3),
+      whiffRate:+(out.whiffs / Math.max(1, out.strikes)).toFixed(3),
+      defends:out.defends,
+      rebounds:out.rebounds,
+      detours:out.detours,
+      escapes:out.escapes,
+      goals:out.goals,
+      ownGoals:out.ownGoals,
+      saves:out.saves,
+      stateShare,
+    };
+  },
+  runMatch(a, b, seed = 1, opts = {}) {
+    if (!['localhost','127.0.0.1'].includes(location.hostname))
+      throw new Error('RivalLab is localhost only');
+    const firstTo = Math.max(3, Math.min(7, Number(opts.firstTo) || 5));
+    const maxSeconds = Math.max(30, Number(opts.maxSeconds) || 150);
+    const dt = 1 / 180;
+    const oldRandom = Math.random;
+    const oldSettings = {
+      firstTo:Settings.firstTo, effects:Settings.effects, haptics:Settings.haptics,
+      shake:Settings.shake, instantReplay:Settings.instantReplay,
+    };
+    Math.random = this.seeded(seed);
+    this.active = true; this.clock = 0;
+    this.current = {
+      seed, firstTo, matchup:[a,b], sides:[this.freshSide(a), this.freshSide(b)],
+      goalSpeeds:[], rallies:[], stalled:false,
+    };
+    try {
+      Settings.firstTo = firstTo;
+      Settings.effects = 'minimal'; Settings.haptics = false; Settings.shake = 'off'; Settings.instantReplay = 'off';
+      G.mode = 'watch'; G.watch = { a, b }; G.difficulty = b; G.demo = false;
+      G.score = [0,0]; G.winSide = 0; G.state = 'play';
+      G.stats = freshStats(); G.stats.t0 = performance.now();
+      G.ai1 = mkBrain(0, a); G.ai2 = mkBrain(1, b);
+      resetPositions();
+      rollServe(Math.random() < 0.5 ? 1 : -1);
+      G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
+
+      let steps = 0;
+      while (G.state === 'play' && this.clock < maxSeconds) {
+        const p0 = G.ai1.state, p1 = G.ai2.state;
+        aiDrive(G.ai1, dt, G.m1); aiDrive(G.ai2, dt, G.m2);
+        this.observe(0, G.ai1, p0, dt); this.observe(1, G.ai2, p1, dt);
+        stepPhysics(dt);
+        this.clock += dt;
+        if ((++steps % 180) === 0) {
+          // Simulation skips render/updateParts, so discard presentation-only
+          // debris once per simulated second.
+          G.parts.length = 0; G.texts.length = 0; G.pulses.length = 0; G.scuffs.length = 0;
+        }
+      }
+      if (G.state === 'play') this.current.stalled = true;
+      for (let i = 0; i < 2; i++)
+        this.current.sides[i].saves = G.stats?.saves?.[i] || 0;
+      const duration = +this.clock.toFixed(2);
+      const result = {
+        seed, matchup:[DIFFS[a].name,DIFFS[b].name], duration,
+        score:[...G.score], winner:G.state === 'win' ? G.winSide : -1,
+        stalled:this.current.stalled,
+        topSpeedKmh:Math.round((G.stats?.topSpeed || 0) * (2.4384 / PW) * 3.6),
+        bestRally:G.stats?.bestRally || 0,
+        averageGoalSpeedKmh:this.current.goalSpeeds.length
+          ? Math.round(this.current.goalSpeeds.reduce((x,y)=>x+y,0) / this.current.goalSpeeds.length) : 0,
+        sides:[
+          this.summarizeSide(this.current.sides[0], duration),
+          this.summarizeSide(this.current.sides[1], duration),
+        ],
+      };
+      return result;
+    } finally {
+      Math.random = oldRandom;
+      Object.assign(Settings, oldSettings);
+      this.active = false; this.current = null;
+    }
+  },
+  runSuite(seeds = [11,29,47,83]) {
+    const pairs = [[0,0],[1,1],[2,2],[0,1],[1,2],[0,2],[2,0]];
+    const matches = [];
+    for (const [a,b] of pairs)
+      for (const seed of seeds) matches.push(this.runMatch(a,b,seed));
+    const self = {};
+    for (let d = 0; d < 3; d++) {
+      const sample = matches.filter(m => m.sides[0].difficulty === d && m.sides[1].difficulty === d);
+      const allSides = sample.flatMap(m => m.sides);
+      const avg = key => +(allSides.reduce((n,x)=>n + (x[key] || 0),0) / Math.max(1,allSides.length)).toFixed(3);
+      self[DIFFS[d].name] = {
+        matches:sample.length,
+        strikesPerMinute:avg('strikesPerMinute'),
+        bankRate:avg('bankRate'),
+        keeperReadRate:avg('keeperReadRate'),
+        whiffRate:avg('whiffRate'),
+        rebounds:avg('rebounds'),
+        ownGoals:allSides.reduce((n,x)=>n+x.ownGoals,0),
+      };
+    }
+    return { matches, self };
+  },
+};
+if (typeof window !== 'undefined' && ['localhost','127.0.0.1'].includes(location.hostname))
+  window.__atelierRivalLab = RivalLab;
 
 // ---------- juice ----------
 function addTrauma(x) {
@@ -2980,6 +3178,10 @@ function onGoal(scorer) {
   if (G.mode === 'workshop') {
     const kmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
     Practice.onGoal(scorer, kmh);
+    return;
+  }
+  if (RivalLab.active && G.mode === 'watch') {
+    RivalLab.onGoal(scorer);
     return;
   }
   G.score[scorer]++; // the single place a goal changes the score
