@@ -1116,6 +1116,41 @@ const MusicSys = {
   // --- structural introspection (headless verification) ---
   state() { return { key: this.key, pendingKey: this.pendingKey, intensity: this.intensity, running: !!this.timer }; },
 };
+const HAPTIC_PATTERNS = Object.freeze({
+  strike: 10,
+  smash: [16, 22, 26],
+  rail: 7,
+  post: [12, 18, 14],
+  save: [18, 24, 20],
+  serve: 8,
+  goal: [24, 30, 42],
+  concede: [18, 30, 18],
+  win: [28, 22, 42, 28, 70],
+  loss: [18, 32, 18],
+});
+const HAPTIC_COOLDOWN = Object.freeze({
+  strike: 70, smash: 110, rail: 100, post: 140, save: 260,
+  serve: 500, goal: 700, concede: 700, win: 1200, loss: 1200,
+});
+const Haptics = {
+  last: Object.create(null),
+  fire(name) {
+    try {
+      if (!interacted || !Settings.haptics || !navigator.vibrate) return false;
+      const pattern = HAPTIC_PATTERNS[name];
+      if (pattern == null) return false;
+      const now = performance.now();
+      const cooldown = HAPTIC_COOLDOWN[name] || 0;
+      if (now - (this.last[name] || -1e9) < cooldown) return false;
+      this.last[name] = now;
+      navigator.vibrate(pattern);
+      return true;
+    } catch (e) { return false; }
+  },
+  cancel() { try { if (navigator.vibrate) navigator.vibrate(0); } catch (e) {} },
+};
+// Compatibility helper for older call sites/tests; new gameplay code should
+// prefer semantic Haptics.fire(name).
 function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
 
 // ---------- game state ----------
@@ -1912,6 +1947,7 @@ function collideMallet(p, m, dt) {
       G.saveT = 0.55;
       G.pulses.push({ x: p.x, y: p.y, t: 0 });
       AudioSys.thud();
+      Haptics.fire('save');
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
     }
@@ -2491,7 +2527,7 @@ function onMalletHit(x, y, impact, nx, ny) {
       G.dipT = Math.max(G.dipT, 0.09);
     }
     if (fxRoom()) G.roomPulse = 1;
-    buzz([15, 30, 25]);
+    Haptics.fire('smash');
   }
   // puck squash along the impact normal, 10–20%. Restarts the recovery
   // spring from rest at the deformed shape.
@@ -2505,7 +2541,7 @@ function onMalletHit(x, y, impact, nx, ny) {
     G.scuffs.push({ x, y, a: 0.20, ang: Math.atan2(ny, nx) + Math.PI / 2, len: 26 + v * 40 });
   }
   AudioSys.hit(v, 1 + Math.min(rallyN, 12) * 0.03);
-  if (v > 0.55) buzz(12);
+  if (tier < 2 && v > 0.55) Haptics.fire('strike');
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
   const v = clamp(impact / 2200, 0, 1);
@@ -2523,6 +2559,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
     // the goal frame rattles: a hard frame hit earns a low clank and a
     // visible shake of the trim - deliberately heavier than the post ping
     AudioSys.clank(v);
+    Haptics.fire('post');
     if (fxFlash()) G.rattle = { side: x < PX + PW / 2 ? 0 : 1, t: 0.42 };
     burst(x, y, Math.max(1, Math.round(10 * fxParticles())), '#ffffff', 380, 2.5);
   } else if (isPost && impact > 200) {
@@ -2531,6 +2568,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
     burst(x, y, Math.max(1, Math.round(8 * fxParticles())), '#ffffff', 320, 2.5);
   } else {
     AudioSys.rail(v);
+    if (impact > 1100) Haptics.fire('rail');
   }
 }
 
@@ -2638,7 +2676,9 @@ function updateCount(rdt) {
   G.countT += rdt;
   const n = 3 - Math.floor(G.countT / 0.55);
   if (n !== G.countN && n >= 1) { G.countN = n; AudioSys.count(false); }
-  if (G.countT >= 1.65 && !G.goPlayed) { G.goPlayed = true; AudioSys.count(true); }
+  if (G.countT >= 1.65 && !G.goPlayed) {
+    G.goPlayed = true; AudioSys.count(true); Haptics.fire('serve');
+  }
   if (G.countT >= 2.0) {
     G.goPlayed = false;
     G.state = 'play';
@@ -2734,7 +2774,7 @@ function beginGoalCeremony(scorer) {
   announceStreak(scorer);
   AudioSys.goalChord(THEME.goalChord || [523.25, 659.25, 783.99, 1046.5]);
   MusicSys.goalSwell(); // soft lift while the bed ducks under the ceremony
-  buzz([25, 40, 40]);
+  Haptics.fire(yours ? 'goal' : 'concede');
 }
 function updateGoal(rdt) {
   G.goalT += rdt; G.goalSlowT += rdt;
@@ -2904,7 +2944,7 @@ function showWin() {
   const chord = (THEME.goalChord || [392, 523.25, 659.25, 783.99]).slice();
   if (humanWin && chord.length) chord.push(chord[0] * 2);
   AudioSys.goalChord(chord);
-  buzz(humanWin ? [35, 28, 48, 30, 82] : [24, 38, 24]);
+  Haptics.fire(humanWin ? 'win' : 'loss');
 }
 function togglePause(force, silent) {
   // ONLINE: silent=true applies a pause that arrived over the wire - it must
@@ -3135,6 +3175,7 @@ function frame(t) {
   Net.pump(rdt); // ONLINE: snapshots out (host), inputs out (guest), dead reckoning
   render();
   if (typeof GifExport !== 'undefined' && GifExport.active) GifExport.capture(t);
+  if (typeof WakeSys !== 'undefined') WakeSys.sync();
 }
 
 // ---------- render ----------
