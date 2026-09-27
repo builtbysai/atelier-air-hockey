@@ -1940,6 +1940,7 @@ function collideMallet(p, m, dt) {
   // distinct hit registered for each bounce.
   if (!m.contactActive) {
     const impact = -vn + Math.max(0, mvn);
+    let savedThisHit = false;
     // SAVE: a fast lateral block of a puck bound for your own goal gets the
     // soft treatment - thud, ring pulse, brief puck glow. High drama, low noise.
     if (m.saveCd <= 0 && impact > 220 && (m.side === 0 ? pvx0 < -450 : pvx0 > 450) && msp0 > 650) {
@@ -1948,6 +1949,7 @@ function collideMallet(p, m, dt) {
       G.pulses.push({ x: p.x, y: p.y, t: 0 });
       AudioSys.thud();
       Haptics.fire('save');
+      savedThisHit = true;
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
     }
@@ -1960,7 +1962,7 @@ function collideMallet(p, m, dt) {
     // it along the contact normal for a couple frames before it springs back
     m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
     m.hitSqA = Math.atan2(ny, nx);
-    onMalletHit(p.x, p.y, impact, nx, ny);
+    onMalletHit(p.x, p.y, impact, nx, ny, savedThisHit);
   }
   m.contactActive = true;
 }
@@ -2497,7 +2499,7 @@ function addText(x, y, str, color, size = 44) {
 // SMASH (>1400). Each tier buys more shake, a bigger flash, and a deeper
 // pitch; SMASH also startles the room itself (see G.roomPulse).
 function hitTier(impact) { return impact > 1400 ? 2 : impact > 650 ? 1 : 0; }
-function onMalletHit(x, y, impact, nx, ny) {
+function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
   // rally bookkeeping first - the clack pitches up ~3% per hit so long
   // rallies audibly tighten (capped at +36%)
   let rallyN = 0;
@@ -2527,7 +2529,7 @@ function onMalletHit(x, y, impact, nx, ny) {
       G.dipT = Math.max(G.dipT, 0.09);
     }
     if (fxRoom()) G.roomPulse = 1;
-    Haptics.fire('smash');
+    if (!suppressHaptic) Haptics.fire('smash');
   }
   // puck squash along the impact normal, 10–20%. Restarts the recovery
   // spring from rest at the deformed shape.
@@ -2541,7 +2543,7 @@ function onMalletHit(x, y, impact, nx, ny) {
     G.scuffs.push({ x, y, a: 0.20, ang: Math.atan2(ny, nx) + Math.PI / 2, len: 26 + v * 40 });
   }
   AudioSys.hit(v, 1 + Math.min(rallyN, 12) * 0.03);
-  if (tier < 2 && v > 0.55) Haptics.fire('strike');
+  if (!suppressHaptic && tier < 2 && v > 0.55) Haptics.fire('strike');
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
   const v = clamp(impact / 2200, 0, 1);
