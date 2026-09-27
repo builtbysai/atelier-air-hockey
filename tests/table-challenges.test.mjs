@@ -43,7 +43,7 @@ test('late rooms accept challenge clears as alternate skill gates', () => {
 
 test('Progress and carousel surface challenge state without adding a new overlay', () => {
   assert.match(ui, /HOUSE CHALLENGES/);
-  assert.match(ui, /TableChallenges\.count\(\)[\s\S]*?'\/10 challenges'/);
+  assert.ok(ui.includes("TableChallenges.count() + '/10 challenges · '"));
   assert.match(game, /el\.classList\.toggle\('challenged', TableChallenges\.done\(id\)\)/);
   assert.match(css, /\.tslide\.challenged \.tname::before/);
   assert.match(css, /\.challenge-row\.done/);
