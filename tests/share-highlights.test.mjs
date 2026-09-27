@@ -58,7 +58,7 @@ test('GIF export captures real replay frames and burns in a replay marker', () =
   assert.match(template, /id="btnGifShare"/);
 });
 
-test('built-in encoder emits a GIF89a stream with trailer', () => {
+test('built-in encoder emits a GIF89a stream with trailer', async () => {
   const context = vm.createContext({
     Blob, Uint8Array, Map, Math, console,
     setTimeout(){}, clearTimeout(){},
