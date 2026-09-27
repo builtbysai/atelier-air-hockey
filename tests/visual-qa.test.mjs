@@ -32,6 +32,8 @@ test('visual QA workflow captures phone, landscape, and desktop artifacts', () =
   assert.match(runner, /practice-menu/);
   assert.match(runner, /page\.on\('pageerror'/);
   assert.match(runner, /window\.__atelierVisualQA/);
+  assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
+  assert.match(runner, /vertical card overflow/);
   assert.match(workflow, /playwright@1\.55\.0/);
   assert.match(workflow, /node scripts\/visual-qa\.mjs/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
