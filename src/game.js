@@ -228,7 +228,7 @@ function refreshTour() {
     const def = TABLE_CHALLENGES[id], challengeDone = TableChallenges.done(id);
     if (chip) {
       chip.classList.toggle('done', challengeDone);
-      chip.textContent = challengeDone ? '◆ CHALLENGE CLEARED' : (def ? '◆ ' + def.name.toUpperCase() : '');
+      chip.textContent = challengeDone ? '◆ CHALLENGE CLEARED' : (def ? '◆ ' + def.short : '');
     }
     const base = THEMES[id] ? THEMES[id].name + ' table' : 'Table';
     const challenge = !locked && def
@@ -277,16 +277,16 @@ const Mastery = {
 };
 
 const TABLE_CHALLENGES = Object.freeze({
-  deco:  { name:'Clean Finish',   desc:'Win while allowing 2 goals or fewer', kind:'concede', value:2 },
-  mid:   { name:'Keep It Moving', desc:'Win with a 10-hit rally',            kind:'rally',   value:10 },
-  brut:  { name:'Heavy Hand',     desc:'Reach 22 km/h and win',               kind:'speed',   value:22 },
-  bil:   { name:'Banker',         desc:'Score a bank goal and win',           kind:'bank',    value:1 },
-  mem:   { name:'Turnaround',     desc:'Win after trailing by 2',             kind:'deficit', value:2 },
-  sashi: { name:'Last Line',      desc:'Make 5 saves and win',                kind:'saves',   value:5 },
-  bau:   { name:'Form & Function',desc:'Win by 3 goals or more',              kind:'margin',  value:3 },
-  zel:   { name:'Pattern Play',   desc:'Score after a 12-hit rally',          kind:'goalRally', value:12 },
-  swi:   { name:'Grid Lock',      desc:'Score 3 in a row and win',            kind:'streak',  value:3 },
-  neon:  { name:'After Dark',     desc:'Reach 24 km/h and win by 2',          kind:'neon',    value:24 },
+  deco:  { name:'Clean Finish',   short:'ALLOW ≤2',       desc:'Win while allowing 2 goals or fewer', kind:'concede', value:2 },
+  mid:   { name:'Keep It Moving', short:'10-HIT RALLY',   desc:'Win with a 10-hit rally',             kind:'rally',   value:10 },
+  brut:  { name:'Heavy Hand',     short:'22 KM/H',        desc:'Reach 22 km/h and win',                kind:'speed',   value:22 },
+  bil:   { name:'Banker',         short:'BANK GOAL',      desc:'Score a bank goal and win',            kind:'bank',    value:1 },
+  mem:   { name:'Turnaround',     short:'TRAIL BY 2',     desc:'Win after trailing by 2',              kind:'deficit', value:2 },
+  sashi: { name:'Last Line',      short:'5 SAVES',        desc:'Make 5 saves and win',                 kind:'saves',   value:5 },
+  bau:   { name:'Form & Function',short:'WIN BY 3',       desc:'Win by 3 goals or more',               kind:'margin',  value:3 },
+  zel:   { name:'Pattern Play',   short:'12-HIT GOAL',    desc:'Score after a 12-hit rally',           kind:'goalRally', value:12 },
+  swi:   { name:'Grid Lock',      short:'3 IN A ROW',     desc:'Score 3 in a row and win',             kind:'streak',  value:3 },
+  neon:  { name:'After Dark',     short:'24 KM/H · +2',   desc:'Reach 24 km/h and win by 2',           kind:'neon',    value:24 },
 });
 const TableChallenges = {
   key:'atelier-ah-table-challenges',
