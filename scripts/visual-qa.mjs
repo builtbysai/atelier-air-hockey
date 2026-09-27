@@ -52,6 +52,9 @@ try {
 
       const overflowingCards = await page.evaluate(() =>
         [...document.querySelectorAll('.overlay:not(.hidden) .card')]
+          // Progress is intentionally a scrollable passport; gameplay/menu/result
+          // surfaces should never require internal vertical scrolling.
+          .filter(card => card.closest('.overlay')?.id !== 'progress')
           .filter(card => card.scrollHeight > card.clientHeight + 2)
           .map(card => ({
             id: card.closest('.overlay')?.id || 'unknown',
