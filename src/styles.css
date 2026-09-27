@@ -368,7 +368,10 @@
   .winstats{ color:var(--sub); font-size:13px; letter-spacing:1px; margin:-6px 0 18px; }
   .winfeats{ color:#d8a93f; font-size:12px; letter-spacing:2px; font-weight:700; margin:-8px 0 18px; }
   /* table tour: gold star on carousel slides the player has conquered */
+  .tslide.challenged .tname::before{ content:'◆ '; color:var(--btnbg); font-size:.78em; vertical-align:1px; }
   .tslide.won .tname::after{ content:' ★'; color:#d8a93f; }
+  .challenge-row.done span:first-child{ color:var(--title); }
+  .challenge-row.done span:last-child{ color:var(--btnbg); }
   /* table tour counter: a small gold pill, clearly separate from the carousel position */
   .tourpill{ float:right; color:#d8a93f; border:1px solid #d8a93f; border-radius:20px; padding:1px 10px; letter-spacing:2px; }
   /* online lobby - compact by design, nothing may scroll */
