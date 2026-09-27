@@ -1,4 +1,4 @@
-const CACHE = 'atelier-air-hockey-v30';
+const CACHE = 'atelier-air-hockey-v31';
 const CORE = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const CORE = [
   './src/vendor/qrcode.js',
   './src/net.js',
   './src/game.js',
+  './src/share.js',
   './src/ui.js'
 ];
 
