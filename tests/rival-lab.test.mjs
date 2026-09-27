@@ -26,14 +26,16 @@ test('soak runner exercises real game physics and real brains', () => {
 test('rival telemetry measures behavior rather than only configured stats', () => {
   for (const signal of [
     'strikesPerMinute','bankRate','keeperReadRate','whiffRate',
-    'defends','rebounds','detours','escapes','ownGoals','stateShare'
+    'counterShots','defends','rebounds','detours','escapes','ownGoals','stateShare'
   ]) assert.ok(game.includes(signal), signal + ' telemetry missing');
   assert.match(game, /b\.lastReadKeeper = readsKeeper/);
   assert.match(game, /previous === 'recover' && brain\.state === 'engage'/);
-  assert.match(game, /counterWindow:0\.72/);
+  assert.match(game, /counterWindow:1\.05/);
   assert.match(game, /saveBrain\.counterT = saveBrain\.diff\.counterWindow/);
-  assert.match(game, /RivalLab\.noteTouch\(m\.side, p\.vx, p\.vy\)/);
-  assert.match(game, /last\.towardOwn && this\.clock - last\.time < 1\.2/);
+  assert.match(game, /RivalLab\.noteTouch\(m\.side, preTouchVx, preTouchVy, p\.vx, p\.vy\)/);
+  assert.match(game, /last\.shank && this\.clock - last\.time < 1\.2/);
+  assert.match(game, /const counterShot = b\.counterT > 0/);
+  assert.match(game, /b\.counterCommitted = counterShot/);
 });
 
 test('CI guards rival identity and simulation health', () => {
