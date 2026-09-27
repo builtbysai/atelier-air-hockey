@@ -164,11 +164,12 @@ function checkBest(key, secs, kmh, rally, margin) {
 // ---------- achievements ----------
 // One-time named feats, unlocked for the human winner of a local match and
 // announced on the win card. Persisted per device; local-only like Record.
+const SPEEDSTER_KMH = 24;
 const FEATS = [
   { id: 'shutout',   name: 'SHUTOUT',   desc: 'a clean sheet' },
   { id: 'comeback',  name: 'COMEBACK',  desc: 'won from three down' },
   { id: 'hattrick',  name: 'HAT-TRICK', desc: 'three goals on the spin' },
-  { id: 'speedster', name: 'SPEEDSTER', desc: 'puck past 60 km/h' },
+  { id: 'speedster', name: 'SPEEDSTER', desc: 'puck past ' + SPEEDSTER_KMH + ' km/h' },
   { id: 'grandtour', name: 'GRAND TOUR', desc: 'all ten tables conquered' },
 ];
 const Feats = {
@@ -3633,7 +3634,7 @@ function showWin() {
     if (G.score[1 - G.winSide] === 0 && Feats.unlock('shutout')) fresh.push('SHUTOUT');
     if ((st.worstDef || [0, 0])[G.winSide] <= -3 && Feats.unlock('comeback')) fresh.push('COMEBACK');
     if (((st.bestStreak || [0, 0])[G.winSide] || 0) >= 3 && Feats.unlock('hattrick')) fresh.push('HAT TRICK');
-    if (kmh >= 60 && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
+    if (kmh >= SPEEDSTER_KMH && Feats.unlock('speedster')) fresh.push('SPEEDSTER');
 
     const unlockBefore = tableUnlockSnapshot();
     if (G.mode === 'ai' && G.winSide === 0) {
