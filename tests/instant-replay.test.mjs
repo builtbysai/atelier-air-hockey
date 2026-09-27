@@ -106,6 +106,7 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
   assert.match(game, /replayProgress/);
   assert.match(game, /style\.transform = 'scaleX\('/);
   assert.match(ui, /replaySkip'\)\.addEventListener\('click', \(\) => Replay\.finish\(\)\)/);
+  assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(true\)/);
   assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(\)/);
   assert.doesNotMatch(game, /drawPlaque\(ctx, CX, 128, 'REPLAY'\)/);
 });
@@ -122,7 +123,7 @@ test('a goal celebrates first and only starts replay after an explicit choice', 
 });
 
 test('winning goal replay is offered from results instead of interrupting celebration', () => {
-  assert.match(template, /id="btnWinReplay"[^>]*>Watch winning goal<\/button>/);
+  assert.match(template, /id="btnWinReplay"[^>]*>Winning goal<\/button>/);
   assert.match(game, /btnWinReplay/);
   assert.match(ui, /btnWinReplay'\)\.addEventListener\('click', \(\) => Replay\.startPending\('win'\)\)/);
 });
