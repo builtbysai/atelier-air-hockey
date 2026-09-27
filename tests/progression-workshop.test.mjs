@@ -11,14 +11,16 @@ const [game, ui, template, css] = await Promise.all([
 
 test('Workshop is a real playable practice surface', () => {
   assert.ok(template.includes('id="btnWorkshop">Workshop'));
-  for (const id of ['power','control','keeper'])
-    assert.ok(template.includes(`data-workshop="${id}"`), id + ' drill missing');
+  for (const id of ['power','control','keeper','free'])
+    assert.ok(template.includes(`data-workshop="${id}"`), id + ' Workshop mode missing');
   assert.ok(game.includes('function startWorkshop(id)'));
   assert.ok(game.includes("G.mode = 'workshop'"));
   assert.ok(game.includes('const WORKSHOP_DRILLS ='));
   assert.ok(game.includes('Score at 22 km/h'));
   assert.ok(game.includes('Build a 10-hit rally'));
-  assert.ok(game.includes('Make 3 clean saves'));
+  assert.ok(game.includes('Make 3 saves in a row'));
+  assert.ok(game.includes("name:'Free Hit'"));
+  assert.ok(game.includes("coach:null"));
 });
 
 test('Workshop drills use live match events without awarding normal match progression', () => {
@@ -28,6 +30,31 @@ test('Workshop drills use live match events without awarding normal match progre
   assert.ok(game.includes("if (G.mode === 'workshop')"));
   assert.ok(game.includes("G.mode === 'workshop' || G.demo"));
   assert.ok(game.includes("G.mode === 'workshop' || G.demo || G.state !== 'play'"));
+});
+
+
+test('Workshop stores meaningful personal bests without changing the three progression clears', () => {
+  assert.ok(game.includes('best(id)'));
+  assert.ok(game.includes('bumpBest(id, value)'));
+  assert.ok(game.includes("this.data._best"));
+  assert.ok(game.includes("Workshop.bumpBest('power', speedKmh)"));
+  assert.ok(game.includes("Workshop.bumpBest('control', this.progress)"));
+  assert.ok(game.includes("Workshop.bumpBest('keeper', this.progress)"));
+  assert.ok(game.includes("this.wasCleared = Workshop.done(id)"));
+  assert.ok(game.includes("d.free || this.wasCleared"));
+  assert.ok(game.includes("count() { return ['power','control','keeper']"));
+  assert.ok(ui.includes("CLEARED · PB "));
+  assert.ok(ui.includes("PB ' + best"));
+});
+
+test('Keeper clear requires a save streak and Free Hit is a coachless sandbox', () => {
+  assert.ok(game.includes("this.id === 'keeper'"));
+  assert.ok(game.includes("this.progress = 0; this.syncHud('Save streak reset"));
+  assert.ok(game.includes("Practice.id === 'free'"));
+  assert.ok(game.includes("G.ai2 = null"));
+  assert.ok(game.includes("G.m2.x = G.m2.tx = VW + MALLET_R * 4"));
+  assert.ok(game.includes("d.coach == null ? null : mkBrain(1, d.coach)"));
+  assert.ok(template.includes('Free Hit never affects progression'));
 });
 
 test('mastery is persisted independently from raw win counts', () => {
