@@ -15,10 +15,10 @@ test('Workshop is a real playable practice surface', () => {
     assert.match(template, new RegExp('data-workshop="' + id + '"'));
   assert.match(game, /function startWorkshop(id)/);
   assert.match(game, /G.mode = 'workshop'/);
-  assert.match(game, /const WORKSHOP_DRILLS =/);
-  assert.match(game, /Score at 55 km\/h/);
-  assert.match(game, /Build a 10-hit rally/);
-  assert.match(game, /Make 3 clean saves/);
+  assert.ok(game.includes('const WORKSHOP_DRILLS ='));
+  assert.ok(game.includes("Score at 55 km/h"));
+  assert.ok(game.includes("Build a 10-hit rally"));
+  assert.ok(game.includes("Make 3 clean saves"));
 });
 
 test('Workshop drills use live match events without awarding normal match progression', () => {
@@ -31,10 +31,10 @@ test('Workshop drills use live match events without awarding normal match progre
 });
 
 test('mastery is persisted independently from raw win counts', () => {
-  assert.match(game, /const Mastery =/);
-  assert.match(game, /atelier-ah-mastery/);
+  assert.ok(game.includes('const Mastery ='));
+  assert.ok(game.includes('atelier-ah-mastery'));
   assert.match(game, /Mastery.award(G.themeId, G.difficulty)/);
-  assert.match(game, /TABLE MASTERED/);
+  assert.ok(game.includes('TABLE MASTERED'));
   assert.match(ui, /Mastery.load()/);
 });
 
@@ -42,15 +42,15 @@ test('first four rooms are open and later rooms use explicit skill gates', () =>
   assert.match(game, /['deco','mid','brut','bil'].includes(id)/);
   for (const id of ['mem','sashi','bau','zel','swi','neon'])
     assert.match(game, new RegExp(id + ':'));
-  assert.match(game, /drill:'power'/);
-  assert.match(game, /drill:'control'/);
-  assert.match(game, /drill:'keeper'/);
+  assert.ok(game.includes("drill:'power'"));
+  assert.ok(game.includes("drill:'control'"));
+  assert.ok(game.includes("drill:'keeper'"));
   assert.match(game, /Mastery.masteredCount()/);
   assert.match(game, /if (Tour.won(id)) return true/);
 });
 
 test('locked rooms remain visible but cannot start a match', () => {
-  assert.match(ui, /class="tlock hidden"/);
+  assert.ok(ui.includes('class="tlock hidden"'));
   assert.match(css, /.tslide.locked/);
   assert.match(ui, /label.textContent = 'TABLE LOCKED'/);
   assert.match(ui, /start.disabled = true/);
@@ -60,7 +60,7 @@ test('locked rooms remain visible but cannot start a match', () => {
 test('stronger House wins grant table mastery and can unlock new rooms', () => {
   assert.match(game, /Math.max(before, clamp(Number(diffIdx) + 1, 1, 3))/);
   assert.match(game, /newlyUnlockedTables(unlockBefore)/);
-  assert.match(game, /UNLOCKED ·/);
+  assert.ok(game.includes('UNLOCKED ·'));
 });
 
 test('House rivals expose distinct behavioral profiles', () => {
@@ -82,7 +82,7 @@ test('reset progress includes Workshop and mastery stores', () => {
 });
 
 test('Workshop HUD is separate from the match scoreboard', () => {
-  assert.match(template, /id="workshopHud"/);
+  assert.ok(template.includes('id="workshopHud"'));
   assert.match(game, /if (G.demo || G.mode === 'workshop') return;/);
   assert.match(css, /.workshop-hud/);
 });
