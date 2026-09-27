@@ -1,4 +1,4 @@
-const CACHE = 'atelier-air-hockey-v31';
+const CACHE = 'atelier-air-hockey-v32';
 const CORE = [
   './',
   './index.html',
@@ -19,11 +19,13 @@ const CORE = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE)
-      .then(cache => cache.addAll(CORE))
-      .then(() => self.skipWaiting())
-  );
+  // Precache, then wait. The running game decides when it is safe to activate
+  // this version so a match can never straddle two app generations.
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)));
+});
+
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
