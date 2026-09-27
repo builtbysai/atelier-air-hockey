@@ -1442,14 +1442,18 @@ const Replay = {
   acc: 0, elapsed: 0, scorer: -1, pendingScorer: -1, returnMode: 'goal',
   requested: false, offerT: 0,
   sourceRate: 0.80,
+  sequence:null, sequenceIndex:0,
   reset() {
     this.frames.length = 0; this.clip = null; this.pendingClip = null; this.active = false;
     this.acc = 0; this.elapsed = 0; this.scorer = -1; this.pendingScorer = -1; this.returnMode = 'goal';
     this.requested = false; this.offerT = 0;
+    this.sequence = null; this.sequenceIndex = 0;
     this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
+    const word = document.querySelector('#replayHud .replay-word'); if (word) word.textContent = 'REPLAY';
+    const skip = document.getElementById('replaySkip'); if (skip) skip.textContent = 'Skip';
     document.body.classList.remove('replay-mode');
   },
   snapshot() {
@@ -1460,11 +1464,14 @@ const Replay = {
     };
   },
   push() {
-    this.frames.push(this.snapshot());
+    const frame = this.snapshot();
+    this.frames.push(frame);
     if (this.frames.length > REPLAY_MAX) this.frames.shift();
+    if (typeof Highlights !== 'undefined') Highlights.onReplayFrame(frame);
   },
   record(dt) {
     if (this.active || G.mode === 'online' || G.mode === 'workshop' || G.demo || G.state !== 'play') return;
+    if (typeof Highlights !== 'undefined') Highlights.tick(dt);
     this.acc += dt;
     const step = 1 / REPLAY_HZ;
     while (this.acc >= step) { this.acc -= step; this.push(); }
@@ -1475,6 +1482,7 @@ const Replay = {
       this.frames.length = 0; this.acc = 0; return null;
     }
     this.push();
+    if (typeof Highlights !== 'undefined') Highlights.flushPending();
     const keep = Math.min(this.frames.length, Math.round(REPLAY_HZ * 2.4));
     const clip = this.frames.slice(-keep);
     if (Settings.instantReplay === 'goals') {
@@ -1513,8 +1521,9 @@ const Replay = {
     // so play it immediately and restart countdown afterward.
     if (G.state === 'count') this.startPending('goal');
   },
-  startClip(clip, scorer, returnMode = 'win') {
+  startClip(clip, scorer, returnMode = 'win', replayLabel = '') {
     if (!clip || clip.length < 2 || this.active) return false;
+    if (!replayLabel) { this.sequence = null; this.sequenceIndex = 0; }
     this.clip = clip;
     this.scorer = scorer;
     this.elapsed = 0; this.active = true; this.returnMode = returnMode;
@@ -1526,8 +1535,22 @@ const Replay = {
     document.body.classList.add('replay-mode');
     $('topbar').classList.add('hidden');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.remove('hidden');
+    const word = document.querySelector('#replayHud .replay-word'); if (word) word.textContent = replayLabel || 'REPLAY';
+    const skip = document.getElementById('replaySkip'); if (skip) skip.textContent = replayLabel ? 'Next' : 'Skip';
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     return true;
+  },
+  startSequence(items, returnMode = 'win') {
+    if (this.active) return false;
+    const sequence = (items || []).filter(item => item && item.clip && item.clip.length > 1);
+    if (sequence.length < 2) return false;
+    this.sequence = sequence;
+    this.sequenceIndex = 0;
+    const first = sequence[0];
+    const ok = this.startClip(first.clip, first.scorer ?? first.side ?? -1, returnMode,
+      'MATCH REEL 1/' + sequence.length);
+    if (!ok) { this.sequence = null; this.sequenceIndex = 0; }
+    return ok;
   },
   startPending(returnMode = 'goal') {
     if (!this.hasPending()) return false;
@@ -1553,12 +1576,27 @@ const Replay = {
     if (progress) progress.style.transform = 'scaleX(' + clamp(duration > 0 ? this.elapsed / duration : 0, 0, 1).toFixed(3) + ')';
     if (this.elapsed >= duration) this.finish();
   },
-  finish() {
+  finish(forceExit = false) {
     if (!this.active) return;
+    if (!forceExit && this.sequence && this.sequenceIndex + 1 < this.sequence.length) {
+      this.sequenceIndex++;
+      const next = this.sequence[this.sequenceIndex];
+      this.clip = next.clip;
+      this.scorer = next.scorer ?? next.side ?? -1;
+      this.elapsed = 0;
+      const word = document.querySelector('#replayHud .replay-word');
+      if (word) word.textContent = 'MATCH REEL ' + (this.sequenceIndex + 1) + '/' + this.sequence.length;
+      const progress = document.getElementById('replayProgress');
+      if (progress) progress.style.transform = 'scaleX(0)';
+      return;
+    }
     const ret = this.returnMode;
     this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1; this.returnMode = 'goal';
+    this.sequence = null; this.sequenceIndex = 0;
     document.body.classList.remove('replay-mode');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
+    const word = document.querySelector('#replayHud .replay-word'); if (word) word.textContent = 'REPLAY';
+    const skip = document.getElementById('replaySkip'); if (skip) skip.textContent = 'Skip';
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
     if (ret === 'win') {
       G.state = 'win';
