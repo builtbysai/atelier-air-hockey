@@ -154,7 +154,13 @@
   .cdots i.sel{ opacity:1; transform:scale(1.35); background:var(--btnbg); }
 
   .seg4{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
-  #playModes{ grid-template-columns:repeat(5,minmax(0,1fr)); }
+  #playModes{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+  #playModes #btnPractice{
+    grid-column:1 / -1; padding:9px 12px;
+  }
+  #playModes #btnPractice small{
+    display:inline; margin:0 0 0 10px;
+  }
   .practice-sel{ margin-top:10px; }
   .practice-sel .seclabel{ margin-top:8px; }
   .practice-hud{
@@ -580,6 +586,8 @@
 
   @media (max-width:480px), (max-height:540px){
     #playModes{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+    #playModes #btnPractice{ grid-column:1 / -1; }
+    #playModes #btnPractice small{ display:inline; margin-left:8px; }
   }
   @media (max-width:600px){
     .practice-hud{
