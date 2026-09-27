@@ -2320,6 +2320,7 @@ function collideMallet(p, m, dt) {
       onMalletHit(p.x, p.y, 750, rx, ry);
     }
     m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
+    Highlights.noteTouch(m.side);
     if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
     return;
   }
@@ -2355,6 +2356,7 @@ function collideMallet(p, m, dt) {
   const tang = (m.vx - p.vx) * tx + (m.vy - p.vy) * ty;
   p.w = clamp((p.w || 0) + tang / 260, -12, 12);
   G.lastTouch = m.side;
+  Highlights.noteTouch(m.side);
   if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
   G.stallT = 0;
   // hit-effects cascade (sound, particles, shake, save/whoosh, mallet recoil):
@@ -2383,6 +2385,11 @@ function collideMallet(p, m, dt) {
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
       if (G.mode === 'workshop') Practice.onSave(m.side);
+      Highlights.queue('save', {
+        side:m.side, scorer:m.side,
+        speedKmh:Math.round(hyp(preTouchVx, preTouchVy) * (2.4384 / PW) * 3.6),
+        impact, score:[G.score[0], G.score[1]], rally:G.stats?.rally || 0,
+      });
       const saveBrain = m.side === 0 ? G.ai1 : G.ai2;
       if (saveBrain && (G.mode === 'ai' || G.mode === 'watch'))
         saveBrain.counterT = saveBrain.diff.counterWindow || 0;
@@ -2457,6 +2464,12 @@ function stepPhysics(dt) {
         G.missGlow = { side: nearL ? 0 : 1, t: 0.7 };
       }
       AudioSys.blip(1500, 0.05, 0.10);
+      const shooter = G.lastTouch >= 0 ? G.lastTouch : (nearL ? 1 : 0);
+      Highlights.queue('post', {
+        side:shooter, scorer:shooter,
+        speedKmh:Math.round(hyp(p.vx, p.vy) * (2.4384 / PW) * 3.6),
+        score:[G.score[0], G.score[1]], rally:G.stats?.rally || 0,
+      });
     }
   }
   // anti-stall: a real table never lets the puck die mid-rink - a whisper
@@ -3272,6 +3285,7 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
   const v = clamp(impact / 2200, 0, 1);
+  Highlights.noteRail(x, y, impact);
   // puck squash on rails and the goal frame, 8–20% along the impact normal -
   // shared with the mallet-hit squash. Keeps the deeper of overlapping
   // deformations and restarts the spring from the new shape.
