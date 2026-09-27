@@ -53,3 +53,13 @@ test('reset progress includes the House challenge store', () => {
   assert.match(ui, /Mastery\.key, TableChallenges\.key, Workshop\.key/);
   assert.match(ui, /House challenges/);
 });
+
+
+test('selected table surfaces its challenge without changing carousel height', () => {
+  assert.match(ui, /data-challenge aria-hidden="true"/);
+  assert.match(game, /chip\.textContent = challengeDone \? '◆ CHALLENGE CLEARED'/);
+  assert.match(game, /House challenge: ' \+ def\.name/);
+  assert.match(css, /\.tchallenge\{/);
+  assert.match(css, /position:absolute/);
+  assert.match(css, /\.tslide\.sel:not\(\.locked\) \.tchallenge/);
+});

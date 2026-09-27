@@ -456,6 +456,7 @@ function buildCarousel() {
     d.setAttribute('aria-label', T.name + ' table');
     d.innerHTML = '<canvas data-thumb="' + id + '" width="640" height="400"></canvas>' +
       '<div class="tlock hidden"><strong>LOCKED</strong><small data-lock-reason></small></div>' +
+      '<div class="tchallenge" data-challenge aria-hidden="true"></div>' +
       '<div class="tmeta"><div class="tname">' + T.name + '</div>' +
       '<div class="tsub">' + T.tagline + '</div></div>';
     const pick = () => { AudioSys.init(); setTheme(id); };
