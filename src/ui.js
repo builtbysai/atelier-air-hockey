@@ -653,10 +653,14 @@ function wireUI() {
   document.querySelectorAll('[data-workshop]').forEach(btn => {
     btn.addEventListener('click', () => startWorkshop(btn.dataset.workshop));
   });
-  $('workshopClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
+  $('workshopClose').addEventListener('click', () => {
+    if (G.mode === 'workshop') { quitToMenu(); return; }
+    AudioSys.ui(); refreshTour(); updateStartLabel(); hideAll(); $('menu').classList.remove('hidden');
+  });
   $('workshopExit').addEventListener('click', quitToMenu);
   $('workshopAgain').addEventListener('click', () => {
-    G.state = 'menu'; Practice.cancel(); resetPositions(); renderWorkshopMenu(); hideAll(); $('workshop').classList.remove('hidden');
+    quitToMenu();
+    openWorkshop();
   });
   $('workshopDoneMenu').addEventListener('click', quitToMenu);
   $('btnRules').addEventListener('click', openRules);
@@ -682,7 +686,7 @@ function wireUI() {
   $('btnResetProgress').addEventListener('click', async () => {
     const ok = await askConfirm({
       title: 'Reset progress',
-      message: 'Reset records, personal bests, achievements, and table-tour progress on this device?',
+      message: 'Reset records, personal bests, achievements, Workshop clears, and Table Tour mastery on this device?',
       ok: 'Reset everything', ret: 'progress',
     });
     if (!ok) return;
