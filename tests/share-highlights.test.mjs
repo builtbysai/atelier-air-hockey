@@ -17,11 +17,17 @@ test('local goals retain reusable highlight clips independently from replay prom
   assert.match(game, /const goalClip = Replay\.capture\(scorer\);\s*Highlights\.recordGoal\(scorer, goalClip\)/);
 });
 
-test('match moments select winning, fastest, and longest-rally goals with deduplication', () => {
-  assert.match(game, /kind:'winning', title:'Winning goal'/);
-  assert.match(game, /kind:'speed', title:'Fastest goal'/);
-  assert.match(game, /kind:'rally', title:'Longest rally'/);
-  assert.match(game, /const seen = new Set\(\), out = \[\]/);
+test('match moments capture and rank goals, saves, post kisses, and skill context', () => {
+  assert.match(game, /queue\('save'/);
+  assert.match(game, /queue\('post'/);
+  assert.match(game, /kind:'goal'/);
+  assert.match(game, /winning, equalizer, goAhead, comeback, bank/);
+  assert.match(game, /title:'Match-point save'/);
+  assert.match(game, /title:'Bank shot'/);
+  assert.match(game, /title:'Comeback goal'/);
+  assert.match(game, /'Fastest goal'/);
+  assert.match(game, /'Longest rally'/);
+  assert.match(game, /\.sort\(\(a,b\) => b\.rank - a\.rank/);
 });
 
 test('highlight UI supports replay and GIF export', () => {
@@ -30,7 +36,11 @@ test('highlight UI supports replay and GIF export', () => {
   assert.match(share, /dataset\.highlightPlay/);
   assert.match(share, /dataset\.highlightGif/);
   assert.match(share, /Highlights\.play/);
+  assert.match(share, /item\.moment\.id/);
   assert.match(share, /GifExport\.start/);
+  assert.match(template, /id="btnMatchReel"/);
+  assert.match(game, /playReel\(returnMode = 'win'\)/);
+  assert.match(game, /Replay\.startSequence\(this\.reel\(\), returnMode\)/);
 });
 
 test('replay has a distinct visual treatment without a letterbox', () => {
@@ -142,4 +152,28 @@ test('GIF share uses native file sharing with download fallback', () => {
   assert.match(share, /atelier-air-hockey-replay\.gif/);
   assert.match(share, /navigator\.canShare\(\{ files:\[file\] \}\)/);
   assert.match(share, /shareDownload\(this\.blob, file\.name\)/);
+});
+
+
+test('non-goal moments capture pre-roll and post-roll from the real replay buffer', () => {
+  assert.match(game, /const pre = Replay\.frames\.slice\(-preCount\)/);
+  assert.match(game, /item\.post\.push\(frame\)/);
+  assert.match(game, /const clip = item\.pre\.concat\(item\.post\)/);
+  assert.match(game, /Highlights\.onReplayFrame\(frame\)/);
+  assert.match(game, /Highlights\.flushPending\(\)/);
+});
+
+test('bank recognition is tied to the same possession touch', () => {
+  assert.match(game, /touchSerial:this\.touchSerial/);
+  assert.match(game, /this\.recentRail\.touchSerial === this\.touchSerial/);
+  assert.match(game, /this\.matchT - this\.recentRail\.t <= 1\.35/);
+  assert.match(game, /Highlights\.noteTouch\(m\.side\)/);
+  assert.match(game, /Highlights\.noteRail\(x, y, impact\)/);
+});
+
+test('Match Reel plays top moments chronologically through replay sequence mode', () => {
+  assert.match(game, /startSequence\(items, returnMode = 'win'\)/);
+  assert.match(game, /MATCH REEL 1\/.*sequence\.length/);
+  assert.match(game, /this\.sequenceIndex\+\+/);
+  assert.match(game, /reel\(\) \{[\s\S]*?sort\(\(a,b\) => a\.t - b\.t\)/);
 });
