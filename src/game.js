@@ -2826,7 +2826,10 @@ function showWin() {
   }
 
   const winReplay = $('btnWinReplay');
-  if (winReplay) winReplay.classList.toggle('hidden', !Replay.hasPending());
+  const hasReplay = Replay.hasPending();
+  if (winReplay) winReplay.classList.toggle('hidden', !hasReplay);
+  const momentActions = $('winMomentActions');
+  if (momentActions) momentActions.classList.toggle('solo', !hasReplay);
   hideAll(); $('winov').classList.remove('hidden');
   G.hintLive = false;
 
