@@ -106,7 +106,7 @@ test('replay uses one visible HUD with progress, Skip, and Escape', () => {
   assert.match(game, /replayProgress/);
   assert.match(game, /style\.transform = 'scaleX\('/);
   assert.match(ui, /replaySkip'\)\.addEventListener\('click', \(\) => Replay\.finish\(\)\)/);
-  assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(\)/);
+  assert.match(ui, /G\.state === 'replay'\) Replay\.finish\(true\)/);
   assert.doesNotMatch(game, /drawPlaque\(ctx, CX, 128, 'REPLAY'\)/);
 });
 
@@ -137,7 +137,7 @@ test('ignoring replay never delays the next serve', () => {
 
 test('choosing replay during countdown restarts the normal post-goal flow afterwards', () => {
   assert.match(game, /if \(G\.state === 'count'\) this\.startPending\('goal'\)/);
-  const start = game.indexOf('finish() {', game.indexOf('const Replay = {'));
+  const start = game.indexOf('finish(forceExit = false) {', game.indexOf('const Replay = {'));
   const end = game.indexOf('applyFrame()', start);
   const finish = game.slice(start, end);
   assert.match(finish, /advanceAfterGoal\(\)/);

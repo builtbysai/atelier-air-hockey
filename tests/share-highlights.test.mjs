@@ -17,20 +17,50 @@ test('local goals retain reusable highlight clips independently from replay prom
   assert.match(game, /const goalClip = Replay\.capture\(scorer\);\s*Highlights\.recordGoal\(scorer, goalClip\)/);
 });
 
-test('match moments select winning, fastest, and longest-rally goals with deduplication', () => {
-  assert.match(game, /kind:'winning', title:'Winning goal'/);
-  assert.match(game, /kind:'speed', title:'Fastest goal'/);
-  assert.match(game, /kind:'rally', title:'Longest rally'/);
-  assert.match(game, /const seen = new Set\(\), out = \[\]/);
+test('match moments score real context instead of only fixed stat buckets', () => {
+  assert.match(game, /scoreGoal\(g\)/);
+  assert.match(game, /g\.winning/);
+  assert.match(game, /g\.erasedDeficit/);
+  assert.match(game, /g\.bankShot/);
+  assert.match(game, /g\.savesBeforeGoal/);
+  assert.match(game, /g\.rally/);
+  assert.match(game, /g\.speedKmh/);
+  assert.match(game, /Winning goal/);
+  assert.match(game, /Comeback equalizer/);
+  assert.match(game, /Bank shot/);
+  assert.match(game, /Save and score/);
+  assert.match(game, /Long rally finish/);
+  assert.match(game, /Rocket goal/);
 });
 
-test('highlight UI supports replay and GIF export', () => {
+test('highlight UI supports individual replay, GIF export, and a queued match reel', () => {
   assert.match(template, /id="winHighlights"/);
   assert.match(template, /id="winHighlightList"/);
+  assert.match(template, /id="btnMatchReel"[^>]*>Watch match reel<\/button>/);
+  assert.match(template, /id="replayContext"/);
   assert.match(share, /dataset\.highlightPlay/);
   assert.match(share, /dataset\.highlightGif/);
   assert.match(share, /Highlights\.play/);
+  assert.match(share, /Highlights\.playReel\('win'\)/);
   assert.match(share, /GifExport\.start/);
+  assert.match(game, /startReel\(items, returnMode = 'win'\)/);
+  assert.match(game, /MOMENT ' \+ \(this\.reelIndex \+ 1\) \+ '\/'/);
+});
+
+
+test('highlight telemetry understands saves, near misses, posts, and bank shots', () => {
+  assert.match(game, /Highlights\.noteTouch\(m\.side\)/);
+  assert.match(game, /Highlights\.noteSave\(m\.side\)/);
+  assert.match(game, /Highlights\.noteRail\(x, y, isPost\)/);
+  assert.match(game, /Highlights\.noteNearMiss\(nearL \? 0 : 1\)/);
+  assert.match(game, /point\.bankBy === scorer && point\.bankSerial === this\.touchSerial/);
+});
+
+test('Match Reel advances through clips and Escape can exit the whole reel', () => {
+  assert.match(game, /ret === 'reel' && !forceExit/);
+  assert.match(game, /this\.reelIndex\+\+/);
+  assert.match(game, /const finalReturn = ret === 'reel' \? this\.reelReturn : ret/);
+  assert.match(game, /skip\.textContent = inReel/);
 });
 
 test('replay has a distinct visual treatment without a letterbox', () => {

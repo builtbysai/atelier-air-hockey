@@ -54,8 +54,11 @@ test('reduced motion disables celebration animation', () => {
   assert.match(css, /\.win-burst i, \.win-score, \.win-stat, \.win-award/);
 });
 
-test('the result screen adapts when no winning-goal replay exists', () => {
+test('the result screen adapts between Match Reel, winning replay, and solo sharing', () => {
   assert.match(template, /id="winMomentActions"/);
-  assert.match(game, /momentActions\.classList\.toggle\('solo', !hasReplay\)/);
+  assert.match(template, /id="btnMatchReel"/);
+  assert.match(game, /const hasReel = reel\.length >= 2/);
+  assert.match(game, /winReplay\.classList\.toggle\('hidden', hasReel \|\| !hasReplay\)/);
+  assert.match(game, /momentActions\.classList\.toggle\('solo', !hasReel && !hasReplay\)/);
   assert.match(css, /\.win-moment-actions\.solo/);
 });
