@@ -62,7 +62,8 @@ test('fullscreen UI respects device safe areas', () => {
 
 
 test('new service workers wait for a safe user-approved activation', () => {
-  const install = sw.slice(sw.indexOf("self.addEventListener('install'"), sw.indexOf("self.addEventListener('activate'"));
+  const install = sw.match(/self\.addEventListener\('install'[\s\S]*?\n\}\);/)?.[0] || '';
+  assert.ok(install, 'install handler missing');
   assert.doesNotMatch(install, /skipWaiting/);
   assert.match(sw, /event\.data && event\.data\.type === 'SKIP_WAITING'/);
   assert.match(sw, /self\.skipWaiting\(\)/);
