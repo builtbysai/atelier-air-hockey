@@ -1,10 +1,10 @@
 ![Atelier Air Hockey](docs/identity/banner.png)
 
-*Nine rooms. One puck. No neon in sight.*
+*Ten rooms. One puck. Neon after dark.*
 
 **Play:** https://builtbysai.com/atelier-air-hockey/
 
-A handcrafted browser air-hockey game. Nine art-directed tables, each a different design movement with its own room, scoreboard device, and ambience. Local rivals, same-screen two-player, AI-vs-AI exhibition, and peer-to-peer online matches in the browser. No account, no download.
+A handcrafted browser air-hockey game. Ten art-directed tables, each a different design movement with its own room, scoreboard device, and ambience. Local rivals, same-screen two-player, AI-vs-AI exhibition, and peer-to-peer online matches in the browser. No account, no download.
 
 ## The tables
 
@@ -33,14 +33,21 @@ A handcrafted browser air-hockey game. Nine art-directed tables, each a differen
 
 Win on every table to complete the **Table Tour**. Records, personal bests (fastest win, top speed, longest rally, biggest margin), and five achievements persist on your device.
 
-## Table rules
+## Match rules and preferences
 
-Tune the room in Settings · everything saves on this device:
+Match Rules control the next match:
 
 - First to 5, 7, or 11
 - Puck pace: Casual, Classic, Lightning
 - Goal mouth: Narrow, Standard, Wide
-- Screen shake, effects scale, sound, generative music, haptics
+
+Preferences control presentation on this device:
+
+- Screen shake and effects scale
+- Goal replay offer
+- Sound and generative music volume
+- Haptics
+- Camera and orientation
 
 ## Controls
 

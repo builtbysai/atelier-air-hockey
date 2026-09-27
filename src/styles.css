@@ -319,13 +319,106 @@
   .online-err:empty{ border:none; background:none; padding:0; min-height:0; }
   .pulse{ animation:opulse 1.6s ease-in-out infinite; }
   @keyframes opulse{ 0%,100%{ opacity:0.45; } 50%{ opacity:1; } }
-  /* win-card confetti rain - theme-colored pieces spawned by showWin() */
-  #winov .card{ position:relative; overflow-x:hidden; overflow-y:auto; }
-  .confetti{ position:absolute; top:-14px; z-index:5; pointer-events:none; border-radius:2px; animation:cfall linear forwards; }
-  @keyframes cfall{ to{ transform:translateY(110vh) rotate(720deg); opacity:0.85; } }
+  /* full-time celebration: one composed payoff using the current room's
+     palette and typography. The room remains visible behind it. */
+  #winov{ background:rgba(0,0,0,0.16); }
+  #winov .win-card{
+    position:relative; isolation:isolate; overflow:hidden;
+    max-width:560px; padding:24px 26px 20px;
+    background:color-mix(in srgb,var(--panel) 94%,transparent);
+    border-color:var(--pline);
+    box-shadow:0 28px 80px rgba(0,0,0,.55), inset 0 0 0 1px color-mix(in srgb,var(--ghost) 55%,transparent);
+  }
+  #winov .win-card::before{
+    content:""; position:absolute; z-index:-2; left:50%; top:41%; width:330px; height:330px;
+    transform:translate(-50%,-50%); border:1px solid color-mix(in srgb,var(--btnbg) 28%,transparent);
+    border-radius:50%; opacity:.55; pointer-events:none;
+  }
+  #winov .win-card.win-loss::before{ opacity:.16; }
+  .win-burst{ position:absolute; inset:0; z-index:-1; overflow:hidden; pointer-events:none; }
+  .win-burst i{
+    --a:0deg; --travel:-150px; --delay:0ms;
+    position:absolute; left:50%; top:41%; width:3px; height:18px;
+    background:var(--btnbg); opacity:0; border-radius:1px;
+    transform:translate(-50%,-50%) rotate(var(--a)) translateY(-26px) scale(.35);
+    transform-origin:50% 50%; animation:winburst .9s cubic-bezier(.16,.7,.2,1) var(--delay) forwards;
+  }
+  .win-burst i.alt{ background:var(--title); width:5px; height:5px; border-radius:50%; }
+  .win-burst i.diamond{ width:6px; height:6px; transform:translate(-50%,-50%) rotate(calc(var(--a) + 45deg)) translateY(-26px) scale(.35); }
+  @keyframes winburst{
+    0%{ opacity:0; }
+    16%{ opacity:.9; }
+    100%{ opacity:0; transform:translate(-50%,-50%) rotate(var(--a)) translateY(var(--travel)) scale(1); }
+  }
+  .win-hero{ position:relative; z-index:1; }
+  #winov .kicker{ margin-bottom:5px; }
+  #winov .win-card.win-win .kicker{ color:var(--btnbg); }
+  #winTitle{ margin:2px 0 4px; font-size:clamp(26px,5.5vw,40px); line-height:1.02; }
+  .win-score{
+    display:flex; align-items:baseline; justify-content:center; gap:10px;
+    margin:4px 0 2px; font-family:var(--display); font-variant-numeric:tabular-nums;
+    color:var(--title); line-height:.92;
+  }
+  .win-score strong{ font-size:clamp(58px,14vw,88px); font-weight:800; letter-spacing:-3px; }
+  .win-score span{ font-size:clamp(28px,6vw,42px); color:var(--sub); transform:translateY(-5px); }
+  .win-resultline{
+    margin:8px 0 15px; color:var(--sub); font-size:10px; letter-spacing:2.1px;
+    text-transform:uppercase;
+  }
+  .win-statgrid{
+    display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0;
+    margin:0 0 14px; border-top:1px solid var(--pline); border-bottom:1px solid var(--pline);
+  }
+  .win-stat{ min-width:0; padding:11px 8px 10px; border-right:1px solid color-mix(in srgb,var(--pline) 68%,transparent); }
+  .win-stat:last-child{ border-right:0; }
+  .win-stat span,.win-stat small{
+    display:block; color:var(--sub); font-size:8px; letter-spacing:1.25px; text-transform:uppercase;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .win-stat strong{
+    display:block; margin:3px 0 2px; color:var(--title); font:800 clamp(17px,4vw,23px) var(--display);
+    font-variant-numeric:tabular-nums;
+  }
+  .win-awards{
+    display:flex; justify-content:center; gap:6px; flex-wrap:wrap;
+    margin:2px 0 13px; min-height:0;
+  }
+  .win-award{
+    display:inline-flex; align-items:center; min-height:26px; padding:4px 9px;
+    border:1px solid var(--pline); border-radius:999px; background:var(--ghost);
+    color:var(--title); font-size:9px; font-weight:700; letter-spacing:1.3px; text-transform:uppercase;
+  }
+  .win-award.record::before{ content:"BEST"; margin-right:6px; color:var(--btnbg); font-size:8px; }
+  .win-award.feat::before{ content:"UNLOCKED"; margin-right:6px; color:var(--btnbg); font-size:8px; }
+  .win-moment-actions{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:0 0 4px; }
+  .win-moment-actions.solo{ grid-template-columns:1fr; }
+  .win-moment-actions .btn{ margin:0; padding:10px 9px; font-size:12px; }
+  .win-rematch{ margin-top:8px; }
+  .win-exit{ margin-bottom:0; }
+  #winov .win-card.win-win{ animation:wincardin .42s cubic-bezier(.16,.8,.2,1); }
+  #winov .win-card.win-loss{ animation:cardin .28s cubic-bezier(.16,.7,.2,1); }
+  .win-card.win-win .win-score{ animation:winscorein .46s cubic-bezier(.12,.82,.16,1) .10s backwards; }
+  .win-card.win-win .win-stat{ animation:winstatin .32s ease-out backwards; }
+  .win-card.win-win .win-stat:nth-child(1){ animation-delay:.22s; }
+  .win-card.win-win .win-stat:nth-child(2){ animation-delay:.27s; }
+  .win-card.win-win .win-stat:nth-child(3){ animation-delay:.32s; }
+  .win-card.win-win .win-stat:nth-child(4){ animation-delay:.37s; }
+  .win-card.win-win .win-award{ animation:winawardin .32s cubic-bezier(.16,.8,.2,1) .42s backwards; }
+  @keyframes wincardin{
+    0%{ opacity:0; transform:translateY(14px) scale(.965); }
+    64%{ opacity:1; transform:translateY(-2px) scale(1.012); }
+    100%{ transform:none; }
+  }
+  @keyframes winscorein{
+    0%{ opacity:0; transform:scale(.72); filter:blur(4px); }
+    70%{ opacity:1; transform:scale(1.045); filter:none; }
+    100%{ transform:none; filter:none; }
+  }
+  @keyframes winstatin{ from{ opacity:0; transform:translateY(5px); } to{ opacity:1; transform:none; } }
+  @keyframes winawardin{ from{ opacity:0; transform:translateY(4px) scale(.94); } to{ opacity:1; transform:none; } }
   @media (prefers-reduced-motion: reduce){
     *, *::before, *::after{ scroll-behavior:auto !important; }
-    .pulse, .confetti{ animation:none !important; }
+    .pulse, .win-burst i, .win-score, .win-stat, .win-award{ animation:none !important; }
     .overlay .card, #hint{ animation:none !important; }
     .tslide, .cdots i{ transition:none !important; }
   }
@@ -371,6 +464,17 @@
     .setrow{ margin:6px 0; }
     .setrow .seg button{ padding:8px 4px; font-size:13px; }
     #settings h1{ font-size:20px; }
+    #winov .win-card{ padding:12px 13px 11px; }
+    #winTitle{ font-size:22px; }
+    .win-score strong{ font-size:52px; }
+    .win-resultline{ margin:5px 0 9px; font-size:9px; }
+    .win-statgrid{ margin-bottom:9px; }
+    .win-stat{ padding:7px 4px 6px; }
+    .win-stat strong{ font-size:16px; }
+    .win-awards{ margin-bottom:8px; }
+    .win-moment-actions .btn{ padding:8px 6px; }
+    .win-rematch{ padding:10px 9px; margin-top:6px; }
+    .win-exit{ padding:8px 9px; }
   }
   @media (max-width:480px){
     .setrow{ flex-direction:column; align-items:stretch; gap:6px; }
@@ -412,4 +516,23 @@
     .replay-progress{ width:38px; }
     .rule-summary-grid > span{ padding:0 7px; }
     .rule-summary-grid strong{ font-size:12px; }
+  }
+
+  @media (max-width:520px){
+    .win-statgrid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .win-stat:nth-child(2){ border-right:0; }
+    .win-stat:nth-child(-n+2){ border-bottom:1px solid color-mix(in srgb,var(--pline) 68%,transparent); }
+  }
+  @media (max-height:540px) and (min-width:700px){
+    #winov .win-card{ max-width:720px; padding:10px 18px; }
+    #winov .kicker{ margin-bottom:1px; }
+    #winTitle{ font-size:21px; margin:0; }
+    .win-score{ margin:0; }
+    .win-score strong{ font-size:46px; }
+    .win-resultline{ margin:3px 0 7px; }
+    .win-statgrid{ margin-bottom:7px; }
+    .win-stat{ padding:6px 7px; }
+    .win-awards{ margin-bottom:6px; }
+    .win-moment-actions{ max-width:460px; margin:0 auto 3px; }
+    .win-rematch,.win-exit{ max-width:460px; margin-left:auto; margin-right:auto; padding:8px 10px; }
   }
