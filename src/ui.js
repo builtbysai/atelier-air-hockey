@@ -701,7 +701,7 @@ function wireUI() {
   $('btnResetProgress').addEventListener('click', async () => {
     const ok = await askConfirm({
       title: 'Reset progress',
-      message: 'Reset records, personal bests, achievements, Workshop clears, and Table Tour mastery on this device?',
+      message: 'Reset records, personal bests, achievements, Workshop clears, House challenges, and Table Tour mastery on this device?',
       ok: 'Reset everything', ret: 'progress',
     });
     if (!ok) return;
@@ -916,7 +916,7 @@ function applyVisualQaState(name) {
 function boot() {
   loadSettings();
   applyScreenOrientationPreference();
-  Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); Workshop.load();
+  Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); TableChallenges.load(); Workshop.load();
   refreshRecordLines(); // paint any stored records under the menu buttons
   refreshTour(); // tour counter + conquered-table pips
   // accessibility: prefers-reduced-motion drops Shake to Subtle for the
