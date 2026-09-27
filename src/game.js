@@ -1352,7 +1352,7 @@ const Replay = {
     if (this.frames.length > REPLAY_MAX) this.frames.shift();
   },
   record(dt) {
-    if (this.active || Settings.instantReplay !== 'goals' || G.mode === 'online' || G.demo || G.state !== 'play') return;
+    if (this.active || Settings.instantReplay !== 'goals' || G.mode === 'online' || G.mode === 'practice' || G.demo || G.state !== 'play') return;
     this.acc += dt;
     const step = 1 / REPLAY_HZ;
     while (this.acc >= step) { this.acc -= step; this.push(); }
@@ -1986,6 +1986,7 @@ function collideMallet(p, m, dt) {
       AudioSys.thud();
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
+      if (G.mode === 'practice' && m.side === 0) Practice.registerSave();
     }
     // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
     if (msp0 > 1300 && m.whooshT <= 0) {
@@ -2039,7 +2040,7 @@ function stepPhysics(dt) {
     m.hitSq += (1 - m.hitSq) * Math.min(1, dt * 10); // recoil recovery
   }
   collideMallet(p, G.m1, dt);
-  collideMallet(p, G.m2, dt);
+  if (G.mode !== 'practice') collideMallet(p, G.m2, dt);
   collideWalls(p);
   // goals: full crossing of the line inside the mouth
   if (p.x > PX + PW + p.r * 0.35 && Math.abs(p.y - CY) < goalW() / 2) onGoal(0);
@@ -2618,6 +2619,7 @@ function clearCeremony() {
 // ---------- game flow ----------
 function startGame(mode, diff) {
   AudioSys.init(); AudioSys.resume();
+  if (mode === 'practice') { Practice.start(diff || 'free'); return; }
   G.mode = mode;
   // EXHIBITION: diff is {a, b} - independent difficulty for left/right AI.
   if (mode === 'watch') { G.watch = { a: diff.a, b: diff.b }; G.difficulty = diff.b; }
@@ -2720,6 +2722,7 @@ function updateCount(rdt) {
   }
 }
 function onGoal(scorer) {
+  if (G.mode === 'practice') { Practice.onGoal(scorer); return; }
   if (G.demo) { // attract mode: no ceremony, just play on
     burst(G.puck.x, G.puck.y, 24, THEME.particle, 420);
     AudioSys.hit(0.8);
@@ -2994,6 +2997,7 @@ function togglePause(force, silent) {
     hideAll();
     if (G.state === 'play' || G.state === 'count' || G.state === 'goal') $('topbar').classList.remove('hidden');
     if (G.hintLive) $('hint').classList.remove('hidden'); // hint survives pause/resume
+    if (G.mode === 'practice') Practice.show();
     if (!silent) {
       // a local resume is always a user gesture, so the context may restart
       AudioSys.resume();
@@ -3047,10 +3051,12 @@ function restartMatch() {
     return;
   }
   if (G.mode === 'watch') startGame('watch', G.watch); // EXHIBITION: preserve the AI matchup
+  else if (G.mode === 'practice') startGame('practice', Practice.drill);
   else startGame(G.mode, G.difficulty);
 }
 function quitToMenu() {
-  if (G.mode === 'online') Net.leave(); // ONLINE: leave the room first - leave() resets mode
+  if (G.mode === 'online') Net.leave();
+  if (G.mode === 'practice') Practice.stop(); // ONLINE: leave the room first - leave() resets mode
   G.state = 'menu'; G.idleT = 0; G.demo = false; G.gwNet = 0; // drop any guest goal-width override
   G.watch = null; // EXHIBITION: clear the AI matchup on quit
   clearCeremony();
@@ -3069,7 +3075,7 @@ function quitToMenu() {
 function hideAll() {
   // ONLINE: online overlays are part of the overlay stack too. Gameplay chrome
   // is hidden centrally so Pause/Audio can never float over a dialog.
-  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer']) $(id).classList.add('hidden');
+  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'winov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer', 'practiceHud']) $(id).classList.add('hidden');
   $('topbar').classList.add('hidden');
   const replayHud = $('replayHud'); if (replayHud) replayHud.classList.add('hidden');
 }
@@ -3105,6 +3111,11 @@ function playStep(rdt) {
       // EXHIBITION: both mallets are AI-driven.
       aiDrive(G.ai1, sdt, G.m1);
       aiDrive(G.ai2, sdt, G.m2);
+    } else if (G.mode === 'practice') {
+      const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
+      if (pointers.size > 0 || kbFresh) driveMallet(G.m1, sdt, PLAYER_CAP);
+      else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
+      Practice.step(sdt);
     } else {
       // 1p: keyboard/gamepad also drive through tx/ty, so only pin the target
       // to the current position when no input source is active. Pinning
@@ -3491,7 +3502,7 @@ function renderTop(w, h) {
   drawTableFlat(ctx);
   drawPuck(ctx);
   drawMallet(ctx, G.m1);
-  drawMallet(ctx, G.m2);
+  if (G.mode !== 'practice') drawMallet(ctx, G.m2);
   drawFxFlat(ctx);
   drawTextsFlat(ctx);
   ctx.restore(); // ONLINE flip
@@ -3520,7 +3531,7 @@ function hudStatusText() {
 // The scoreboard device still comes from the active room; only its placement
 // is standardized so controls, labels, and camera transforms cannot collide.
 function drawHudCore(c, w, h) {
-  if (G.demo) return;
+  if (G.demo || G.mode === 'practice') return;
   const controlLane = w <= 600 ? 112 : 150;
   const maxHudW = Math.max(190, Math.min(440, w - controlLane));
   const hs = clamp(maxHudW / 440, 0.43, 1);
@@ -3795,12 +3806,12 @@ function drawObjects25(cam) {
   const p = G.puck;
   drawShadow25(cam, p.x + 10, p.y + 14, PUCK_R * 1.05);
   drawShadow25(cam, G.m1.x + 8, G.m1.y + 12, G.m1.r);
-  drawShadow25(cam, G.m2.x + 8, G.m2.y + 12, G.m2.r);
+  if (G.mode !== 'practice') drawShadow25(cam, G.m2.x + 8, G.m2.y + 12, G.m2.r);
   const items = [
     { z: camProject(cam, p.x, p.y, 0), f: () => drawPuck25(cam) },
     { z: camProject(cam, G.m1.x, G.m1.y, 0), f: () => drawMallet25(cam, G.m1) },
-    { z: camProject(cam, G.m2.x, G.m2.y, 0), f: () => drawMallet25(cam, G.m2) },
   ];
+  if (G.mode !== 'practice') items.push({ z: camProject(cam, G.m2.x, G.m2.y, 0), f: () => drawMallet25(cam, G.m2) });
   // painter's order: far (large zc) first. A missing projection sorts last.
   items.sort((u, v) => (v.z ? v.z.zc : -1) - (u.z ? u.z.zc : -1));
   for (const it of items) it.f();
