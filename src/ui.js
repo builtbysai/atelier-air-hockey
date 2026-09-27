@@ -143,7 +143,8 @@ const WakeSys = {
 };
 
 const UpdateSys = {
-  reg: null, waiting: null, dismissed: false, wired: false, reloading: false,
+  reg: null, waiting: null, dismissed: false, wired: false,
+  applying: false, controllerChanged: false, reloading: false,
   safeSurface() {
     const menu = G.state === 'menu' && !$('menu').classList.contains('hidden');
     const win = G.state === 'win' && !$('winov').classList.contains('hidden');
@@ -152,13 +153,20 @@ const UpdateSys = {
   sync() {
     const el = $('updateReady');
     if (!el) return;
-    const show = !!this.waiting && !this.dismissed && this.safeSurface();
+    if (this.controllerChanged && this.applying && this.safeSurface() && !this.reloading) {
+      this.reloading = true;
+      location.reload();
+      return;
+    }
+    const show = !!(this.waiting || this.controllerChanged) && !this.dismissed && this.safeSurface();
     el.classList.toggle('hidden', !show);
   },
   ready(worker) {
     if (!worker) return;
     this.waiting = worker;
     this.dismissed = false;
+    const b = $('btnApplyUpdate');
+    if (b) { b.disabled = false; b.textContent = 'Update'; }
     this.sync();
   },
   install(reg) {
@@ -175,14 +183,20 @@ const UpdateSys = {
     if (!this.wired) {
       this.wired = true;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (this.reloading) return;
-        this.reloading = true;
-        location.reload();
+        this.controllerChanged = true;
+        this.waiting = null;
+        this.sync();
       });
     }
   },
   apply() {
+    if (this.controllerChanged && !this.waiting) {
+      this.reloading = true;
+      location.reload();
+      return;
+    }
     if (!this.waiting) return;
+    this.applying = true;
     const b = $('btnApplyUpdate');
     if (b) { b.disabled = true; b.textContent = 'Updating…'; }
     this.waiting.postMessage({ type:'SKIP_WAITING' });
