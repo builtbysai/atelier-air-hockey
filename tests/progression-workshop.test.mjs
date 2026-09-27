@@ -16,7 +16,7 @@ test('Workshop is a real playable practice surface', () => {
   assert.ok(game.includes('function startWorkshop(id)'));
   assert.ok(game.includes("G.mode = 'workshop'"));
   assert.ok(game.includes('const WORKSHOP_DRILLS ='));
-  assert.ok(game.includes('Score at 55 km/h'));
+  assert.ok(game.includes('Score at 22 km/h'));
   assert.ok(game.includes('Build a 10-hit rally'));
   assert.ok(game.includes('Make 3 clean saves'));
 });
