@@ -711,6 +711,9 @@ function applyVisualQaState(name) {
     case 'elevated':
     case 'surface':
       baseMatch(name === 'top' ? 'top' : name); break;
+    case 'practice-menu':
+      hideAll(); G.state = 'menu'; $('menu').classList.remove('hidden');
+      selectRival('practice'); selectPractice('power'); break;
     case 'practice':
       Practice.start('power'); Practice.data.powerBest = Math.max(Practice.data.powerBest, 68);
       Practice.shotPeak = 64; Practice.render(); break;
