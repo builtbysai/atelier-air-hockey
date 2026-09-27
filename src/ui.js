@@ -711,6 +711,9 @@ function applyVisualQaState(name) {
     case 'elevated':
     case 'surface':
       baseMatch(name === 'top' ? 'top' : name); break;
+    case 'practice':
+      Practice.start('power'); Practice.data.powerBest = Math.max(Practice.data.powerBest, 68);
+      Practice.shotPeak = 64; Practice.render(); break;
     case 'goal':
       baseMatch('top'); G.score = [4, 2]; G.goalSide = 0; G.goalT = 1.15; G.letterT = 1;
       G.goalStreakLabel = 'TWO IN A ROW'; G.state = 'goal'; break;
