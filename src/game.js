@@ -1361,7 +1361,7 @@ const DIFFS = [
   {
     name:'Champion', style:'PRESSURE PLAYER',
     maxSpeed:1600, react:0.075, aimErr:20, strike:1.22, aggro:0.94, tick:0.05, whiff:0.005, windup:0.095,
-    homeDepth:240, homeTrack:0.58, bankChance:0.36, centerBias:0.00, recover:0.22,
+    homeDepth:240, homeTrack:0.58, bankChance:0.44, centerBias:0.00, recover:0.22,
     readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
     counterWindow:0.62, counterSpeed:2500, blockOffset:62,
   },
@@ -2067,6 +2067,34 @@ function glueEscapeDir(p, nx, ny) {
   }
   return { rx, ry, railed, nearT, nearB };
 }
+function aiBrainForSide(side) {
+  if (G.mode === 'watch') return side === 0 ? G.ai1 : G.ai2;
+  if (G.mode === 'ai') return side === 1 ? G.ai2 : null;
+  return null;
+}
+function aiControlledBlock(m, p, preVx) {
+  const brain = aiBrainForSide(m.side);
+  if (!brain || G.state !== 'play') return false;
+  const onOwnHalf = m.side === 0 ? p.x < CX : p.x > CX;
+  if (!onOwnHalf) return false;
+
+  const goalSign = m.side === 0 ? -1 : 1;
+  const beforeGoalward = Math.max(0, goalSign * preVx);
+  const afterGoalward = Math.max(0, goalSign * p.vx);
+  // Only correct a contact that CREATED a much more dangerous own-goal
+  // vector. A shot that was already travelling goalward remains a real
+  // defensive test; the AI does not get a magic save.
+  if (afterGoalward <= 360 || afterGoalward <= beforeGoalward + 150) return false;
+
+  const clearSpeed = clamp(Math.max(320, afterGoalward * 0.58), 320, 920);
+  p.vx = -goalSign * clearSpeed;
+  // Keep some lane energy so blocks glance into open ice instead of becoming
+  // robotic straight returns. Strong transverse motion is preserved.
+  p.vy = clamp(p.vy, -1500, 1500);
+  brain.counterT = Math.max(brain.counterT || 0, (brain.diff.counterWindow || 0) * 0.7);
+  return true;
+}
+
 function collideMallet(p, m, dt) {
   const dx = p.x - m.x, dy = p.y - m.y;
   const minD = p.r + m.r;
@@ -2125,6 +2153,7 @@ function collideMallet(p, m, dt) {
   const pvx0 = p.vx; // pre-impulse: save detection reads the puck's intent, not its rebound
   if (mvn > 0) j += mvn * SMACK_BONUS;
   p.vx += nx * j; p.vy += ny * j;
+  const aiControlledClear = aiControlledBlock(m, p, preTouchVx);
   // safety: a genuinely driven hit never dies
   const sp = hyp(p.vx, p.vy);
   const msp = hyp(m.vx, m.vy);
