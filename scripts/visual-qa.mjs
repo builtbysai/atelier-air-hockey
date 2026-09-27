@@ -7,12 +7,12 @@ const matrix = [
   {
     dir: 'mobile',
     viewport: { width: 390, height: 844 },
-    states: ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','replay','pause','win','update'],
+    states: ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','goal-rival','replay','pause','win','update'],
   },
   {
     dir: 'landscape',
     viewport: { width: 844, height: 390 },
-    states: ['menu','workshop-menu','workshop','workshop-free','surface','goal','win'],
+    states: ['menu','workshop-menu','workshop','workshop-free','surface','goal','goal-rival','win'],
   },
   {
     dir: 'desktop',

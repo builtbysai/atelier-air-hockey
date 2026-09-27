@@ -878,6 +878,12 @@ function applyVisualQaState(name) {
       G.letterT = 1; G.goalStreakLabel = 'TWO IN A ROW'; G.goalMomentLabel = 'TWO IN A ROW';
       G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 24;
       G.state = 'goal'; $('topbar').classList.add('hidden'); break;
+    case 'goal-rival':
+      baseMatch('top'); PRM.reduce = false; Settings.effects = 'full'; G.difficulty = 1;
+      G.score = [4,2]; G.goalSide = 0; G.goalT = 0.52; G.goalSlowT = 0.52;
+      G.letterT = 1; G.goalStreakLabel = ''; G.goalMomentLabel = 'LEAD TAKEN';
+      G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 22;
+      G.state = 'goal'; $('topbar').classList.add('hidden'); break;
     case 'replay': {
       baseMatch('top');
       const a = Replay.snapshot(); G.puck.x += 90; G.m1.y -= 45; const b = Replay.snapshot();

@@ -4824,13 +4824,34 @@ function drawPuck25(cam) {
   }
 }
 
+// Goal body language is render-only: the AI conceder gives ground for one
+// beat, then settles back. Personality changes the size of that response,
+// never the physical mallet position, hitbox, or AI target.
+function goalRivalRenderPose(m) {
+  const base = { x:m.x, y:m.y };
+  if (G.state !== 'goal' || G.goalSide === m.side || PRM.reduce || Settings.effects === 'minimal')
+    return base;
+
+  let diffIdx = -1;
+  if (G.mode === 'ai' && m.side === 1) diffIdx = G.difficulty;
+  else if (G.mode === 'watch' && G.watch) diffIdx = m.side === 0 ? G.watch.a : G.watch.b;
+  if (diffIdx < 0) return base;
+
+  const u = clamp(G.goalT / 1.05, 0, 1);
+  const pulse = Math.sin(Math.PI * u);
+  const fx = Settings.effects === 'subtle' ? 0.6 : 1;
+  const retreat = [48, 28, 14][clamp(diffIdx, 0, 2)] * pulse * fx;
+  const towardOwnGoal = m.side === 0 ? -1 : 1;
+  return { x:m.x + towardOwnGoal * retreat, y:m.y };
+}
+
 // The mallet as a physical striker: theme-dressed base disc plus a standing
 // wooden handle with a knob, like a real air hockey mallet.
 function drawMallet25(cam, m) {
-  const S = THEME.mallet, r = m.r;
-  const base = tableEll25(cam, m.x, m.y, 0, r);
-  const neck = tableEll25(cam, m.x, m.y, 18, r * 0.34);
-  const cap = tableEll25(cam, m.x, m.y, HANDLE_H25, r * 0.24);
+  const S = THEME.mallet, r = m.r, pose = goalRivalRenderPose(m);
+  const base = tableEll25(cam, pose.x, pose.y, 0, r);
+  const neck = tableEll25(cam, pose.x, pose.y, 18, r * 0.34);
+  const cap = tableEll25(cam, pose.x, pose.y, HANDLE_H25, r * 0.24);
   if (!base || !neck || !cap) return;
 
   const g = ctx.createRadialGradient(base.x - base.rx * 0.3, base.y - base.ry * 0.35, base.rx * 0.1, base.x, base.y, base.rx);
@@ -5172,12 +5193,12 @@ function drawPuck(c) {
 }
 
 function drawMallet(c, m) {
-  const S = THEME.mallet, r = m.r;
+  const S = THEME.mallet, r = m.r, pose = goalRivalRenderPose(m);
   c.save();
   // shadow (drawn in world space, unaffected by squash so it doesn't swim)
   c.fillStyle = 'rgba(0,0,0,0.4)';
-  c.beginPath(); c.ellipse(m.x + 6, m.y + 10, r, r * 0.9, 0, 0, TAU); c.fill();
-  c.translate(m.x, m.y);
+  c.beginPath(); c.ellipse(pose.x + 6, pose.y + 10, r, r * 0.9, 0, 0, TAU); c.fill();
+  c.translate(pose.x, pose.y);
   // squash/stretch: a fast-driven mallet leans into its own travel
   // (exaggeration/appeal), and a strike compresses it along the contact
   // normal for a couple frames before springing back (recoil) - same
