@@ -54,6 +54,8 @@ test('Keeper clear requires a save streak and Free Hit is a coachless sandbox', 
   assert.ok(game.includes("G.ai2 = null"));
   assert.ok(game.includes("G.m2.x = G.m2.tx = VW + MALLET_R * 4"));
   assert.ok(game.includes("d.coach == null ? null : mkBrain(1, d.coach)"));
+  assert.ok(game.includes("if (!(G.mode === 'workshop' && Practice.id === 'free')) drawMallet(ctx, G.m2)"));
+  assert.ok(game.includes("if (!freeHit) drawShadow25"));
   assert.ok(template.includes('Free Hit never affects progression'));
 });
 
