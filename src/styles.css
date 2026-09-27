@@ -229,6 +229,30 @@
     #menu .tagline{ margin-bottom:10px; }
     #menu .btn{ margin:5px 0; }
   }
+  /* Medium-height desktop/laptop screens: preserve the complete menu in one
+     viewport instead of making a roomy 1440×900 display scroll. */
+  @media (min-width:700px) and (min-height:541px) and (max-height:950px){
+    #menu .card{ padding:14px 22px 12px; }
+    #menu .kicker{ margin-bottom:3px; }
+    #menu .lobby-title{ font-size:30px; margin-bottom:1px; }
+    #menu .tagline{ margin-bottom:5px; font-size:12px; }
+    #menu .seclabel{ margin:9px 0 6px; }
+    #menu .carousel{ max-width:400px; }
+    #menu .ctrack{ padding-top:4px; padding-bottom:4px; }
+    #menu .tslide .tmeta{ padding:7px 12px 8px; }
+    #menu .tslide .tname{ font-size:15px; }
+    #menu .tslide .tsub{ font-size:10.5px; }
+    #menu .cdots{ margin:5px 0 0; }
+    #menu .btn{ padding:10px 10px; margin:4px 0; font-size:14px; }
+    #menu .btn small{ font-size:9px; margin-top:2px; }
+    #menu #btnPractice{ padding:7px 10px; }
+    #menu .seg3 .btn{ padding:7px 4px; }
+    #menu .rulebar{ padding:8px 10px; }
+    #menu .btn.bigstart{ margin-top:7px; padding:11px 12px; font-size:16px; }
+    #menu .foot{ margin-top:6px; font-size:10px; }
+    #menu .foot button{ padding:5px; font-size:10px; }
+    #menu .lobfoot .ver{ padding:5px 3px; }
+  }
   /* short-but-wide (landscape phones): tables left, rivals right - no scroll */
   @media (max-height:540px) and (min-width:700px){
     #menu{ padding:8px; }
