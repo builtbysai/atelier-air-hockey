@@ -29,6 +29,9 @@ assert.match(net, /\.onMessage\s*=/); assert.match(net, /\{ target: Net\.peerId 
 assert.doesNotMatch(net, /const \[sendSt/); assert.doesNotMatch(net, /createStubPair|netstub/);
 assert.match(net, /disconnectTimer/); assert.match(net, /validGoalEvent/); assert.match(net, /opToken/); assert.match(net, /handshakePeerId/);
 assert.match(game, /bestStreak: \[0, 0\]/); assert.match(game, /function togglePause/);
+const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
+assert.match(ambience, /Settings\.musicVolume <= 0/, 'room ambience must follow the Music control');
+assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shots must not leak onto the Sound bus');
 assert.match(boards, /Math\.max\(11, target \+ 1\)/); assert.match(boards, /chars\.split/);
 assert.match(ui, /installDialogA11y/); assert.match(ui, /\[role="option"\]/); assert.match(ui, /guestOwnsRight/); assert.match(ui, /'progress'/);
 assert.match(ui, /btnWatch/); assert.match(ui, /btnHouse/); assert.match(ui, /btnOnline/); assert.match(ui, /watchSel/); assert.match(ui, /G\.watch/); assert.match(ui, /selectWatch/);
