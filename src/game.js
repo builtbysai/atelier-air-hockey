@@ -1349,21 +1349,21 @@ const DIFFS = [
     maxSpeed:1080, react:0.22, aimErr:68, strike:0.88, aggro:0.64, tick:0.105, whiff:0.06, windup:0.13,
     homeDepth:175, homeTrack:0.34, bankChance:0.08, centerBias:0.28, recover:0.43,
     readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
-    counterWindow:0.72, counterSpeed:1950,
+    counterWindow:0.72, counterSpeed:1950, blockOffset:82,
   },
   {
     name:'Club Pro', style:'PLACEMENT PLAYER',
     maxSpeed:1320, react:0.12, aimErr:38, strike:1.05, aggro:0.76, tick:0.075, whiff:0.02, windup:0.11,
     homeDepth:205, homeTrack:0.44, bankChance:0.22, centerBias:0.10, recover:0.32,
     readKeeper:0.72, rebound:0.35, engageSpeed:1780, attackDelay:0.05, pressureDepth:95, pressBoost:0.14,
-    counterWindow:0.50, counterSpeed:2200,
+    counterWindow:0.50, counterSpeed:2200, blockOffset:72,
   },
   {
     name:'Champion', style:'PRESSURE PLAYER',
     maxSpeed:1600, react:0.075, aimErr:20, strike:1.22, aggro:0.94, tick:0.05, whiff:0.005, windup:0.095,
     homeDepth:240, homeTrack:0.58, bankChance:0.36, centerBias:0.00, recover:0.22,
     readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
-    counterWindow:0.38, counterSpeed:2500,
+    counterWindow:0.38, counterSpeed:2500, blockOffset:62,
   },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
@@ -2154,7 +2154,9 @@ function collideMallet(p, m, dt) {
     let savedThisHit = false;
     // SAVE: a fast lateral block of a puck bound for your own goal gets the
     // soft treatment - thud, ring pulse, brief puck glow. High drama, low noise.
-    if (m.saveCd <= 0 && impact > 220 && (m.side === 0 ? pvx0 < -450 : pvx0 > 450) && msp0 > 650) {
+    const inboundSave = m.side === 0 ? pvx0 < -450 : pvx0 > 450;
+    const onOwnHalf = m.side === 0 ? p.x < CX : p.x > CX;
+    if (m.saveCd <= 0 && impact > 320 && inboundSave && onOwnHalf) {
       m.saveCd = 0.9;
       G.saveT = 0.55;
       G.pulses.push({ x: p.x, y: p.y, t: 0 });
@@ -2505,7 +2507,14 @@ function aiThink(b, dt, m) {
       // from it the lane coverage matters more than the deflection angle.
       const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
       const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
-      setTx(gx + (pr.x - gx) * 0.35, pr.y + steerY);
+      // Stay between the puck and our own goal. The previous target sat
+      // almost exactly on the predicted puck point; when the mallet arrived
+      // from center ice it could contact from the attacking side and drive
+      // the shot into its own net. This goal-side cushion makes a block
+      // naturally deflect back toward open ice.
+      const goalSide = b.side === 0 ? -1 : 1;
+      const blockX = gx + (pr.x - gx) * 0.28 + goalSide * (D.blockOffset || 70);
+      setTx(blockX, pr.y + steerY);
       // if the puck sits in reach (smothered block, loose puck), take it.
       // v24.2: this reads LIVE geometry and is checked BEFORE the guard
       // fallback. The old order fell through to guard on the delayed `seen`
@@ -2721,7 +2730,7 @@ const RivalLab = {
       transitions: Object.create(null),
       strikes:0, windups:0, banks:0, keeperReads:0, whiffs:0,
       defends:0, rebounds:0, detours:0, escapes:0,
-      goals:0, ownGoals:0, saves:0,
+      goals:0, ownGoals:0, ownGoalsByState:Object.create(null), saves:0,
     };
   },
   observe(side, brain, previous, dt) {
@@ -2747,15 +2756,19 @@ const RivalLab = {
   noteTouch(side, vx, vy) {
     if (!this.active) return;
     const towardOwn = side === 0 ? vx < -250 : vx > 250;
-    this.lastTouchEvent = { side, time:this.clock, towardOwn, speed:hyp(vx,vy) };
+    const brain = side === 0 ? G.ai1 : G.ai2;
+    this.lastTouchEvent = { side, time:this.clock, towardOwn, speed:hyp(vx,vy), state:brain?.state || 'unknown' };
   },
   onGoal(scorer) {
     const last = this.lastTouchEvent;
     G.score[scorer]++;
     const out = this.current.sides[scorer];
     out.goals++;
-    if (last && last.side !== scorer && last.towardOwn && this.clock - last.time < 1.2)
-      this.current.sides[last.side].ownGoals++;
+    if (last && last.side !== scorer && last.towardOwn && this.clock - last.time < 1.2) {
+      const own = this.current.sides[last.side];
+      own.ownGoals++;
+      own.ownGoalsByState[last.state] = (own.ownGoalsByState[last.state] || 0) + 1;
+    }
     this.current.goalSpeeds.push(Math.round(puckSpeed() * (2.4384 / PW) * 3.6));
     this.current.rallies.push(G.stats ? G.stats.rally || 0 : 0);
     if (G.stats) {
@@ -2792,6 +2805,7 @@ const RivalLab = {
       escapes:out.escapes,
       goals:out.goals,
       ownGoals:out.ownGoals,
+      ownGoalsByState:{ ...out.ownGoalsByState },
       saves:out.saves,
       stateShare,
     };
