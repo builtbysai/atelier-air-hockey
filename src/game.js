@@ -2861,7 +2861,7 @@ const RivalLab = {
     if (!['localhost','127.0.0.1'].includes(window.location?.hostname))
       throw new Error('RivalLab is localhost only');
     const firstTo = Math.max(3, Math.min(7, Number(opts.firstTo) || 5));
-    const maxSeconds = Math.max(30, Number(opts.maxSeconds) || 150);
+    const maxSeconds = Math.max(30, Number(opts.maxSeconds) || 240);
     const dt = 1 / 180;
     const oldRandom = Math.random;
     const oldSettings = {
@@ -2872,7 +2872,7 @@ const RivalLab = {
     this.active = true; this.clock = 0; this.lastTouchEvent = null;
     this.current = {
       seed, firstTo, matchup:[a,b], sides:[this.freshSide(a), this.freshSide(b)],
-      goalSpeeds:[], rallies:[], stalled:false,
+      goalSpeeds:[], rallies:[], deadT:0, deadMax:0, timedOut:false,
     };
     try {
       Settings.firstTo = firstTo;
@@ -2892,20 +2892,25 @@ const RivalLab = {
         this.observe(0, G.ai1, p0, dt); this.observe(1, G.ai2, p1, dt);
         stepPhysics(dt);
         this.clock += dt;
+        if (puckSpeed() < 90) this.current.deadT += dt;
+        else this.current.deadT = 0;
+        this.current.deadMax = Math.max(this.current.deadMax, this.current.deadT);
         if ((++steps % 180) === 0) {
           // Simulation skips render/updateParts, so discard presentation-only
           // debris once per simulated second.
           G.parts.length = 0; G.texts.length = 0; G.pulses.length = 0; G.scuffs.length = 0;
         }
       }
-      if (G.state === 'play') this.current.stalled = true;
+      if (G.state === 'play') this.current.timedOut = true;
       for (let i = 0; i < 2; i++)
         this.current.sides[i].saves = G.stats?.saves?.[i] || 0;
       const duration = +this.clock.toFixed(2);
       const result = {
         seed, matchup:[DIFFS[a].name,DIFFS[b].name], duration,
         score:[...G.score], winner:G.state === 'win' ? G.winSide : -1,
-        stalled:this.current.stalled,
+        timedOut:this.current.timedOut,
+        deadlocked:this.current.deadMax > 5,
+        maxDeadPuckSeconds:+this.current.deadMax.toFixed(2),
         topSpeedKmh:Math.round((G.stats?.topSpeed || 0) * (2.4384 / PW) * 3.6),
         bestRally:G.stats?.bestRally || 0,
         averageGoalSpeedKmh:this.current.goalSpeeds.length
