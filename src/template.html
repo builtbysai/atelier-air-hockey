@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-build="v32-runtime-quality">
+<html lang="en" data-build="v33-workshop-mastery">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -48,6 +48,14 @@
   <button id="btnApplyUpdate" type="button">Update</button>
   <button id="btnDismissUpdate" type="button" aria-label="Dismiss update for now">Later</button>
 </div>
+<div id="workshopHud" class="workshop-hud hidden" role="status" aria-live="polite">
+  <span>
+    <strong id="workshopHudTitle">WORKSHOP · POWER</strong>
+    <small id="workshopHudTarget">Score at 55 km/h</small>
+  </span>
+  <b id="workshopHudProgress">0 / 55 KM/H</b>
+  <button id="workshopExit" type="button">Exit</button>
+</div>
 
 <div class="overlay" id="menu">
   <div class="card menusheet">
@@ -76,9 +84,9 @@
         <div id="houseSel">
           <div class="seclabel">THE RIVAL</div>
           <div class="seg3">
-            <button class="btn" data-diff="0">Rookie<small>A GENTLE START</small><span class="rec" data-rec="ai0"></span></button>
-            <button class="btn" data-diff="1">Club Pro<small>THE HOUSE STANDARD</small><span class="rec" data-rec="ai1"></span></button>
-            <button class="btn" data-diff="2">Champion<small>NO MERCY</small><span class="rec" data-rec="ai2"></span></button>
+            <button class="btn" data-diff="0">Rookie<small>COUNTER PUNCHER</small><span class="rec" data-rec="ai0"></span></button>
+            <button class="btn" data-diff="1">Club Pro<small>PLACEMENT PLAYER</small><span class="rec" data-rec="ai1"></span></button>
+            <button class="btn" data-diff="2">Champion<small>PRESSURE PLAYER</small><span class="rec" data-rec="ai2"></span></button>
           </div>
         </div>
         <div class="watchsel hidden" id="watchSel">
@@ -108,7 +116,41 @@
     </div>
 
     <div class="foot"><span class="desktop-controls">WASD / arrows to play · P pause · M mute all · Enter start</span><span class="touch-controls">Drag to move your mallet · Tap pause for match controls</span></div>
-    <div class="foot lobfoot"><button id="btnHelp">How to play</button><button id="btnSettings">Preferences</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><a href="https://builtbysai.com/" target="_blank" rel="noopener">Built by Sai</a><span class="ver">1.0.0</span></div>
+    <div class="foot lobfoot"><button id="btnWorkshop">Workshop</button><button id="btnHelp">How to play</button><button id="btnSettings">Preferences</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><a href="https://builtbysai.com/" target="_blank" rel="noopener">Built by Sai</a><span class="ver">1.0.0</span></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="workshop" role="dialog" aria-modal="true" aria-labelledby="workshopTitle">
+  <div class="card workshop-card">
+    <div class="kicker">THE WORKSHOP</div>
+    <h1 id="workshopTitle">Practice the craft.</h1>
+    <p class="tagline">Three live drills. Clear them to sharpen your game and open alternate routes through the Table Tour.</p>
+    <div class="workshop-drills">
+      <button class="workshop-drill" data-workshop="power">
+        <span><strong>Power</strong><small>Score at 55 km/h</small></span>
+        <em id="workshopPowerState">NOT CLEARED</em>
+      </button>
+      <button class="workshop-drill" data-workshop="control">
+        <span><strong>Control</strong><small>Build a 10-hit rally</small></span>
+        <em id="workshopControlState">NOT CLEARED</em>
+      </button>
+      <button class="workshop-drill" data-workshop="keeper">
+        <span><strong>Keeper</strong><small>Make 3 clean saves</small></span>
+        <em id="workshopKeeperState">NOT CLEARED</em>
+      </button>
+    </div>
+    <p class="workshop-note">Workshop clears are permanent on this device. They do not count as match wins or records.</p>
+    <button class="btn" id="workshopClose">Back</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="workshopDone" role="dialog" aria-modal="true" aria-labelledby="workshopDoneTitle">
+  <div class="card workshop-done-card">
+    <div class="kicker">DRILL CLEARED</div>
+    <h1 id="workshopDoneTitle">Power complete.</h1>
+    <p class="tagline" id="workshopDoneText">Drill cleared. Your Workshop progress is saved on this device.</p>
+    <button class="btn primary" id="workshopAgain">Back to Workshop</button>
+    <button class="btn" id="workshopDoneMenu">Return to menu</button>
   </div>
 </div>
 

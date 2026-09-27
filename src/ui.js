@@ -32,6 +32,8 @@ function setTheme(id, silent) {
   if (typeof paintTableWarp === 'function') paintTableWarp(); // 2.5D static table re-warp
   AudioSys.ambience(id); // room ambience follows the room (deferred pre-gesture)
   MusicSys.setTable(id); // generative music follows the room too (crossfades)
+  if (typeof refreshTour === 'function') refreshTour();
+  if (typeof updateStartLabel === 'function') updateStartLabel();
   if (!silent) AudioSys.ui();
 }
 function paintThumbnails() {
@@ -315,14 +317,43 @@ function closeRules() {
   AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden');
 }
 
+function masteryLabel(id) {
+  const n = Mastery.level(id);
+  return n >= 3 ? 'MASTERED' : n === 2 ? 'HOUSE STANDARD' : n === 1 ? 'ROOKIE CLEARED' : 'UNTESTED';
+}
+function renderWorkshopMenu() {
+  for (const id of ['power','control','keeper']) {
+    const el = document.querySelector('[data-workshop="' + id + '"]');
+    const state = $('workshop' + id[0].toUpperCase() + id.slice(1) + 'State');
+    const done = Workshop.done(id);
+    if (el) el.classList.toggle('cleared', done);
+    if (state) state.textContent = done ? 'CLEARED' : 'NOT CLEARED';
+  }
+}
+function openWorkshop() {
+  AudioSys.ui(); renderWorkshopMenu(); hideAll(); $('workshop').classList.remove('hidden');
+}
 function renderProgress() {
   const body = $('progressBody'), summary = $('progressSummary');
   if (!body || !summary) return;
   const unlocked = FEATS.filter(f => Feats.data[f.id]).length;
-  summary.textContent = Tour.count() + '/' + THEME_ORDER.length + ' tables conquered · ' + unlocked + '/' + FEATS.length + ' feats unlocked';
+  const openRooms = THEME_ORDER.filter(tableUnlocked).length;
+  summary.textContent = openRooms + '/' + THEME_ORDER.length + ' rooms open · ' +
+    Mastery.masteredCount() + ' mastered · ' + Workshop.count() + '/3 Workshop drills';
   const featRows = FEATS.map(f => '<div class="progress-item"><span>' + (Feats.data[f.id] ? '★ ' : '○ ') + f.name + '</span><span>' + f.desc + '</span></div>').join('');
-  const tableRows = THEME_ORDER.map(id => '<div class="progress-item"><span>' + (Tour.won(id) ? '★ ' : '○ ') + THEMES[id].name + '</span><span>' + (Tour.data[id] || 0) + ' wins</span></div>').join('');
-  body.innerHTML = '<div class="seclabel">ACHIEVEMENTS</div>' + featRows + '<div class="seclabel">TABLE TOUR</div>' + tableRows;
+  const workshopRows = ['power','control','keeper'].map(id =>
+    '<div class="progress-item"><span>' + (Workshop.done(id) ? '★ ' : '○ ') + WORKSHOP_DRILLS[id].name + '</span><span>' +
+    (Workshop.done(id) ? 'cleared' : WORKSHOP_DRILLS[id].target.toLowerCase()) + '</span></div>').join('');
+  const tableRows = THEME_ORDER.map(id => {
+    const locked = !tableUnlocked(id);
+    const right = locked ? 'LOCKED · ' + tableLockReason(id) : masteryLabel(id);
+    return '<div class="progress-item' + (locked ? ' locked' : '') + '"><span>' +
+      (Mastery.mastered(id) ? '★ ' : Tour.won(id) ? '◆ ' : locked ? '◇ ' : '○ ') + THEMES[id].name +
+      '</span><span>' + right + '</span></div>';
+  }).join('');
+  body.innerHTML = '<div class="seclabel">WORKSHOP</div>' + workshopRows +
+    '<div class="seclabel">TABLE MASTERY</div>' + tableRows +
+    '<div class="seclabel">ACHIEVEMENTS</div>' + featRows;
 }
 function shareResult() { return ShareSys.shareResult(); }
 
@@ -409,6 +440,7 @@ function buildCarousel() {
     d.setAttribute('role', 'option'); d.tabIndex = 0;
     d.setAttribute('aria-label', T.name + ' table');
     d.innerHTML = '<canvas data-thumb="' + id + '" width="640" height="400"></canvas>' +
+      '<div class="tlock hidden"><strong>LOCKED</strong><small data-lock-reason></small></div>' +
       '<div class="tmeta"><div class="tname">' + T.name + '</div>' +
       '<div class="tsub">' + T.tagline + '</div></div>';
     const pick = () => { AudioSys.init(); setTheme(id); };
@@ -507,8 +539,15 @@ function selectWatch(side, idx) {
   updateStartLabel();
 }
 function updateStartLabel() {
-  const label = $('startLabel'), s = $('startSub');
+  const label = $('startLabel'), s = $('startSub'), start = $('btnStart');
   if (!s || !label) return;
+  if (!tableUnlocked(G.themeId)) {
+    label.textContent = 'TABLE LOCKED';
+    s.textContent = tableLockReason(G.themeId).toUpperCase();
+    if (start) start.disabled = true;
+    return;
+  }
+  if (start) start.disabled = false;
   let rival;
   if (MenuSel.mode === '2p') { label.textContent = 'START MATCH'; rival = 'TWO PLAYERS'; }
   else if (MenuSel.mode === 'online') { label.textContent = 'PLAY ONLINE'; rival = 'HOST OR JOIN'; }
@@ -610,6 +649,20 @@ function wireUI() {
   document.querySelectorAll('[data-set]').forEach(btn => {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); setSetting(btn.dataset.set, btn.dataset.val); });
   });
+  $('btnWorkshop').addEventListener('click', openWorkshop);
+  document.querySelectorAll('[data-workshop]').forEach(btn => {
+    btn.addEventListener('click', () => startWorkshop(btn.dataset.workshop));
+  });
+  $('workshopClose').addEventListener('click', () => {
+    if (G.mode === 'workshop') { quitToMenu(); return; }
+    AudioSys.ui(); refreshTour(); updateStartLabel(); hideAll(); $('menu').classList.remove('hidden');
+  });
+  $('workshopExit').addEventListener('click', quitToMenu);
+  $('workshopAgain').addEventListener('click', () => {
+    quitToMenu();
+    openWorkshop();
+  });
+  $('workshopDoneMenu').addEventListener('click', quitToMenu);
   $('btnRules').addEventListener('click', openRules);
   $('rulesClose').addEventListener('click', closeRules);
   $('btnSettings').addEventListener('click', () => openSettings('menu'));
@@ -633,12 +686,13 @@ function wireUI() {
   $('btnResetProgress').addEventListener('click', async () => {
     const ok = await askConfirm({
       title: 'Reset progress',
-      message: 'Reset records, personal bests, achievements, and table-tour progress on this device?',
+      message: 'Reset records, personal bests, achievements, Workshop clears, and Table Tour mastery on this device?',
       ok: 'Reset everything', ret: 'progress',
     });
     if (!ok) return;
-    [Record.key, Best.key, Feats.key, Tour.key].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
-    Record.load(); Best.load(); Feats.load(); Tour.load(); refreshRecordLines(); refreshTour(); renderProgress();
+    [Record.key, Best.key, Feats.key, Tour.key, Mastery.key, Workshop.key].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); Workshop.load();
+    refreshRecordLines(); refreshTour(); renderWorkshopMenu(); renderProgress();
   });
   $('helpClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
   $('btnPause').addEventListener('click', () => togglePause());
@@ -704,6 +758,8 @@ function wireUI() {
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
       else if (!$('rules').classList.contains('hidden')) $('rulesClose').click();
+      else if (!$('workshop').classList.contains('hidden')) $('workshopClose').click();
+      else if (!$('workshopDone').classList.contains('hidden')) $('workshopDoneMenu').click();
       else if (!$('progress').classList.contains('hidden')) $('progressClose').click();
       else if (!$('onlineov').classList.contains('hidden') && !Net.active) Net.cancelLobby();
       else if (G.state === 'pause') togglePause();
@@ -755,7 +811,7 @@ function wireUI() {
 function boot() {
   loadSettings();
   applyScreenOrientationPreference();
-  Record.load(); Best.load(); Feats.load(); Tour.load();
+  Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); Workshop.load();
   refreshRecordLines(); // paint any stored records under the menu buttons
   refreshTour(); // tour counter + conquered-table pips
   // accessibility: prefers-reduced-motion drops Shake to Subtle for the
@@ -782,8 +838,8 @@ function boot() {
     if (q.get('table') && THEMES[q.get('table')]) setTheme(q.get('table'), true);
     const joinCode = q.get('join') || q.get('room'); // ?room= is an alias for ?join=
     if (joinCode) { Net.openLobby(); Net.join(joinCode); try { const u = new URL(location.href); u.searchParams.delete('join'); u.searchParams.delete('room'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {} }
-    else if (q.has('play')) startGame('ai', G.difficulty);
-    else if (q.has('2p')) startGame('2p');
+    else if (q.has('play') && tableUnlocked(G.themeId)) startGame('ai', G.difficulty);
+    else if (q.has('2p') && tableUnlocked(G.themeId)) startGame('2p');
     else if (q.has('demo')) { G.idleT = 99; }
   } catch (e) {}
   requestAnimationFrame(frame);

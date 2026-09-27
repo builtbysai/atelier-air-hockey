@@ -19,19 +19,27 @@ A handcrafted browser air-hockey game. Ten art-directed tables, each a different
 | Bauhaus Dessau '23 | Tubular steel, primaries · the workshop stage, 1923 |
 | Zellige Riad | Cobalt stars, terracotta · the courtyard fountain, Marrakech |
 | Swiss Grid | Paper white, black rules · the Zurich gallery, 1957 |
+| Neon Atelier | Electric tubes, midnight color · the after-hours room |
 
 ![Menu](docs/screenshots/d1-menu.png)
 ![Noir Deco gameplay](docs/screenshots/social-preview.png)
 
 ## Ways to play
 
-- **Vs the house:** three AI rivals · Rookie (a gentle start), Club Pro (the house standard), Champion (no mercy).
+- **Vs the house:** three behavioral rivals · Rookie (counter puncher), Club Pro (placement player), Champion (pressure player).
 - **Two players, one screen:** same-device head-to-head.
 - **AI vs AI exhibition:** pick a difficulty per side and watch the machines play.
 - **Online:** peer-to-peer matches over WebRTC. Host a table, share the six-character invite code or link, and play. The host's device runs the physics; if a connection drops you get a short reconnect grace period.
 - **Attract mode:** leave the menu alone for a few seconds and the house plays itself.
 
-Win on every table to complete the **Table Tour**. Records, personal bests (fastest win, top speed, longest rally, biggest margin), and five achievements persist on your device.
+The **Table Tour** now has mastery progression. Four rooms are open immediately; later rooms stay visible but require either mastery of a related table or a specific Workshop clear. Beating Rookie, Club Pro, and Champion records increasing mastery for that table, with Champion completing mastery.
+
+The **Workshop** is a live practice mode using the same physics as a match:
+- **Power:** score at 55 km/h.
+- **Control:** build a 10-hit rally.
+- **Keeper:** make 3 clean saves.
+
+Workshop clears, mastery, records, personal bests (fastest win, top speed, longest rally, biggest margin), and achievements persist on your device.
 
 ## Match rules and preferences
 
@@ -64,11 +72,11 @@ Online matches use Trystero 0.25 / WebRTC with Nostr signaling. The host is auth
 
 ## Privacy and local data
 
-Offline play makes no game-network request. Online play loads Trystero and uses WebRTC, Nostr signaling relays, and TURN when needed to establish the peer-to-peer session. Settings, records, personal bests, achievements, and table-tour progress stay in this browser via `localStorage` and can be reset from Progress.
+Offline play makes no game-network request. Online play loads Trystero and uses WebRTC, Nostr signaling relays, and TURN when needed to establish the peer-to-peer session. Settings, records, personal bests, achievements, Workshop clears, table mastery, and Table Tour progress stay in this browser via `localStorage` and can be reset from Progress.
 
 ## Development
 
-`src/` is the source of truth. The runtime is split into `themes.js`, `scoreboards.js`, `net.js`, `game.js`, and `ui.js`, with `styles.css` and `template.html` as the page shell. Root `index.html` is generated from `src/template.html` for GitHub Pages.
+`src/` is the source of truth. The runtime is split into `themes.js`, `scoreboards.js`, `net.js`, `game.js`, `share.js`, and `ui.js`, with `styles.css` and `template.html` as the page shell. Root `index.html` is generated from `src/template.html` for GitHub Pages.
 
 ```bash
 npm run build
