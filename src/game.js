@@ -1458,7 +1458,7 @@ const DIFFS = [
   {
     name:'Rookie', style:'COUNTER PUNCHER',
     maxSpeed:1080, react:0.22, aimErr:68, strike:0.88, aggro:0.64, tick:0.105, whiff:0.06, windup:0.13,
-    homeDepth:175, homeTrack:0.34, bankChance:0.08, centerBias:0.28, recover:0.43,
+    homeDepth:175, homeTrack:0.40, bankChance:0.08, centerBias:0.28, recover:0.43,
     readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
     counterWindow:1.05, counterSpeed:1950, blockOffset:82, laneMemory:0.42,
   },
