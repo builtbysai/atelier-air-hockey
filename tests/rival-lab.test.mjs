@@ -42,7 +42,10 @@ test('rival telemetry measures behavior rather than only configured stats', () =
 });
 
 test('CI guards rival identity and simulation health', () => {
-  assert.match(runner, /unfinished\/stalled rival matches/);
+  assert.match(runner, /deadlocked rival matches/);
+  assert.match(runner, /exceeded 240 simulated seconds/);
+  assert.match(game, /deadlocked:this\.current\.deadMax > 5/);
+  assert.match(game, /maxSeconds\) \|\| 240/);
   assert.match(runner, /ownGoalRate > 0\.18/);
   assert.match(runner, /r\.bankRate < p\.bankRate && p\.bankRate < c\.bankRate/);
   assert.match(runner, /r\.keeperReadRate < p\.keeperReadRate && p\.keeperReadRate < c\.keeperReadRate/);
