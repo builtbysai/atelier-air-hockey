@@ -25,6 +25,16 @@ jobs:
           sleep 1
       - name: Capture deterministic UI states
         run: node scripts/visual-qa.mjs
+      - name: Run deterministic rival soak
+        run: node scripts/rival-soak.mjs
+      - name: Upload rival soak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atelier-rival-soak
+          path: rival-artifacts
+          if-no-files-found: warn
+          retention-days: 14
       - name: Upload visual QA screenshots
         if: always()
         uses: actions/upload-artifact@v4

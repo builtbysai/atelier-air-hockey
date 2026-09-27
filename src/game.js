@@ -322,7 +322,7 @@ function tableUnlockSnapshot() {
 }
 
 const WORKSHOP_DRILLS = Object.freeze({
-  power:   { name:'Power',   target:'Score at 55 km/h',      goal:55, coach:0, serve:1 },
+  power:   { name:'Power',   target:'Score at 22 km/h',      goal:22, coach:0, serve:1 },
   control: { name:'Control', target:'Build a 10-hit rally',   goal:10, coach:0, serve:1 },
   keeper:  { name:'Keeper',  target:'Make 3 clean saves',     goal:3,  coach:1, serve:-1 },
 });
@@ -1349,18 +1349,21 @@ const DIFFS = [
     maxSpeed:1080, react:0.22, aimErr:68, strike:0.88, aggro:0.64, tick:0.105, whiff:0.06, windup:0.13,
     homeDepth:175, homeTrack:0.34, bankChance:0.08, centerBias:0.28, recover:0.43,
     readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
+    counterWindow:1.05, counterSpeed:1950, blockOffset:82,
   },
   {
     name:'Club Pro', style:'PLACEMENT PLAYER',
     maxSpeed:1320, react:0.12, aimErr:38, strike:1.05, aggro:0.76, tick:0.075, whiff:0.02, windup:0.11,
     homeDepth:205, homeTrack:0.44, bankChance:0.22, centerBias:0.10, recover:0.32,
     readKeeper:0.72, rebound:0.35, engageSpeed:1780, attackDelay:0.05, pressureDepth:95, pressBoost:0.14,
+    counterWindow:0.82, counterSpeed:2200, blockOffset:72,
   },
   {
     name:'Champion', style:'PRESSURE PLAYER',
     maxSpeed:1600, react:0.075, aimErr:20, strike:1.22, aggro:0.94, tick:0.05, whiff:0.005, windup:0.095,
-    homeDepth:240, homeTrack:0.58, bankChance:0.36, centerBias:0.00, recover:0.22,
+    homeDepth:240, homeTrack:0.58, bankChance:0.44, centerBias:0.00, recover:0.22,
     readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
+    counterWindow:0.62, counterSpeed:2500, blockOffset:62,
   },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
@@ -1664,7 +1667,7 @@ function resetPositions() {
     if (!b) continue;
     b.state = 'guard'; b.tState = 0; b.tickT = 0;
     b.behindH = false; b.sideH = false; b.threatH = false; b.abortCd = 0;
-    b.possessT = 0; b.pinT = 0; b.whiff = false;
+    b.possessT = 0; b.pinT = 0; b.whiff = false; b.counterT = 0; b.counterCommitted = false; b.lastReadKeeper = false;
     b.hist.length = 0;
     b.seen.x = CX; b.seen.y = CY; b.seen.vx = 0; b.seen.vy = 0;
   }
@@ -2064,6 +2067,34 @@ function glueEscapeDir(p, nx, ny) {
   }
   return { rx, ry, railed, nearT, nearB };
 }
+function aiBrainForSide(side) {
+  if (G.mode === 'watch') return side === 0 ? G.ai1 : G.ai2;
+  if (G.mode === 'ai') return side === 1 ? G.ai2 : null;
+  return null;
+}
+function aiControlledBlock(m, p, preVx) {
+  const brain = aiBrainForSide(m.side);
+  if (!brain || G.state !== 'play') return false;
+  const onOwnHalf = m.side === 0 ? p.x < CX : p.x > CX;
+  if (!onOwnHalf) return false;
+
+  const goalSign = m.side === 0 ? -1 : 1;
+  const beforeGoalward = Math.max(0, goalSign * preVx);
+  const afterGoalward = Math.max(0, goalSign * p.vx);
+  // Only correct a contact that CREATED a much more dangerous own-goal
+  // vector. A shot that was already travelling goalward remains a real
+  // defensive test; the AI does not get a magic save.
+  if (afterGoalward <= 360 || afterGoalward <= beforeGoalward + 150) return false;
+
+  const clearSpeed = clamp(Math.max(320, afterGoalward * 0.58), 320, 920);
+  p.vx = -goalSign * clearSpeed;
+  // Keep some lane energy so blocks glance into open ice instead of becoming
+  // robotic straight returns. Strong transverse motion is preserved.
+  p.vy = clamp(p.vy, -1500, 1500);
+  brain.counterT = Math.max(brain.counterT || 0, (brain.diff.counterWindow || 0) * 0.7);
+  return true;
+}
+
 function collideMallet(p, m, dt) {
   const dx = p.x - m.x, dy = p.y - m.y;
   const minD = p.r + m.r;
@@ -2071,6 +2102,7 @@ function collideMallet(p, m, dt) {
   if (m.ghostT > 0) { m.glueT = 0; m.contactActive = false; return; } // ghostT ticks in stepPhysics
   if (d2 >= minD * minD || d2 === 0) { m.contactActive = false; return; }
   const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+  const preTouchVx = p.vx, preTouchVy = p.vy;
   m.touching = true;
   // --- possession clock ---
   const vn0 = (p.vx - m.vx) * nx + (p.vy - m.vy) * ny;
@@ -2101,6 +2133,7 @@ function collideMallet(p, m, dt) {
       onMalletHit(p.x, p.y, 750, rx, ry);
     }
     m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
+    if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
     return;
   }
   // --- normal contact ---
@@ -2120,6 +2153,7 @@ function collideMallet(p, m, dt) {
   const pvx0 = p.vx; // pre-impulse: save detection reads the puck's intent, not its rebound
   if (mvn > 0) j += mvn * SMACK_BONUS;
   p.vx += nx * j; p.vy += ny * j;
+  const aiControlledClear = aiControlledBlock(m, p, preTouchVx);
   // safety: a genuinely driven hit never dies
   const sp = hyp(p.vx, p.vy);
   const msp = hyp(m.vx, m.vy);
@@ -2134,6 +2168,7 @@ function collideMallet(p, m, dt) {
   const tang = (m.vx - p.vx) * tx + (m.vy - p.vy) * ty;
   p.w = clamp((p.w || 0) + tang / 260, -12, 12);
   G.lastTouch = m.side;
+  if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
   G.stallT = 0;
   // hit-effects cascade (sound, particles, shake, save/whoosh, mallet recoil):
   // only on the leading edge of a contact episode. Continuous smothering
@@ -2149,7 +2184,9 @@ function collideMallet(p, m, dt) {
     let savedThisHit = false;
     // SAVE: a fast lateral block of a puck bound for your own goal gets the
     // soft treatment - thud, ring pulse, brief puck glow. High drama, low noise.
-    if (m.saveCd <= 0 && impact > 220 && (m.side === 0 ? pvx0 < -450 : pvx0 > 450) && msp0 > 650) {
+    const inboundSave = m.side === 0 ? pvx0 < -450 : pvx0 > 450;
+    const onOwnHalf = m.side === 0 ? p.x < CX : p.x > CX;
+    if (m.saveCd <= 0 && impact > 320 && inboundSave && onOwnHalf) {
       m.saveCd = 0.9;
       G.saveT = 0.55;
       G.pulses.push({ x: p.x, y: p.y, t: 0 });
@@ -2159,6 +2196,9 @@ function collideMallet(p, m, dt) {
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
       if (G.mode === 'workshop') Practice.onSave(m.side);
+      const saveBrain = m.side === 0 ? G.ai1 : G.ai2;
+      if (saveBrain && (G.mode === 'ai' || G.mode === 'watch'))
+        saveBrain.counterT = saveBrain.diff.counterWindow || 0;
     }
     // fast flicks whoosh on the way through (cooled down so rallies don't hiss)
     if (msp0 > 1300 && m.whooshT <= 0) {
@@ -2291,6 +2331,9 @@ function mkBrain(side, diffIdx) {
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
     arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
+    counterT: 0, // short possession window after a real save/block
+    counterCommitted: false,
+    lastReadKeeper: false, // whether the current attack intentionally read the defender
     // commitment hysteresis (v24): sticky latches with deadbands so the AI
     // can't dither between strike/defend/reposition when the puck sits on a
     // decision boundary - the feint-loop fix. behindH: mallet truly behind
@@ -2310,7 +2353,9 @@ function aiPerceive(b, dt) {
   const s = b.hist[0];
   b.seen.x = s.x; b.seen.y = s.y; b.seen.vx = s.vx; b.seen.vy = s.vy;
 }
-function perfNow() { return performance.now() / 1000; }
+function perfNow() {
+  return RivalLab.active ? RivalLab.clock : performance.now() / 1000;
+}
 
 // predict puck position t seconds ahead, with top/bottom wall bounces
 function predictPuck(x, y, vx, vy, t) {
@@ -2354,6 +2399,7 @@ function aiThink(b, dt, m) {
   const D = b.diff;
   b.tState += dt; b.tickT += dt;
   if (b.state !== 'recover') b.reboundTried = false;
+  if (b.counterT > 0) b.counterT = Math.max(0, b.counterT - dt);
   if (b.abortCd > 0) b.abortCd -= dt;
   if (b.tickT < D.tick) return; // decisions at 7–16 Hz, like a human
   b.tickT = 0;
@@ -2452,9 +2498,12 @@ function aiThink(b, dt, m) {
       if (threat) { b.state = 'defend'; b.tState = 0; }
       else {
         const pressure = aiMatchPressure(b);
-        const attackChance = clamp(D.aggro + pressure * (D.pressBoost || 0.12), 0.20, 0.99);
-        const attackDelay = D.attackDelay || 0;
-        if (b.sideH && puckSpeed < (D.engageSpeed || 1500) && b.tState >= attackDelay && Math.random() < attackChance) {
+        const countering = b.counterT > 0;
+        const attackChance = countering ? 1
+          : clamp(D.aggro + pressure * (D.pressBoost || 0.12), 0.20, 0.99);
+        const attackDelay = countering ? 0 : (D.attackDelay || 0);
+        const engageSpeed = countering ? (D.counterSpeed || D.engageSpeed || 1500) : (D.engageSpeed || 1500);
+        if (b.sideH && puckSpeed < engageSpeed && b.tState >= attackDelay && Math.random() < attackChance) {
           b.state = 'engage'; b.tState = 0;
         }
       }
@@ -2489,14 +2538,23 @@ function aiThink(b, dt, m) {
       // from it the lane coverage matters more than the deflection angle.
       const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
       const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
-      setTx(gx + (pr.x - gx) * 0.35, pr.y + steerY);
+      // Stay between the puck and our own goal. The previous target sat
+      // almost exactly on the predicted puck point; when the mallet arrived
+      // from center ice it could contact from the attacking side and drive
+      // the shot into its own net. This goal-side cushion makes a block
+      // naturally deflect back toward open ice.
+      const goalSide = b.side === 0 ? -1 : 1;
+      const blockX = gx + (pr.x - gx) * 0.28 + goalSide * (D.blockOffset || 70);
+      setTx(blockX, pr.y + steerY);
       // if the puck sits in reach (smothered block, loose puck), take it.
       // v24.2: this reads LIVE geometry and is checked BEFORE the guard
       // fallback. The old order fell through to guard on the delayed `seen`
       // read, so after a block the AI would skate home for a beat and then
       // come back - the visible "backing away from a hittable puck".
       const liveSpd = hyp(p.vx, p.vy);
-      if (liveSpd < 900 && hyp(p.x - m.x, p.y - m.y) < 220) { b.state = 'engage'; b.tState = 0; }
+      const counterReach = b.counterT > 0 ? 380 : 220;
+      const counterSpeed = b.counterT > 0 ? (D.counterSpeed || 1800) : 900;
+      if (liveSpd < counterSpeed && hyp(p.x - m.x, p.y - m.y) < counterReach) { b.state = 'engage'; b.tState = 0; }
       else if (!threat) { b.state = 'guard'; b.tState = 0; }
       break;
     }
@@ -2544,8 +2602,13 @@ function aiThink(b, dt, m) {
       // then cancelled the strike: pull back, retreat, repeat - the visible
       // feint loop. abortCd spaces out attempts after a cancelled windup so
       // one bad read can't strobe the telegraph.
-      if (b.abortCd <= 0 && b.behindH && liveD < MALLET_R + PUCK_R + 26 && (liveSpd < 700 || b.possessT > 0.35)) {
+      const counterShot = b.counterT > 0 && b.behindH &&
+        liveD < MALLET_R + PUCK_R + 58 && liveSpd < (D.counterSpeed || 1900);
+      if (b.abortCd <= 0 && b.behindH &&
+          ((liveD < MALLET_R + PUCK_R + 26 && (liveSpd < 700 || b.possessT > 0.35)) || counterShot)) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
+        b.counterCommitted = counterShot;
+        if (counterShot) b.counterT = 0;
         // pick aim: the FAR post, not the middle - the mouth corner farthest
         // from the puck's lane forces the keeper to travel across. aimErr
         // scatters the shot per difficulty, so Rookie sprays it (missing
@@ -2554,6 +2617,7 @@ function aiThink(b, dt, m) {
         b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
         const keeper = b.side === 0 ? G.m2 : G.m1;
         const readsKeeper = Math.random() < (D.readKeeper || 0);
+        b.lastReadKeeper = readsKeeper;
         const laneY = readsKeeper && keeper ? keeper.y : s.y;
         const farSide = laneY < CY ? 1 : -1;
         const farY = CY + farSide * (goalW() / 2 - 12);
@@ -2631,7 +2695,7 @@ function aiThink(b, dt, m) {
       }
       // a whiffed swing takes longer to gather - the embarrassment tax
       if (b.tState > (b.whiff ? recovery + 0.35 : recovery)) {
-        b.state = 'guard'; b.tState = 0; b.whiff = false;
+        b.state = 'guard'; b.tState = 0; b.whiff = false; b.counterCommitted = false;
       }
       break;
     }
@@ -2666,6 +2730,228 @@ function aiDrive(b, dt, m) {
   if (b.careful) cap *= 0.45; // wrong side of the puck: soft touches only
   driveMallet(m, dt, cap);
 }
+
+/* ---------- rival balance lab ----------
+ * A deterministic, localhost-only soak runner for real game physics + brains.
+ * It never ships a debug UI and public pages do not expose its API.
+ *
+ * Why it lives beside the AI:
+ * - unit tests can verify profile math, but emergent bugs (stalls, own goals,
+ *   over-defending, zero-shot matches) only appear when the real state
+ *   machine and physics run together.
+ * - fixed-step seeded matches make tuning changes comparable across commits.
+ */
+const RivalLab = {
+  active:false,
+  clock:0,
+  current:null,
+  lastTouchEvent:null,
+
+  seeded(seed) {
+    let x = (Number(seed) || 1) >>> 0;
+    return () => {
+      x += 0x6D2B79F5;
+      let t = x;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  },
+  freshSide(diffIdx) {
+    return {
+      difficulty: diffIdx,
+      name: DIFFS[diffIdx].name,
+      style: DIFFS[diffIdx].style,
+      stateTime: Object.create(null),
+      transitions: Object.create(null),
+      strikes:0, windups:0, banks:0, keeperReads:0, whiffs:0, counterShots:0,
+      defends:0, rebounds:0, detours:0, escapes:0,
+      goals:0, ownGoals:0, ownGoalsByState:Object.create(null), saves:0,
+    };
+  },
+  observe(side, brain, previous, dt) {
+    const out = this.current.sides[side];
+    out.stateTime[brain.state] = (out.stateTime[brain.state] || 0) + dt;
+    if (previous === brain.state) return;
+    const key = previous + '>' + brain.state;
+    out.transitions[key] = (out.transitions[key] || 0) + 1;
+    if (brain.state === 'defend') out.defends++;
+    if (brain.state === 'around') out.detours++;
+    if (brain.state === 'escape') out.escapes++;
+    if (brain.state === 'windup') {
+      out.windups++;
+      if (brain.bankY !== null) out.banks++;
+      if (brain.lastReadKeeper) out.keeperReads++;
+      if (brain.counterCommitted) out.counterShots++;
+    }
+    if (brain.state === 'strike') {
+      out.strikes++;
+      if (brain.whiff) out.whiffs++;
+    }
+    if (previous === 'recover' && brain.state === 'engage') out.rebounds++;
+  },
+  noteTouch(side, preVx, preVy, postVx, postVy) {
+    if (!this.active) return;
+    const goalSign = side === 0 ? -1 : 1;
+    const before = Math.max(0, goalSign * preVx);
+    const after = Math.max(0, goalSign * postVx);
+    // A failed block that merely slows an inbound shot is not an own goal.
+    // Count only contacts that create or materially accelerate goalward speed.
+    const shank = after > 320 && after > before + 160;
+    const brain = side === 0 ? G.ai1 : G.ai2;
+    this.lastTouchEvent = {
+      side, time:this.clock, shank,
+      beforeGoalward:before, afterGoalward:after,
+      speed:hyp(postVx,postVy), state:brain?.state || 'unknown'
+    };
+  },
+  onGoal(scorer) {
+    const last = this.lastTouchEvent;
+    G.score[scorer]++;
+    const out = this.current.sides[scorer];
+    out.goals++;
+    if (last && last.side !== scorer && last.shank && this.clock - last.time < 1.2) {
+      const own = this.current.sides[last.side];
+      own.ownGoals++;
+      own.ownGoalsByState[last.state] = (own.ownGoalsByState[last.state] || 0) + 1;
+    }
+    this.current.goalSpeeds.push(Math.round(puckSpeed() * (2.4384 / PW) * 3.6));
+    this.current.rallies.push(G.stats ? G.stats.rally || 0 : 0);
+    if (G.stats) {
+      G.stats.streak[scorer]++; G.stats.streak[1 - scorer] = 0;
+      G.stats.rally = 0;
+    }
+    if (G.score[scorer] >= this.current.firstTo) {
+      G.winSide = scorer;
+      G.state = 'win';
+      return;
+    }
+    resetPositions();
+    rollServe(scorer === 0 ? 1 : -1);
+    G.state = 'play';
+    G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
+  },
+  summarizeSide(out, seconds) {
+    const stateShare = {};
+    for (const [key, value] of Object.entries(out.stateTime))
+      stateShare[key] = +(value / Math.max(0.001, seconds)).toFixed(3);
+    return {
+      difficulty: out.difficulty,
+      name: out.name,
+      style: out.style,
+      strikes:out.strikes,
+      strikesPerMinute:+(out.strikes / Math.max(0.001, seconds) * 60).toFixed(2),
+      windups:out.windups,
+      bankRate:+(out.banks / Math.max(1, out.windups)).toFixed(3),
+      keeperReadRate:+(out.keeperReads / Math.max(1, out.windups)).toFixed(3),
+      whiffRate:+(out.whiffs / Math.max(1, out.strikes)).toFixed(3),
+      counterShots:out.counterShots,
+      defends:out.defends,
+      rebounds:out.rebounds,
+      detours:out.detours,
+      escapes:out.escapes,
+      goals:out.goals,
+      ownGoals:out.ownGoals,
+      ownGoalsByState:{ ...out.ownGoalsByState },
+      saves:out.saves,
+      stateShare,
+    };
+  },
+  runMatch(a, b, seed = 1, opts = {}) {
+    if (!['localhost','127.0.0.1'].includes(window.location?.hostname))
+      throw new Error('RivalLab is localhost only');
+    const firstTo = Math.max(3, Math.min(7, Number(opts.firstTo) || 5));
+    const maxSeconds = Math.max(30, Number(opts.maxSeconds) || 240);
+    const dt = 1 / 180;
+    const oldRandom = Math.random;
+    const oldSettings = {
+      firstTo:Settings.firstTo, effects:Settings.effects, haptics:Settings.haptics,
+      shake:Settings.shake, instantReplay:Settings.instantReplay,
+    };
+    Math.random = this.seeded(seed);
+    this.active = true; this.clock = 0; this.lastTouchEvent = null;
+    this.current = {
+      seed, firstTo, matchup:[a,b], sides:[this.freshSide(a), this.freshSide(b)],
+      goalSpeeds:[], rallies:[], deadT:0, deadMax:0, timedOut:false,
+    };
+    try {
+      Settings.firstTo = firstTo;
+      Settings.effects = 'minimal'; Settings.haptics = false; Settings.shake = 'off'; Settings.instantReplay = 'off';
+      G.mode = 'watch'; G.watch = { a, b }; G.difficulty = b; G.demo = false;
+      G.score = [0,0]; G.winSide = 0; G.state = 'play';
+      G.stats = freshStats(); G.stats.t0 = performance.now();
+      G.ai1 = mkBrain(0, a); G.ai2 = mkBrain(1, b);
+      resetPositions();
+      rollServe(Math.random() < 0.5 ? 1 : -1);
+      G.puck.vx = G.serveVX; G.puck.vy = G.serveVY;
+
+      let steps = 0;
+      while (G.state === 'play' && this.clock < maxSeconds) {
+        const p0 = G.ai1.state, p1 = G.ai2.state;
+        aiDrive(G.ai1, dt, G.m1); aiDrive(G.ai2, dt, G.m2);
+        this.observe(0, G.ai1, p0, dt); this.observe(1, G.ai2, p1, dt);
+        stepPhysics(dt);
+        this.clock += dt;
+        if (puckSpeed() < 90) this.current.deadT += dt;
+        else this.current.deadT = 0;
+        this.current.deadMax = Math.max(this.current.deadMax, this.current.deadT);
+        if ((++steps % 180) === 0) {
+          // Simulation skips render/updateParts, so discard presentation-only
+          // debris once per simulated second.
+          G.parts.length = 0; G.texts.length = 0; G.pulses.length = 0; G.scuffs.length = 0;
+        }
+      }
+      if (G.state === 'play') this.current.timedOut = true;
+      for (let i = 0; i < 2; i++)
+        this.current.sides[i].saves = G.stats?.saves?.[i] || 0;
+      const duration = +this.clock.toFixed(2);
+      const result = {
+        seed, matchup:[DIFFS[a].name,DIFFS[b].name], duration,
+        score:[...G.score], winner:G.state === 'win' ? G.winSide : -1,
+        timedOut:this.current.timedOut,
+        deadlocked:this.current.deadMax > 5,
+        maxDeadPuckSeconds:+this.current.deadMax.toFixed(2),
+        topSpeedKmh:Math.round((G.stats?.topSpeed || 0) * (2.4384 / PW) * 3.6),
+        bestRally:G.stats?.bestRally || 0,
+        averageGoalSpeedKmh:this.current.goalSpeeds.length
+          ? Math.round(this.current.goalSpeeds.reduce((x,y)=>x+y,0) / this.current.goalSpeeds.length) : 0,
+        sides:[
+          this.summarizeSide(this.current.sides[0], duration),
+          this.summarizeSide(this.current.sides[1], duration),
+        ],
+      };
+      return result;
+    } finally {
+      Math.random = oldRandom;
+      Object.assign(Settings, oldSettings);
+      this.active = false; this.current = null;
+    }
+  },
+  runSuite(seeds = [11,29,47,83]) {
+    const pairs = [[0,0],[1,1],[2,2],[0,1],[1,2],[0,2],[2,0]];
+    const matches = [];
+    for (const [a,b] of pairs)
+      for (const seed of seeds) matches.push(this.runMatch(a,b,seed));
+    const self = {};
+    for (let d = 0; d < 3; d++) {
+      const sample = matches.filter(m => m.sides[0].difficulty === d && m.sides[1].difficulty === d);
+      const allSides = sample.flatMap(m => m.sides);
+      const avg = key => +(allSides.reduce((n,x)=>n + (x[key] || 0),0) / Math.max(1,allSides.length)).toFixed(3);
+      self[DIFFS[d].name] = {
+        matches:sample.length,
+        strikesPerMinute:avg('strikesPerMinute'),
+        bankRate:avg('bankRate'),
+        keeperReadRate:avg('keeperReadRate'),
+        whiffRate:avg('whiffRate'),
+        rebounds:avg('rebounds'),
+        ownGoals:allSides.reduce((n,x)=>n+x.ownGoals,0),
+      };
+    }
+    return { matches, self };
+  },
+};
+if (typeof window !== 'undefined' && ['localhost','127.0.0.1'].includes(window.location?.hostname))
+  window.__atelierRivalLab = RivalLab;
 
 // ---------- juice ----------
 function addTrauma(x) {
@@ -2980,6 +3266,10 @@ function onGoal(scorer) {
   if (G.mode === 'workshop') {
     const kmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
     Practice.onGoal(scorer, kmh);
+    return;
+  }
+  if (RivalLab.active && G.mode === 'watch') {
+    RivalLab.onGoal(scorer);
     return;
   }
   G.score[scorer]++; // the single place a goal changes the score

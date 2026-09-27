@@ -16,7 +16,7 @@ test('Workshop is a real playable practice surface', () => {
   assert.ok(game.includes('function startWorkshop(id)'));
   assert.ok(game.includes("G.mode = 'workshop'"));
   assert.ok(game.includes('const WORKSHOP_DRILLS ='));
-  assert.ok(game.includes('Score at 55 km/h'));
+  assert.ok(game.includes('Score at 22 km/h'));
   assert.ok(game.includes('Build a 10-hit rally'));
   assert.ok(game.includes('Make 3 clean saves'));
 });
@@ -71,7 +71,7 @@ test('House rivals expose distinct behavioral profiles', () => {
   assert.ok(game.includes('homeDepth:175'));
   assert.ok(game.includes('homeDepth:240'));
   assert.ok(game.includes('bankChance:0.08'));
-  assert.ok(game.includes('bankChance:0.36'));
+  assert.ok(game.includes('bankChance:0.44'));
   assert.ok(game.includes('readKeeper:0.30'));
   assert.ok(game.includes('readKeeper:0.92'));
   assert.ok(game.includes('rebound:0.12'));
