@@ -583,6 +583,8 @@ function settleConfirm(val) {
 function wireUI() {
   installDialogA11y();
   wireShareUI();
+  $('btnApplyUpdate').addEventListener('click', () => UpdateSys.apply());
+  $('btnDismissUpdate').addEventListener('click', () => UpdateSys.dismiss());
   buildCarousel();
   $('carPrev').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(-1); });
   $('carNext').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); carStep(1); });
