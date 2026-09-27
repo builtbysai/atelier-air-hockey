@@ -4,9 +4,10 @@ import { readFile } from 'node:fs/promises';
 
 const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
 
-test('Rookie keeps its existing physical limits', () => {
+test('Rookie keeps its existing physical limits while tracking lanes more responsibly', () => {
   assert.match(game, /name:'Rookie',[\s\S]*?maxSpeed:1080, react:0\.22, aimErr:68, strike:0\.88/);
   assert.match(game, /maxSpeed:1080[\s\S]*?whiff:0\.06/);
+  assert.match(game, /homeDepth:175, homeTrack:0\.40/);
 });
 
 test('Rookie has the strongest explicit repeated-lane memory', () => {
