@@ -1460,21 +1460,21 @@ const DIFFS = [
     maxSpeed:1080, react:0.22, aimErr:68, strike:0.88, aggro:0.64, tick:0.105, whiff:0.06, windup:0.13,
     homeDepth:175, homeTrack:0.34, bankChance:0.08, centerBias:0.28, recover:0.43,
     readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
-    counterWindow:1.05, counterSpeed:1950, blockOffset:82,
+    counterWindow:1.05, counterSpeed:1950, blockOffset:82, laneMemory:0.42,
   },
   {
     name:'Club Pro', style:'PLACEMENT PLAYER',
     maxSpeed:1320, react:0.12, aimErr:38, strike:1.05, aggro:0.76, tick:0.075, whiff:0.02, windup:0.11,
     homeDepth:205, homeTrack:0.44, bankChance:0.22, centerBias:0.10, recover:0.32,
     readKeeper:0.72, rebound:0.35, engageSpeed:1780, attackDelay:0.05, pressureDepth:95, pressBoost:0.14,
-    counterWindow:0.82, counterSpeed:2200, blockOffset:72,
+    counterWindow:0.82, counterSpeed:2200, blockOffset:72, laneMemory:0.16,
   },
   {
     name:'Champion', style:'PRESSURE PLAYER',
     maxSpeed:1600, react:0.075, aimErr:20, strike:1.22, aggro:0.94, tick:0.05, whiff:0.005, windup:0.095,
     homeDepth:240, homeTrack:0.58, bankChance:0.44, centerBias:0.00, recover:0.22,
     readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
-    counterWindow:0.62, counterSpeed:2500, blockOffset:62,
+    counterWindow:0.62, counterSpeed:2500, blockOffset:62, laneMemory:0.08,
   },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
@@ -2582,6 +2582,7 @@ function mkBrain(side, diffIdx) {
     whiff: false, // this strike will swing clean through (a human miss)
     counterT: 0, // short possession window after a real save/block
     counterCommitted: false,
+    concededLane: 0, concededLaneY: CY, concededLaneRepeat: 0,
     lastReadKeeper: false, // whether the current attack intentionally read the defender
     // commitment hysteresis (v24): sticky latches with deadbands so the AI
     // can't dither between strike/defend/reposition when the puck sits on a
@@ -2631,6 +2632,26 @@ function aiMatchPressure(b) {
   const matchPointThreat = theirs >= Settings.firstTo - 1 ? 0.10 : 0;
   return clamp(deficit * 0.12 + Math.min(2, opponentStreak) * 0.07 + matchPointThreat, -0.18, 0.52);
 }
+function aiRememberGoalLane(scorer) {
+  let defender = null;
+  if (G.mode === 'ai') {
+    // Solo House match: only the right-side rival is AI controlled.
+    if (scorer !== 0) return;
+    defender = G.ai2;
+  } else if (G.mode === 'watch') {
+    defender = scorer === 0 ? G.ai2 : G.ai1;
+  } else return;
+  if (!defender || !(defender.diff.laneMemory > 0)) return;
+
+  const lane = G.puck.y < CY ? -1 : 1;
+  if (lane === defender.concededLane)
+    defender.concededLaneRepeat = Math.min(3, defender.concededLaneRepeat + 1);
+  else {
+    defender.concededLane = lane;
+    defender.concededLaneRepeat = 1;
+  }
+  defender.concededLaneY = clamp(G.puck.y, CY - goalW() * 0.48, CY + goalW() * 0.48);
+}
 function aiHome(b) {
   // Each rival occupies a visibly different defensive line. Rookie protects
   // the mouth and counter-punches, Club Pro shadows lanes, Champion holds
@@ -2641,7 +2662,11 @@ function aiHome(b) {
   const track = clamp((D.homeTrack == null ? 0.35 : D.homeTrack) + pressure * 0.16, 0.18, 0.78);
   const hx = b.side === 0 ? PX + depth : PX + PW - depth;
   const sway = 10 + (D.readKeeper || 0) * 12;
-  const hy = CY + (b.seen.y - CY) * track + Math.sin(b.swayT * 1.7) * sway;
+  const repeats = Math.max(0, (b.concededLaneRepeat || 0) - 1);
+  const learned = repeats
+    ? (b.concededLaneY - CY) * (D.laneMemory || 0) * Math.min(1, repeats / 2)
+    : 0;
+  const hy = CY + (b.seen.y - CY) * track + learned + Math.sin(b.swayT * 1.7) * sway;
   return { x: hx, y: clamp(hy, PY + 90, PY + PH - 90) };
 }
 function aiThink(b, dt, m) {
@@ -3057,6 +3082,7 @@ const RivalLab = {
   onGoal(scorer) {
     const last = this.lastTouchEvent;
     G.score[scorer]++;
+    aiRememberGoalLane(scorer);
     const out = this.current.sides[scorer];
     out.goals++;
     if (last && last.side !== scorer && last.shank && this.clock - last.time < 1.2) {
@@ -3535,6 +3561,7 @@ function onGoal(scorer) {
     st.worstDef[0] = Math.min(st.worstDef[0], G.score[0] - G.score[1]);
     st.worstDef[1] = Math.min(st.worstDef[1], G.score[1] - G.score[0]);
   }
+  aiRememberGoalLane(scorer);
   if (G.hintLive) dismissHint(true); // first goal dismisses the hint forever
   if (G.stats) {
     G.stats.bestGoalRally = Math.max(G.stats.bestGoalRally || 0, G.stats.rally || 0);
