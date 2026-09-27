@@ -51,6 +51,19 @@ try {
         continue;
       }
 
+      const overflowingCards = await page.evaluate(() =>
+        [...document.querySelectorAll('.overlay:not(.hidden) .card')]
+          .filter(card => card.scrollHeight > card.clientHeight + 2)
+          .map(card => ({
+            id: card.closest('.overlay')?.id || 'unknown',
+            scrollHeight: card.scrollHeight,
+            clientHeight: card.clientHeight,
+          }))
+      );
+      if (overflowingCards.length) {
+        failures.push(`${group.dir}/${state}: vertical card overflow ${JSON.stringify(overflowingCards)}`);
+      }
+
       await page.screenshot({
         path: path.join(dir, `${state}.png`),
         fullPage: false,
