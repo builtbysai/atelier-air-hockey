@@ -3176,6 +3176,7 @@ function frame(t) {
   render();
   if (typeof GifExport !== 'undefined' && GifExport.active) GifExport.capture(t);
   if (typeof WakeSys !== 'undefined') WakeSys.sync();
+  if (typeof UpdateSys !== 'undefined') UpdateSys.sync();
 }
 
 // ---------- render ----------
