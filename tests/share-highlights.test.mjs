@@ -27,8 +27,8 @@ test('match moments select winning, fastest, and longest-rally goals with dedupl
 test('highlight UI supports replay and GIF export', () => {
   assert.match(template, /id="winHighlights"/);
   assert.match(template, /id="winHighlightList"/);
-  assert.match(share, /data\.highlightPlay/);
-  assert.match(share, /data\.highlightGif/);
+  assert.match(share, /dataset\.highlightPlay/);
+  assert.match(share, /dataset\.highlightGif/);
   assert.match(share, /Highlights\.play/);
   assert.match(share, /GifExport\.start/);
 });
