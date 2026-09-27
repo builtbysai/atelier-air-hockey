@@ -15,7 +15,7 @@ test('visual QA routes are localhost only', () => {
 });
 
 test('visual QA covers the critical UI and gameplay states', () => {
-  for (const state of ['menu','rules','preferences','practice','top','elevated','surface','goal','replay','pause','win'])
+  for (const state of ['menu','rules','preferences','practice-menu','practice','top','elevated','surface','goal','replay','pause','win'])
     assert.match(ui, new RegExp("case '" + state + "'"), state + ' QA state missing');
 });
 
