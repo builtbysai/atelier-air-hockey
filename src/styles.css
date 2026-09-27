@@ -239,6 +239,28 @@
     #menu .tagline{ margin-bottom:10px; }
     #menu .btn{ margin:5px 0; }
   }
+  /* Medium-height desktop/laptop screens: keep the full menu in one viewport. */
+  @media (min-width:700px) and (min-height:541px) and (max-height:950px){
+    #menu .card{ padding:12px 20px 10px; }
+    #menu .kicker{ margin-bottom:2px; }
+    #menu .lobby-title{ font-size:28px; margin-bottom:1px; }
+    #menu .tagline{ margin-bottom:4px; font-size:12px; }
+    #menu .seclabel{ margin:7px 0 5px; }
+    #menu .carousel{ max-width:330px; }
+    #menu .ctrack{ padding-top:3px; padding-bottom:3px; }
+    #menu .tslide .tmeta{ padding:6px 10px 7px; }
+    #menu .tslide .tname{ font-size:14px; }
+    #menu .tslide .tsub{ font-size:10px; }
+    #menu .cdots{ margin:4px 0 0; }
+    #menu .btn{ padding:8px 8px; margin:3px 0; font-size:13px; }
+    #menu .btn small{ margin-top:1px; font-size:8px; }
+    #menu .seg3 .btn{ padding:6px 3px; }
+    #menu .rulebar{ padding:7px 8px; margin-top:4px; }
+    #menu .btn.bigstart{ margin-top:5px; padding:9px 10px; font-size:15px; }
+    #menu .foot{ margin-top:4px; font-size:10px; }
+    #menu .foot button, #menu .lobfoot .ver{ padding:4px; font-size:10px; }
+  }
+
   /* short-but-wide (landscape phones): tables left, rivals right - no scroll */
   @media (max-height:540px) and (min-width:700px){
     #menu{ padding:8px; }
@@ -251,7 +273,7 @@
     #menu .menugrid{ display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:0 18px; align-items:start; }
     #menu .carousel{ margin:0 -4px; }
     #menu .ctrack{ padding:4px 24px; }
-    #menu .tslide canvas{ height:112px; aspect-ratio:auto; object-fit:cover; }
+    #menu .tslide canvas{ height:92px; aspect-ratio:auto; object-fit:cover; }
     #menu .tslide .tmeta{ padding:4px 10px 6px; }
     #menu .tslide .tname{ font-size:13px; }
     #menu .tslide .tsub{ display:none; }
@@ -261,7 +283,11 @@
     /* v21: the start button stays prominent but compact in short landscape */
     #menu .btn.bigstart{ margin-top:6px; padding:8px 6px; font-size:15px; }
     #menu .btn.bigstart small{ font-size:9px; }
-    #menu .foot{ margin-top:4px; text-align:center; }
+    #menu .menugrid + .foot{ display:none; }
+    #menu .rulebar{ padding:6px 7px; margin-top:3px; }
+    #menu .seg3 .btn{ padding:6px 3px; margin:2px 0; }
+    #menu .foot{ margin-top:2px; text-align:center; font-size:9px; }
+    #menu .foot button, #menu .lobfoot .ver{ padding:3px; font-size:9px; }
   }
   .kicker{ display:flex; align-items:center; gap:12px; font-size:11px; letter-spacing:4px; color:var(--sub); margin-bottom:8px; }
   .kicker::before, .kicker::after{ content:""; height:1px; flex:1 1 24px; }
@@ -587,17 +613,34 @@
     .win-stat:nth-child(-n+2){ border-bottom:1px solid color-mix(in srgb,var(--pline) 68%,transparent); }
   }
   @media (max-height:540px) and (min-width:700px){
-    #winov .win-card{ max-width:720px; padding:10px 18px; }
-    #winov .kicker{ margin-bottom:1px; }
-    #winTitle{ font-size:21px; margin:0; }
+    #winov .win-card{
+      max-width:760px; padding:8px 14px;
+      display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);
+      column-gap:14px; row-gap:4px; align-items:start;
+    }
+    #winov .kicker{ grid-column:1 / -1; margin-bottom:0; }
+    #winov .win-hero{ grid-column:1; grid-row:2; }
+    #winTitle{ font-size:20px; margin:0; }
     .win-score{ margin:0; }
-    .win-score strong{ font-size:46px; }
-    .win-resultline{ margin:3px 0 7px; }
-    .win-statgrid{ margin-bottom:7px; }
-    .win-stat{ padding:6px 7px; }
-    .win-awards{ margin-bottom:6px; }
-    .win-moment-actions{ max-width:460px; margin:0 auto 3px; }
-    .win-rematch,.win-exit{ max-width:460px; margin-left:auto; margin-right:auto; padding:8px 10px; }
+    .win-score strong{ font-size:42px; }
+    .win-resultline{ margin:2px 0 5px; font-size:8px; }
+    .win-statgrid{ grid-column:1; grid-row:3; grid-template-columns:repeat(2,minmax(0,1fr)); margin:0; }
+    .win-stat{ padding:4px 5px; }
+    .win-stat:nth-child(2){ border-right:0; }
+    .win-stat:nth-child(-n+2){ border-bottom:1px solid color-mix(in srgb,var(--pline) 68%,transparent); }
+    .win-awards{ grid-column:1; grid-row:4; margin:2px 0 0; }
+    .win-highlights{ grid-column:2; grid-row:2 / span 2; margin:0; padding-top:0; }
+    .win-highlights .seclabel{ margin:0 0 4px; }
+    .win-highlight-list{ gap:4px; }
+    .win-highlight{ min-height:32px; padding:4px 6px; }
+    .win-highlight-copy strong{ font-size:10px; }
+    .win-highlight-copy span{ margin-top:0; font-size:8px; }
+    .win-highlight-actions button{ min-width:40px; min-height:26px; padding:3px 5px; font-size:9px; }
+    .win-moment-actions{ grid-column:2; grid-row:4; margin:0; gap:5px; }
+    .win-moment-actions .btn{ padding:6px 7px; font-size:10px; }
+    .win-rematch{ grid-column:2; grid-row:5; margin:0; padding:7px 8px; font-size:11px; }
+    .win-rematch small{ display:inline; margin-left:6px; font-size:8px; }
+    .win-exit{ grid-column:2; grid-row:6; margin:0; padding:6px 8px; font-size:10px; }
   }
 
   body.replay-mode #game{
