@@ -1441,11 +1441,13 @@ const Replay = {
   frames: [], active: false, clip: null, pendingClip: null,
   acc: 0, elapsed: 0, scorer: -1, pendingScorer: -1, returnMode: 'goal',
   requested: false, offerT: 0,
+  reelQueue: null, reelIndex: 0, reelReturn: 'win', replayContext: '',
   sourceRate: 0.80,
   reset() {
     this.frames.length = 0; this.clip = null; this.pendingClip = null; this.active = false;
     this.acc = 0; this.elapsed = 0; this.scorer = -1; this.pendingScorer = -1; this.returnMode = 'goal';
     this.requested = false; this.offerT = 0;
+    this.reelQueue = null; this.reelIndex = 0; this.reelReturn = 'win'; this.replayContext = '';
     this.hideOffer();
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
@@ -1513,11 +1515,22 @@ const Replay = {
     // so play it immediately and restart countdown afterward.
     if (G.state === 'count') this.startPending('goal');
   },
-  startClip(clip, scorer, returnMode = 'win') {
+  setHud(word = 'REPLAY', context = '') {
+    const label = document.querySelector('#replayHud .replay-word');
+    const detail = document.getElementById('replayContext');
+    const skip = document.getElementById('replaySkip');
+    if (label) label.textContent = word;
+    if (detail) detail.textContent = context || '';
+    if (skip) {
+      const inReel = this.returnMode === 'reel' && this.reelQueue && this.reelQueue.length;
+      skip.textContent = inReel && this.reelIndex < this.reelQueue.length - 1 ? 'Next' : (inReel ? 'Done' : 'Skip');
+    }
+  },
+  startClip(clip, scorer, returnMode = 'win', context = '') {
     if (!clip || clip.length < 2 || this.active) return false;
     this.clip = clip;
     this.scorer = scorer;
-    this.elapsed = 0; this.active = true; this.returnMode = returnMode;
+    this.elapsed = 0; this.active = true; this.returnMode = returnMode; this.replayContext = context || '';
     this.requested = false; this.offerT = 0; this.hideOffer();
     const winReplay = document.getElementById('btnWinReplay'); if (winReplay) winReplay.classList.add('hidden');
     clearCeremony();
@@ -1527,7 +1540,22 @@ const Replay = {
     $('topbar').classList.add('hidden');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.remove('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
+    this.setHud('REPLAY', this.replayContext);
     return true;
+  },
+  startReel(items, returnMode = 'win') {
+    if (this.active) return false;
+    const queue = (items || []).filter(item => item?.goal?.clip?.length > 1).slice(0, 3);
+    if (!queue.length) return false;
+    this.reelQueue = queue; this.reelIndex = 0; this.reelReturn = returnMode;
+    return this.startReelItem();
+  },
+  startReelItem() {
+    const item = this.reelQueue && this.reelQueue[this.reelIndex];
+    if (!item) return false;
+    const ok = this.startClip(item.goal.clip, item.goal.scorer, 'reel', item.title + ' · ' + item.detail);
+    if (ok) this.setHud('MOMENT ' + (this.reelIndex + 1) + '/' + this.reelQueue.length, this.replayContext);
+    return ok;
   },
   startPending(returnMode = 'goal') {
     if (!this.hasPending()) return false;
@@ -1553,14 +1581,27 @@ const Replay = {
     if (progress) progress.style.transform = 'scaleX(' + clamp(duration > 0 ? this.elapsed / duration : 0, 0, 1).toFixed(3) + ')';
     if (this.elapsed >= duration) this.finish();
   },
-  finish() {
+  finish(forceExit = false) {
     if (!this.active) return;
     const ret = this.returnMode;
+    if (ret === 'reel' && !forceExit && this.reelQueue && this.reelIndex < this.reelQueue.length - 1) {
+      this.reelIndex++;
+      const item = this.reelQueue[this.reelIndex];
+      this.clip = item.goal.clip; this.scorer = item.goal.scorer; this.elapsed = 0;
+      this.replayContext = item.title + ' · ' + item.detail;
+      const progress = document.getElementById('replayProgress');
+      if (progress) progress.style.transform = 'scaleX(0)';
+      this.setHud('MOMENT ' + (this.reelIndex + 1) + '/' + this.reelQueue.length, this.replayContext);
+      return;
+    }
+    const finalReturn = ret === 'reel' ? this.reelReturn : ret;
     this.active = false; this.clip = null; this.elapsed = 0; this.scorer = -1; this.returnMode = 'goal';
+    this.reelQueue = null; this.reelIndex = 0; this.reelReturn = 'win'; this.replayContext = '';
     document.body.classList.remove('replay-mode');
     const hud = document.getElementById('replayHud'); if (hud) hud.classList.add('hidden');
     const progress = document.getElementById('replayProgress'); if (progress) progress.style.transform = 'scaleX(0)';
-    if (ret === 'win') {
+    this.setHud('REPLAY', '');
+    if (finalReturn === 'win') {
       G.state = 'win';
       hideAll(); $('winov').classList.remove('hidden');
       $('topbar').classList.add('hidden');
@@ -1594,44 +1635,132 @@ const Replay = {
 // pick meaningful match moments without adding any network traffic or another
 // simulation path.
 const Highlights = {
-  goals: [], nextId: 1,
-  reset() { this.goals.length = 0; this.nextId = 1; },
+  goals: [], nextId: 1, touchSerial: 0,
+  point: null,
+  freshPoint() {
+    return { saves:[0,0], nearMisses:[0,0], postHits:[0,0], bankBy:-1, bankSerial:-1 };
+  },
+  reset() {
+    this.goals.length = 0; this.nextId = 1; this.touchSerial = 0; this.point = this.freshPoint();
+  },
+  local() { return G.mode !== 'online' && G.mode !== 'workshop' && !G.demo; },
+  noteTouch(side) {
+    if (!this.local()) return;
+    this.touchSerial++;
+    // A new mallet touch invalidates an earlier bank unless this same touch
+    // later kisses a side rail before the goal.
+    if (!this.point) this.point = this.freshPoint();
+    this.point.bankBy = -1; this.point.bankSerial = -1;
+  },
+  noteRail(x, y, isPost) {
+    if (!this.local()) return;
+    if (!this.point) this.point = this.freshPoint();
+    const target = x < CX ? 0 : 1;
+    if (isPost) {
+      this.point.postHits[target]++;
+      return;
+    }
+    const sideRail = Math.abs(y - PY) < 2 || Math.abs(y - (PY + PH)) < 2;
+    if (sideRail && G.lastTouch >= 0) {
+      this.point.bankBy = G.lastTouch;
+      this.point.bankSerial = this.touchSerial;
+    }
+  },
+  noteSave(side) {
+    if (!this.local()) return;
+    if (!this.point) this.point = this.freshPoint();
+    this.point.saves[side]++;
+  },
+  noteNearMiss(targetSide) {
+    if (!this.local()) return;
+    if (!this.point) this.point = this.freshPoint();
+    this.point.nearMisses[targetSide]++;
+  },
   recordGoal(scorer, clip) {
-    if (!clip || clip.length < 2 || G.mode === 'online' || G.demo) return;
+    const point = this.point || this.freshPoint();
+    this.point = this.freshPoint();
+    if (!clip || clip.length < 2 || !this.local()) return;
     const st = G.stats || freshStats();
     const speedKmh = Math.round(hyp(G.puck.vx, G.puck.vy) * (2.4384 / PW) * 3.6);
+    const score = [G.score[0], G.score[1]];
+    const prev = score.slice(); prev[scorer] = Math.max(0, prev[scorer] - 1);
+    const other = 1 - scorer;
+    const tiesGame = score[0] === score[1];
+    const tookLead = score[scorer] === score[other] + 1 && prev[scorer] <= prev[other];
+    const erasedDeficit = prev[scorer] < prev[other] && score[scorer] >= score[other];
+    const winning = score[scorer] >= Settings.firstTo;
+    const matchPoint = !winning && score[scorer] === Settings.firstTo - 1;
+    const bankShot = point.bankBy === scorer && point.bankSerial === this.touchSerial;
+    const savesBeforeGoal = point.saves[scorer] || 0;
+    const pressure = (point.nearMisses[other] || 0) + (point.postHits[other] || 0);
     this.goals.push({
       id: this.nextId++,
-      scorer,
-      clip,
-      speedKmh,
+      scorer, clip, speedKmh,
       rally: st.rally || 0,
-      score: [G.score[0], G.score[1]],
+      score, prevScore: prev,
       themeId: G.themeId,
+      winning, matchPoint, tiesGame, tookLead, erasedDeficit, bankShot,
+      savesBeforeGoal, pressure,
+      streak: (st.streak && st.streak[scorer]) || 1,
     });
     if (this.goals.length > 12) this.goals.shift();
   },
   get(id) { return this.goals.find(g => g.id === Number(id)) || null; },
+  scoreGoal(g) {
+    let score = 10;
+    if (g.winning) score += 140;
+    if (g.erasedDeficit) score += 70;
+    if (g.tookLead) score += 42;
+    if (g.matchPoint) score += 28;
+    if (g.bankShot) score += 48;
+    if (g.savesBeforeGoal) score += Math.min(3, g.savesBeforeGoal) * 22;
+    if (g.streak >= 3) score += 30;
+    else if (g.streak === 2) score += 14;
+    score += Math.min(42, (g.rally || 0) * 2);
+    score += Math.min(36, (g.speedKmh || 0) * 1.4);
+    score += Math.min(18, (g.pressure || 0) * 6);
+    return score;
+  },
+  describe(g) {
+    const scoreText = g.score[0] + '–' + g.score[1];
+    if (g.winning) return { kind:'winning', title:'Winning goal', detail:scoreText };
+    if (g.erasedDeficit && g.tiesGame) return { kind:'comeback', title:'Comeback equalizer', detail:scoreText };
+    if (g.erasedDeficit && g.tookLead) return { kind:'comeback', title:'Comeback lead', detail:scoreText };
+    if (g.bankShot) return { kind:'bank', title:'Bank shot', detail:g.speedKmh + ' km/h · ' + scoreText };
+    if (g.savesBeforeGoal >= 2) return { kind:'counter', title:'Save and score', detail:g.savesBeforeGoal + ' saves · ' + scoreText };
+    if ((g.rally || 0) >= 12) return { kind:'rally', title:'Long rally finish', detail:g.rally + ' hits · ' + scoreText };
+    if ((g.speedKmh || 0) >= 22) return { kind:'speed', title:'Rocket goal', detail:g.speedKmh + ' km/h · ' + scoreText };
+    if (g.tookLead) return { kind:'lead', title:'Lead change', detail:scoreText };
+    if (g.tiesGame) return { kind:'equalizer', title:'Equalizer', detail:scoreText };
+    if (g.streak >= 3) return { kind:'streak', title:'Hat trick goal', detail:scoreText };
+    if (g.matchPoint) return { kind:'matchpoint', title:'Match point', detail:scoreText };
+    return { kind:'goal', title:sideLabel(g.scorer) + ' goal', detail:g.speedKmh + ' km/h · ' + scoreText };
+  },
   moments() {
     if (!this.goals.length) return [];
+    const ranked = this.goals.map(goal => ({ goal, score:this.scoreGoal(goal), ...this.describe(goal) }))
+      .sort((a,b) => b.score - a.score || b.goal.id - a.goal.id);
     const last = this.goals[this.goals.length - 1];
-    const fastest = this.goals.reduce((a,b) => b.speedKmh > a.speedKmh ? b : a);
-    const rally = this.goals.reduce((a,b) => b.rally > a.rally ? b : a);
-    const candidates = [
-      { kind:'winning', title:'Winning goal', detail:last.score[0] + '–' + last.score[1], goal:last },
-      { kind:'speed', title:'Fastest goal', detail:fastest.speedKmh + ' km/h', goal:fastest },
-      { kind:'rally', title:'Longest rally', detail:rally.rally + ' hits', goal:rally },
-    ];
-    const seen = new Set(), out = [];
-    for (const item of candidates) {
-      if (!item.goal || seen.has(item.goal.id)) continue;
+    const winner = ranked.find(item => item.goal.id === last.id && last.winning);
+    const out = [], seen = new Set();
+    if (winner) { out.push(winner); seen.add(winner.goal.id); }
+    for (const item of ranked) {
+      if (seen.has(item.goal.id)) continue;
       seen.add(item.goal.id); out.push(item);
+      if (out.length >= 3) break;
     }
-    return out;
+    return out.slice(0, 3);
   },
+  reel() { return this.moments(); },
   play(id, returnMode = 'win') {
     const goal = this.get(id);
-    return goal ? Replay.startClip(goal.clip, goal.scorer, returnMode) : false;
+    if (!goal) return false;
+    const desc = this.describe(goal);
+    return Replay.startClip(goal.clip, goal.scorer, returnMode, desc.title + ' · ' + desc.detail);
+  },
+  playReel(returnMode = 'win') {
+    const reel = this.reel();
+    return reel.length ? Replay.startReel(reel, returnMode) : false;
   },
 };
 
@@ -2133,6 +2262,7 @@ function collideMallet(p, m, dt) {
       onMalletHit(p.x, p.y, 750, rx, ry);
     }
     m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
+    Highlights.noteTouch(m.side);
     if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
     return;
   }
@@ -2180,6 +2310,7 @@ function collideMallet(p, m, dt) {
   // always clears the latch first, so a real fast dribble still gets a
   // distinct hit registered for each bounce.
   if (!m.contactActive) {
+    Highlights.noteTouch(m.side);
     const impact = -vn + Math.max(0, mvn);
     let savedThisHit = false;
     // SAVE: a fast lateral block of a puck bound for your own goal gets the
@@ -2195,6 +2326,7 @@ function collideMallet(p, m, dt) {
       savedThisHit = true;
       // match stat: bank a save for the defender's side (real play only - never demo)
       if (G.state === 'play' && !G.demo && G.stats) G.stats.saves[m.side]++;
+      Highlights.noteSave(m.side);
       if (G.mode === 'workshop') Practice.onSave(m.side);
       const saveBrain = m.side === 0 ? G.ai1 : G.ai2;
       if (saveBrain && (G.mode === 'ai' || G.mode === 'watch'))
@@ -2265,6 +2397,7 @@ function stepPhysics(dt) {
     const nearR = p.x > PX + PW - 80 && p.x < PX + PW + 30;
     if ((nearL || nearR) && dy > goalW() / 2 - 30 && dy < goalW() / 2 + PUCK_R + 26 && hyp(p.vx, p.vy) > 500) {
       G.nearCd = 1.5;
+      Highlights.noteNearMiss(nearL ? 0 : 1);
       if (fxFlash()) {
         G.dipT = 0.22;
         G.missGlow = { side: nearL ? 0 : 1, t: 0.7 };
@@ -3084,6 +3217,7 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
   if (!suppressHaptic && tier < 2 && v > 0.55) Haptics.fire('strike');
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
+  Highlights.noteRail(x, y, isPost);
   const v = clamp(impact / 2200, 0, 1);
   // puck squash on rails and the goal frame, 8–20% along the impact normal -
   // shared with the mallet-hit squash. Keeps the deeper of overlapping
@@ -3523,11 +3657,15 @@ function showWin() {
   }
 
   if (typeof renderWinHighlights === 'function') renderWinHighlights();
+  const reel = Highlights.reel();
+  const hasReel = reel.length >= 2;
+  const reelBtn = $('btnMatchReel');
+  if (reelBtn) reelBtn.classList.toggle('hidden', !hasReel);
   const winReplay = $('btnWinReplay');
   const hasReplay = Replay.hasPending();
-  if (winReplay) winReplay.classList.toggle('hidden', !hasReplay);
+  if (winReplay) winReplay.classList.toggle('hidden', hasReel || !hasReplay);
   const momentActions = $('winMomentActions');
-  if (momentActions) momentActions.classList.toggle('solo', !hasReplay);
+  if (momentActions) momentActions.classList.toggle('solo', !hasReel && !hasReplay);
   hideAll(); $('winov').classList.remove('hidden');
   G.hintLive = false;
 
