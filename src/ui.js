@@ -384,12 +384,12 @@ function carSync(id) {
 // ---------- menu selection ----------
 // Mode choice is separate from rival difficulty. Online remains inert until
 // the primary action is pressed, preserving the explicit network gesture.
-const MenuSel = { mode: 'ai', diff: 1, watch: { a: 1, b: 2 } };
+const MenuSel = { mode: 'ai', diff: 1, watch: { a: 1, b: 2 }, practice: 'free' };
 function selectRival(mode, diff) {
   MenuSel.mode = mode;
   if (diff != null) MenuSel.diff = diff;
   const modeButtons = {
-    ai: $('btnHouse'), '2p': $('btn2p'), online: $('btnOnline'), watch: $('btnWatch')
+    ai: $('btnHouse'), '2p': $('btn2p'), online: $('btnOnline'), watch: $('btnWatch'), practice: $('btnPractice')
   };
   Object.entries(modeButtons).forEach(([key, btn]) => {
     if (!btn) return;
@@ -404,6 +404,8 @@ function selectRival(mode, diff) {
   });
   $('houseSel').classList.toggle('hidden', mode !== 'ai');
   $('watchSel').classList.toggle('hidden', mode !== 'watch');
+  $('practiceSel').classList.toggle('hidden', mode !== 'practice');
+  $('matchRulesBlock').classList.toggle('hidden', mode === 'practice');
   updateStartLabel();
 }
 function selectWatch(side, idx) {
@@ -415,12 +417,28 @@ function selectWatch(side, idx) {
   });
   updateStartLabel();
 }
+function selectPractice(id) {
+  if (!PRACTICE_DRILLS[id]) id = 'free';
+  MenuSel.practice = id;
+  document.querySelectorAll('[data-practice]').forEach(b => {
+    const selected = b.dataset.practice === id;
+    b.classList.toggle('selected', selected);
+    b.setAttribute('aria-pressed', selected ? 'true' : 'false');
+  });
+  updateStartLabel();
+}
 function updateStartLabel() {
   const label = $('startLabel'), s = $('startSub');
   if (!s || !label) return;
   let rival;
   if (MenuSel.mode === '2p') { label.textContent = 'START MATCH'; rival = 'TWO PLAYERS'; }
   else if (MenuSel.mode === 'online') { label.textContent = 'PLAY ONLINE'; rival = 'HOST OR JOIN'; }
+  else if (MenuSel.mode === 'practice') {
+    label.textContent = 'ENTER PRACTICE';
+    rival = (PRACTICE_DRILLS[MenuSel.practice] || PRACTICE_DRILLS.free).name.toUpperCase();
+    s.textContent = rival;
+    return;
+  }
   else if (MenuSel.mode === 'watch') {
     label.textContent = 'START EXHIBITION';
     const names = ['ROOKIE', 'CLUB PRO', 'CHAMPION'];
@@ -501,15 +519,20 @@ function wireUI() {
   $('btn2p').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('2p'); });
   $('btnOnline').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('online'); });
   $('btnWatch').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('watch'); });
+  $('btnPractice').addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectRival('practice'); });
+  document.querySelectorAll('[data-practice]').forEach(btn => {
+    btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectPractice(btn.dataset.practice); });
+  });
   document.querySelectorAll('[data-watch]').forEach(btn => {
     btn.addEventListener('click', () => { AudioSys.init(); AudioSys.ui(); selectWatch(btn.dataset.side, +btn.dataset.watch); });
   });
   // Initialize watch selector UI to defaults (Club Pro vs Champion)
-  selectWatch('a', MenuSel.watch.a); selectWatch('b', MenuSel.watch.b);
+  selectWatch('a', MenuSel.watch.a); selectWatch('b', MenuSel.watch.b); selectPractice(MenuSel.practice);
   $('btnStart').addEventListener('click', () => {
     AudioSys.init(); AudioSys.ui();
     if (MenuSel.mode === 'online') { Net.openLobby(); return; }
     if (MenuSel.mode === 'watch') startGame('watch', MenuSel.watch);
+    else if (MenuSel.mode === 'practice') startGame('practice', MenuSel.practice);
     else startGame(MenuSel.mode, MenuSel.diff);
   });
   selectRival('ai', G.difficulty); // paint the initial selection + start label
@@ -543,10 +566,12 @@ function wireUI() {
       ok: 'Reset everything', ret: 'progress',
     });
     if (!ok) return;
-    [Record.key, Best.key, Feats.key, Tour.key].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
-    Record.load(); Best.load(); Feats.load(); Tour.load(); refreshRecordLines(); refreshTour(); renderProgress();
+    [Record.key, Best.key, Feats.key, Tour.key, PRACTICE_KEY].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    Record.load(); Best.load(); Feats.load(); Tour.load(); Practice.data = { freeBest:0, powerBest:0, keeperBest:0 }; Practice.load();
+    refreshRecordLines(); refreshTour(); Practice.renderMenu(); renderProgress();
   });
   $('helpClose').addEventListener('click', () => { AudioSys.ui(); hideAll(); $('menu').classList.remove('hidden'); });
+  $('practiceExit').addEventListener('click', quitToMenu);
   $('btnPause').addEventListener('click', () => togglePause());
   $('btnResume').addEventListener('click', () => togglePause());
   $('btnRestart').addEventListener('click', async () => {
