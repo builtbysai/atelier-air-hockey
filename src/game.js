@@ -1532,6 +1532,9 @@ const REPLAY_HZ = 30;
 const REPLAY_MAX = REPLAY_HZ * 5;
 const REPLAY_OFFER_AT = 1.00;
 const REPLAY_START_AT = 1.28;
+const GOAL_HOLD_OWN = 1.95;
+const GOAL_HOLD_CONCEDE = 1.60;
+const GOAL_HOLD_WIN = 2.70;
 function replayAngle(a, b, t) {
   let d = (b - a) % TAU;
   if (d > Math.PI) d -= TAU;
@@ -3702,7 +3705,9 @@ function updateGoal(rdt) {
     Replay.startPending('goal');
     return;
   }
-  if (G.goalT > (winningGoal ? 2.70 : 1.95)) advanceAfterGoal();
+  const hold = winningGoal ? GOAL_HOLD_WIN
+    : (goalIsYours(G.goalSide) ? GOAL_HOLD_OWN : GOAL_HOLD_CONCEDE);
+  if (G.goalT > hold) advanceAfterGoal();
 }
 function advanceAfterGoal() {
   const winningGoal = G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo;
