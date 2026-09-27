@@ -38,7 +38,7 @@
 <!-- first-time hint: one line on the first local match, gone forever after the first goal -->
 <div id="hint" class="hidden">Drag to move your mallet</div>
 <div id="replayHud" class="replay-hud hidden" role="status" aria-live="polite">
-  <span class="replay-word">REPLAY</span>
+  <span class="replay-copy"><strong class="replay-word">REPLAY</strong><small id="replayContext"></small></span>
   <span class="replay-progress" aria-hidden="true"><i id="replayProgress"></i></span>
   <button id="replaySkip" type="button">Skip</button>
 </div>
@@ -332,6 +332,7 @@
       <div id="winHighlightList" class="win-highlight-list"></div>
     </section>
     <div class="win-moment-actions" id="winMomentActions">
+      <button class="btn reel-action hidden" id="btnMatchReel">Watch match reel</button>
       <button class="btn hidden" id="btnWinReplay">Watch winning goal</button>
       <button class="btn" id="btnShareResult">Share result</button>
     </div>
