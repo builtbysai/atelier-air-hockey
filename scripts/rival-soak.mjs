@@ -18,10 +18,15 @@ try {
   await mkdir('rival-artifacts', { recursive:true });
   await writeFile(OUT, JSON.stringify(report, null, 2) + '\n');
 
-  const failed = report.matches.filter(m => m.stalled || m.winner < 0 || Math.max(...m.score) < 5);
-  if (failed.length) {
-    throw new Error('unfinished/stalled rival matches: ' +
-      failed.map(m => `${m.matchup.join(' vs ')} seed ${m.seed} score ${m.score.join('-')} duration ${m.duration}`).join('; '));
+  const deadlocked = report.matches.filter(m => m.deadlocked);
+  if (deadlocked.length) {
+    throw new Error('deadlocked rival matches: ' +
+      deadlocked.map(m => `${m.matchup.join(' vs ')} seed ${m.seed} max-dead ${m.maxDeadPuckSeconds}s`).join('; '));
+  }
+  const timedOut = report.matches.filter(m => m.timedOut || m.winner < 0 || Math.max(...m.score) < 5);
+  if (timedOut.length) {
+    throw new Error('rival matches exceeded 240 simulated seconds: ' +
+      timedOut.map(m => `${m.matchup.join(' vs ')} seed ${m.seed} score ${m.score.join('-')} duration ${m.duration}`).join('; '));
   }
 
   const totalGoals = report.matches.reduce((n,m) => n + m.score[0] + m.score[1], 0);
