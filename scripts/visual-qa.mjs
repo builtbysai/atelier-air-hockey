@@ -71,6 +71,30 @@ try {
         animations: 'disabled',
       });
     }
+    if (group.dir === 'mobile') {
+      pageErrors = [];
+      const url = new URL(BASE);
+      url.searchParams.set('qa', 'win');
+      await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => window.__atelierVisualQA?.freeze === true, null, { timeout:5000 });
+      // Resume only the replay/export path. The fixture itself stays
+      // deterministic until the user-equivalent GIF action begins.
+      await page.evaluate(() => { window.__atelierVisualQA.freeze = false; });
+      await page.click('[data-highlight-gif]');
+      await page.waitForFunction(() => {
+        const status = document.getElementById('gifStatus')?.textContent || '';
+        const preview = document.getElementById('gifPreview');
+        const save = document.getElementById('btnGifDownload');
+        return status.startsWith('Ready') && preview?.naturalWidth > 0 && save?.disabled === false;
+      }, null, { timeout:15000 });
+      if (pageErrors.length) failures.push('mobile/gif-export: ' + pageErrors.join(' | '));
+      await page.screenshot({
+        path: path.join(dir, 'gif-export.png'),
+        fullPage:false,
+        animations:'disabled',
+      });
+    }
+
     await page.close();
   }
 } finally {
