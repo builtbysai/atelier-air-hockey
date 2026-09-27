@@ -36,6 +36,9 @@ test('rival telemetry measures behavior rather than only configured stats', () =
   assert.match(game, /last\.shank && this\.clock - last\.time < 1\.2/);
   assert.match(game, /const counterShot = b\.counterT > 0/);
   assert.match(game, /b\.counterCommitted = counterShot/);
+  assert.match(game, /function aiControlledBlock\(m, p, preVx\)/);
+  assert.match(game, /afterGoalward <= beforeGoalward \+ 150/);
+  assert.match(game, /brain\.counterT = Math\.max/);
 });
 
 test('CI guards rival identity and simulation health', () => {
