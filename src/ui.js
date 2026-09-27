@@ -734,6 +734,7 @@ function wireUI() {
   $('btnWinMenu').addEventListener('click', quitToMenu);
   $('btnShareResult').addEventListener('click', shareResult);
   $('replayOffer').addEventListener('click', () => Replay.request());
+  $('btnMatchReel').addEventListener('click', () => Highlights.playReel('win'));
   $('btnWinReplay').addEventListener('click', () => Replay.startPending('win'));
   $('replaySkip').addEventListener('click', () => Replay.finish());
   $('btnSound').addEventListener('click', () => {
@@ -753,7 +754,7 @@ function wireUI() {
     if (e.key === 'p' || e.key === 'P') togglePause();
     else if (e.key === 'm' || e.key === 'M') $('btnSound').click();
     else if (e.key === 'Escape') {
-      if (G.state === 'replay') Replay.finish();
+      if (G.state === 'replay') Replay.finish(true);
       else if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
