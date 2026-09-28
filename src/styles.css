@@ -623,6 +623,90 @@
     }
   }
 
+  /* Short phones need a denser composition, not an internal scroll view.
+     Keep primary controls reachable, trim decorative height, and preserve
+     the full-size layouts above this deliberately narrow breakpoint. */
+  @media (max-width:380px) and (max-height:680px){
+    #menu .card{ padding:6px 10px 7px; }
+    #menu .kicker{ margin-bottom:0; font-size:8px; letter-spacing:3px; }
+    #menu .lobby-title{ font-size:22px; margin-bottom:0; }
+    #menu .seclabel{ margin:3px 0 2px; font-size:8px; letter-spacing:2px; }
+    #menu .carousel{ max-width:248px; margin:0 auto; }
+    #menu .ctrack{ padding:2px 22px; }
+    #menu .tslide .tmeta{ padding:5px 8px 6px; }
+    #menu .tslide .tname{ font-size:12px; }
+    #menu .tchallenge{ top:6px; right:6px; padding:4px 6px; font-size:7px; }
+    #menu .carrow{ width:32px; height:32px; font-size:18px; }
+    #menu .cdots{ display:none; }
+    #menu .seg4{ gap:6px; }
+    #menu .seg4 .btn{ min-height:38px; padding:7px 3px; font-size:12px; }
+    #menu .seg3{ gap:6px; }
+    #menu .seg3 .btn{ min-height:34px; padding:6px 2px; font-size:11px; }
+    #menu .rulebar{ margin-top:2px; padding:6px 7px; }
+    #menu .rule-summary-grid small{ font-size:7px; letter-spacing:1.1px; }
+    #menu .rule-summary-grid strong{ margin-top:1px; font-size:11px; }
+    #menu .btn.bigstart{ margin-top:4px; padding:9px 8px; font-size:14px; }
+    #menu .btn.bigstart small{ font-size:8px; }
+    #menu .lobfoot{ margin-top:2px; gap:1px; flex-wrap:nowrap; }
+    #menu .lobfoot a, #menu .lobfoot .ver{ display:none; }
+    #menu .foot button{ padding:4px 5px; font-size:9px; white-space:nowrap; }
+
+    #settings .card{ padding:7px 10px; }
+    #settings .kicker{ margin-bottom:0; font-size:8px; }
+    #settings h1{ margin-bottom:1px; font-size:18px; }
+    #settings .setrow{
+      flex-direction:row; align-items:center; gap:7px; margin:5px 0;
+    }
+    #settings .setlabel{ flex:0 0 64px; font-size:11px; letter-spacing:.4px; }
+    #settings .setrow .seg{ min-width:0; max-width:none; }
+    #settings .setrow .seg button{ min-height:32px; padding:5px 2px; font-size:10px; }
+    #settings .seg.volrange{ gap:6px; }
+    #settings .seg.volrange input[type=range]{ height:28px; }
+    #settings .seg.volrange output{ min-width:2.5em; font-size:11px; }
+    #settings .setnote{ margin:-1px 0 4px 71px; font-size:9px; line-height:1.25; }
+    #settingsClose{ margin-top:6px !important; padding:8px 10px; }
+
+    #winov .win-card{ padding:7px 9px 6px; }
+    #winov .kicker{ margin-bottom:1px; font-size:8px; }
+    #winTitle{ margin:0 0 1px; font-size:20px; }
+    .win-score{ margin:1px 0 0; gap:6px; }
+    .win-score strong{ font-size:42px; }
+    .win-score span{ font-size:22px; transform:none; }
+    .win-resultline{ margin:2px 0 5px; font-size:7px; letter-spacing:1.2px; }
+    .win-statgrid{
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      margin-bottom:5px;
+    }
+    .win-stat{ padding:4px 2px; border-bottom:0 !important; }
+    .win-stat:nth-child(2){ border-right:1px solid color-mix(in srgb,var(--pline) 68%,transparent); }
+    .win-stat span,.win-stat small{ font-size:6px; letter-spacing:.7px; }
+    .win-stat strong{ margin:1px 0; font-size:13px; }
+    .win-awards{
+      flex-wrap:nowrap; justify-content:flex-start; overflow-x:auto;
+      margin:0 0 4px; gap:3px; scrollbar-width:none;
+    }
+    .win-awards::-webkit-scrollbar{ display:none; }
+    .win-award{
+      flex:0 0 auto; min-height:20px; padding:2px 5px;
+      font-size:6px; letter-spacing:.7px;
+    }
+    .win-award::before{ display:none; }
+    .win-highlights{ margin:1px 0 5px; padding-top:1px; }
+    .win-highlights .seclabel{ margin:3px 0; font-size:7px; }
+    .win-highlight-list{ gap:3px; }
+    .win-highlight{ min-height:30px; padding:3px 5px; gap:5px; }
+    .win-highlight-copy strong{ font-size:9px; }
+    .win-highlight-copy span{ margin-top:0; font-size:6px; letter-spacing:.6px; }
+    .win-highlight-actions{ gap:2px; }
+    .win-highlight-actions button{
+      min-width:38px; min-height:28px; padding:3px 5px; font-size:8px;
+    }
+    .win-moment-actions{ gap:4px; margin-bottom:2px; }
+    .win-moment-actions .btn{ padding:7px 6px; font-size:10px; }
+    .win-rematch{ margin-top:4px; padding:8px 7px; font-size:12px; }
+    .win-exit{ padding:7px 7px; font-size:11px; }
+  }
+
 
   @media (hover:none) and (pointer:coarse){
     .desktop-controls{ display:none !important; }

@@ -26,7 +26,9 @@ test('visual QA freezes simulation and animation noise', () => {
   assert.match(css, /\.visual-qa \*, \.visual-qa \*::before, \.visual-qa \*::after/);
 });
 
-test('visual QA validates three viewport classes and no-scroll cards', () => {
+test('visual QA validates compact, mobile, landscape, and desktop viewports', () => {
+  assert.match(runner, /width: 360, height: 640/);
+  assert.match(runner, /dir: 'compact'/);
   assert.match(runner, /width: 390, height: 844/);
   assert.match(runner, /width: 844, height: 390/);
   assert.match(runner, /width: 1440, height: 900/);
@@ -44,6 +46,13 @@ test('visual QA validates three viewport classes and no-scroll cards', () => {
   assert.match(runner, /closest\('\.overlay'\)\?\.id !== 'progress'/);
   assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
   assert.match(runner, /vertical card overflow/);
+  assert.match(runner, /state === 'update'/);
+  assert.match(runner, /update banner is not visible/);
+  assert.match(ui, /UpdateSys\.waiting = \{ postMessage\(\) \{\} \}; UpdateSys\.dismissed = false/);
+  assert.match(css, /@media \(max-width:380px\) and \(max-height:680px\)/);
+  assert.match(css, /#menu \.lobfoot a, #menu \.lobfoot \.ver\{ display:none; \}/);
+  assert.match(css, /#settings \.setrow\{[\s\S]*?flex-direction:row/);
+  assert.match(css, /\.win-awards\{[\s\S]*?flex-wrap:nowrap/);
   assert.match(workflow, /playwright@1\.55\.0/);
   assert.match(workflow, /google-chrome --version/);
   assert.doesNotMatch(workflow, /playwright install --with-deps chromium/);

@@ -943,6 +943,9 @@ function applyVisualQaState(name) {
     }
     case 'update':
       hideAll(); G.state = 'menu'; G.demo = false; G.idleT = 0; $('menu').classList.remove('hidden');
+      // Model a real waiting worker so UpdateSys.sync() keeps the banner
+      // visible instead of immediately undoing the QA state.
+      UpdateSys.waiting = { postMessage() {} }; UpdateSys.dismissed = false;
       $('updateReady').classList.remove('hidden'); break;
     default:
       hideAll(); G.state = 'menu'; $('menu').classList.remove('hidden'); break;
