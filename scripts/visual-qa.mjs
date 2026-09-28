@@ -5,6 +5,11 @@ import path from 'node:path';
 const BASE = process.env.ATELIER_QA_URL || 'http://127.0.0.1:4173/';
 const matrix = [
   {
+    dir: 'compact',
+    viewport: { width: 360, height: 640 },
+    states: ['menu','rules','preferences','workshop-menu','workshop','goal','replay','pause','win','update'],
+  },
+  {
     dir: 'mobile',
     viewport: { width: 390, height: 844 },
     states: ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','goal-rival','replay','pause','win','update'],
