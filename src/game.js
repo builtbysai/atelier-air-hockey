@@ -2822,6 +2822,19 @@ function aiThink(b, dt, m) {
     m.ty = clamp(y, PY + MALLET_R, PY + PH - MALLET_R);
   };
   const goHome = () => { const h = aiHome(b); setTx(h.x, h.y); };
+  const aimDefense = () => {
+    // Intercept the predicted trajectory from the goal side. Shared by the
+    // normal defend state and emergency recovery interruption so a goalie
+    // never spends one more decision tick skating home during a live threat.
+    const tHit = clamp(Math.abs((s.x - (b.side === 0 ? PX + 150 : PX + PW - 150)) / (s.vx || 1)), 0, 1.1);
+    const pr = predictPuck(s.x, s.y, s.vx, s.vy, tHit * 0.85);
+    const gx = b.side === 0 ? PX + 130 : PX + PW - 130;
+    const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
+    const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
+    const goalSide = b.side === 0 ? -1 : 1;
+    const blockX = gx + (pr.x - gx) * 0.28 + goalSide * (D.blockOffset || 70);
+    setTx(blockX, pr.y + steerY);
+  };
 
   // Own-goal guard (v19): never plow through a slow puck that sits between
   // the mallet and your own net - that shove is the #1 measured own-goal
@@ -2911,24 +2924,7 @@ function aiThink(b, dt, m) {
       break;
     }
     case 'defend': {
-      // intercept the predicted trajectory in front of goal
-      const tHit = clamp(Math.abs((s.x - (b.side === 0 ? PX + 150 : PX + PW - 150)) / (s.vx || 1)), 0, 1.1);
-      const pr = predictPuck(s.x, s.y, s.vx, s.vy, tHit * 0.85);
-      const gx = b.side === 0 ? PX + 130 : PX + PW - 130;
-      // deflection steering (v19): meet the puck slightly toward the mouth
-      // CENTER from its lane, so the contact normal kicks deflections toward
-      // the walls instead of into your own mouth. Only near the mouth - far
-      // from it the lane coverage matters more than the deflection angle.
-      const nearMouth = Math.abs(pr.y - CY) < goalW() / 2 + 60;
-      const steerY = nearMouth ? (CY - pr.y) * 0.25 : 0;
-      // Stay between the puck and our own goal. The previous target sat
-      // almost exactly on the predicted puck point; when the mallet arrived
-      // from center ice it could contact from the attacking side and drive
-      // the shot into its own net. This goal-side cushion makes a block
-      // naturally deflect back toward open ice.
-      const goalSide = b.side === 0 ? -1 : 1;
-      const blockX = gx + (pr.x - gx) * 0.28 + goalSide * (D.blockOffset || 70);
-      setTx(blockX, pr.y + steerY);
+      aimDefense();
       // if the puck sits in reach (smothered block, loose puck), take it.
       // v24.2: this reads LIVE geometry and is checked BEFORE the guard
       // fallback. The old order fell through to guard on the delayed `seen`
@@ -3062,6 +3058,14 @@ function aiThink(b, dt, m) {
       break;
     }
     case 'recover': {
+      // Emergency defense outranks recovery personality. A rebound or second
+      // shot that becomes goal-bound must interrupt the retreat immediately;
+      // otherwise the mallet visibly backs away while the puck scores.
+      if (threat) {
+        b.state = 'defend'; b.tState = 0;
+        aimDefense();
+        break;
+      }
       goHome();
       const recovery = D.recover || 0.4;
       // Club Pro and especially Champion will sometimes stay on a loose
