@@ -274,3 +274,29 @@ test('focus-loss freeze skips canvas repaint while keeping the frame heartbeat',
   assert.ok(source.indexOf('lastT = t;', start - 500) < start,
     'lastT must still update before the focus-loss early return');
 });
+
+
+test('foreground recovery rebuilds and repaints the canvas without resuming simulation', async () => {
+  const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
+  const start = game.indexOf('function recoverCanvasSurface()');
+  const end = game.indexOf('// ---------- 2.5D camera ----------', start);
+  const block = game.slice(start, end);
+  assert.match(block, /ctx\.isContextLost/);
+  assert.match(block, /resize\(\);[\s\S]*render\(\);/);
+  assert.doesNotMatch(block, /AudioSys\.resume|G\.focusLost\s*=\s*false/,
+    'surface recovery must not silently resume audio or simulation');
+  assert.match(ui, /document\.addEventListener\('visibilitychange',[\s\S]*?recoverCanvasSurface\(\);[\s\S]*?WakeSys\.sync\(\)/);
+  assert.match(ui, /window\.addEventListener\('focus', \(\) => recoverCanvasSurface\(\)\)/);
+});
+
+test('canvas context loss waits for restoration and then repaints', async () => {
+  const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
+  assert.match(game, /function markCanvasContextLost\(\) \{ canvasContextLost = true; \}/);
+  assert.match(game, /function markCanvasContextRestored\(\) \{[\s\S]*canvasContextLost = false;[\s\S]*recoverCanvasSurface\(\);/);
+  assert.match(ui, /canvas\.addEventListener\('contextlost', \(\) => markCanvasContextLost\(\)\)/);
+  assert.match(ui, /canvas\.addEventListener\('contextrestored', \(\) => markCanvasContextRestored\(\)\)/);
+  assert.doesNotMatch(ui, /contextlost'[\s\S]{0,120}preventDefault/,
+    '2D context loss should allow the browser to perform its default restoration');
+});
