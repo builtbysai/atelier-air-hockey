@@ -87,6 +87,18 @@ try {
         animations: 'disabled',
       });
     }
+    // Help is reached from the live menu rather than the seeded QA route.
+    // Keep its new rally explanation readable on short landscape screens.
+    pageErrors = [];
+    await page.goto(BASE, { waitUntil:'domcontentloaded' });
+    await page.click('#btnHelp');
+    const helpOverflow = await page.evaluate(() => {
+      const card = document.querySelector('#help .card');
+      return card.scrollHeight > card.clientHeight + 2;
+    });
+    if (helpOverflow) failures.push(`${group.dir}/help: vertical card overflow`);
+    if (pageErrors.length) failures.push(`${group.dir}/help: ${pageErrors.join(' | ')}`);
+    await page.screenshot({ path:path.join(dir, 'help.png'), animations:'disabled' });
     if (group.dir === 'mobile' || group.dir === 'landscape') {
       // Real browser touch smoke: drive the same PointerEvent path a phone uses.
       // Unit tests already prove the coordinate math; this catches broken event
