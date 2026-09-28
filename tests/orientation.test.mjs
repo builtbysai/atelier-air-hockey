@@ -186,7 +186,8 @@ test('mirrored online guest gets the same no-stick taper toward center', async (
   t.view = { w: 844, h: 390, s: 0.5, ox: 0, oy: 0, portrait: false, dpr: 1, camera: 'top', cam: null };
 
   const targetAt = x => {
-    const sc = rinkToScreen(t, x, 520, false);
+    // Online guest rendering mirrors rink X before screenToRink flips it back.
+    const sc = rinkToScreen(t, t.VW - x, 520, false);
     return t.touchTargetRink(1, sc.x, sc.y);
   };
   const a = targetAt(790);
