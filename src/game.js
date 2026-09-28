@@ -2360,7 +2360,7 @@ function glueEscapeDir(p, nx, ny) {
     if (nearT || nearB) { rx = (p.x - PX) < (PX + PW - p.x) ? 1 : -1; ry = 0; }
     else { rx = 0; ry = (p.y - PY) < (PY + PH - p.y) ? 1 : -1; }
   }
-  return { rx, ry, railed, nearT, nearB };
+  return { rx, ry, railed, nearT, nearB, nearL, nearR };
 }
 function aiBrainForSide(side) {
   if (G.mode === 'watch') return side === 0 ? G.ai1 : G.ai2;
@@ -2405,7 +2405,7 @@ function collideMallet(p, m, dt) {
   if (-vn0 + Math.max(0, mvn0) > 650) m.glueT = 0;
   else m.glueT += dt;
   if (m.glueT > GLUE_HARD_CUTOFF) {
-    const { rx: rx0, ry: ry0, railed, nearT, nearB } = glueEscapeDir(p, nx, ny);
+    const { rx: rx0, ry: ry0, railed, nearT, nearB, nearL } = glueEscapeDir(p, nx, ny);
     let rx = rx0, ry = ry0;
     if (!railed) {
       p.x = m.x + nx * minD; p.y = m.y + ny * minD;
