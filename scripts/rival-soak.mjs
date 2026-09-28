@@ -3,7 +3,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 
 const BASE = process.env.ATELIER_QA_URL || 'http://127.0.0.1:4173/';
 const OUT = 'rival-artifacts/rival-soak.json';
-const browser = await chromium.launch({ headless:true });
+const browser = await chromium.launch({
+  headless:true,
+  ...(process.env.ATELIER_QA_BROWSER === 'chrome' ? { channel:'chrome' } : {}),
+});
 
 try {
   const page = await browser.newPage({ viewport:{ width:1280, height:720 }, deviceScaleFactor:1 });
