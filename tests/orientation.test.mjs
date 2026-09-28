@@ -142,6 +142,19 @@ test('local 2P far-side touch offset reverses toward center in both orientations
   assert.ok(portrait.x === 0 && portrait.y > 0, 'top player should advance downward toward center');
 });
 
+test('mirrored online guest touch still advances toward center in landscape', async () => {
+  const t = await loadGame();
+  t.G.mode = 'online';
+  t.G.onlineFlip = true;
+  t.view = { w: 844, h: 390, s: 0.5, ox: 0, oy: 0, portrait: false, dpr: 1, camera: 'top', cam: null };
+
+  const off = t.touchOffsetScreen(1, 220, 180);
+  assert.ok(off.x > 0 && off.y === 0, 'guest forward screen direction should remain rightward after mirroring');
+  const before = t.screenToRink(220, 180);
+  const after = t.screenToRink(220 + off.x, 180 + off.y);
+  assert.ok(after.x < before.x, 'mirrored guest physical rink X should move leftward toward center');
+});
+
 test('preferences UI offers automatic and explicit orientation controls', async () => {
   const template = await readFile(new URL('../src/template.html', import.meta.url), 'utf8');
   assert.match(template, /data-set="orientation" data-val="auto"/, 'auto button missing');
