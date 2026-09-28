@@ -1923,6 +1923,7 @@ function mkMallet(side) {
     trail: [],                // recent positions on fast flicks
     hitSq: 1, hitSqA: 0,      // impact squash amount / angle (mirrors G.puckSq)
     contactActive: false,     // hit-effects edge latch - see collideMallet
+    contactStartedGoalward: false, // continuous-contact hemisphere guard
   };
 }
 function resetPositions() {
@@ -1930,7 +1931,7 @@ function resetPositions() {
   m1.x = m1.tx = PX + 170; m1.y = m1.ty = CY;
   m2.x = m2.tx = PX + PW - 170; m2.y = m2.ty = CY;
   m1.vx = m1.vy = m2.vx = m2.vy = 0;
-  for (const m of [m1, m2]) { m.glueT = 0; m.ghostT = 0; m.touching = false; m.trail.length = 0; m.hitSq = 1; m.hitSqA = 0; m.contactActive = false; }
+  for (const m of [m1, m2]) { m.glueT = 0; m.ghostT = 0; m.touching = false; m.trail.length = 0; m.hitSq = 1; m.hitSqA = 0; m.contactActive = false; m.contactStartedGoalward = false; }
   G.puck = { x: CX, y: CY, vx: 0, vy: 0, r: PUCK_R, w: 0, ang: 0 };
   G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
   G.stallX = CX; G.stallY = CY; G.anchorT = 0;
@@ -2414,15 +2415,49 @@ function aiControlledBlock(m, p, preVx) {
   return true;
 }
 
+function contactWrapReleaseNormal(m, p, nx, ny) {
+  const goalSign = m.side === 0 ? -1 : 1; // + points toward this mallet's own goal
+  const goalward = goalSign * (p.x - m.x);
+  if (!m.contactActive) {
+    // A real incoming save may begin on the goal side. Preserve that case;
+    // only police a contact that began safely on the table-facing hemisphere.
+    m.contactStartedGoalward = goalward > 6;
+    return null;
+  }
+  if (m.contactStartedGoalward || goalward <= 4) return null;
+
+  // Continuous overlap has crossed through the mallet's goal axis without a
+  // separation. A rigid puck/mallet pair cannot physically pass through each
+  // other this way; keep it on the table-facing hemisphere and release it.
+  const sx = -goalSign * 0.18;
+  const sySign = Math.abs(ny) > 0.08 ? Math.sign(ny) : 1;
+  return { nx:sx, ny:sySign * Math.sqrt(1 - sx * sx) };
+}
+
 function collideMallet(p, m, dt) {
   const dx = p.x - m.x, dy = p.y - m.y;
   const minD = p.r + m.r;
   const d2 = dx * dx + dy * dy;
-  if (m.ghostT > 0) { m.glueT = 0; m.contactActive = false; return; } // ghostT ticks in stepPhysics
-  if (d2 >= minD * minD || d2 === 0) { m.contactActive = false; return; }
+  if (m.ghostT > 0) { m.glueT = 0; m.contactActive = false; m.contactStartedGoalward = false; return; } // ghostT ticks in stepPhysics
+  if (d2 >= minD * minD || d2 === 0) { m.contactActive = false; m.contactStartedGoalward = false; return; }
   const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
   const preTouchVx = p.vx, preTouchVy = p.vy;
   m.touching = true;
+
+  const wrapRelease = contactWrapReleaseNormal(m, p, nx, ny);
+  if (wrapRelease) {
+    const goalSign = m.side === 0 ? -1 : 1;
+    const clear = clamp(Math.max(420, Math.abs(preTouchVx) * 0.45, hyp(m.vx, m.vy) * 0.22), 420, 900);
+    p.x = m.x + wrapRelease.nx * minD;
+    p.y = m.y + wrapRelease.ny * minD;
+    p.vx = -goalSign * clear;
+    p.vy = clamp(preTouchVy + wrapRelease.ny * 160, -1200, 1200);
+    p.w *= 0.45;
+    m.glueT = 0; m.ghostT = 0.08; m.touching = false;
+    m.contactActive = false; m.contactStartedGoalward = false;
+    G.lastTouch = m.side; G.stallT = 0;
+    return;
+  }
   // --- possession clock ---
   const vn0 = (p.vx - m.vx) * nx + (p.vy - m.vy) * ny;
   const mvn0 = m.vx * nx + m.vy * ny;
@@ -2460,7 +2495,7 @@ function collideMallet(p, m, dt) {
   p.x = m.x + nx * minD; p.y = m.y + ny * minD;
   const rvx = p.vx - m.vx, rvy = p.vy - m.vy;
   const vn = rvx * nx + rvy * ny;
-  if (vn >= 0) { m.contactActive = false; return; } // separating
+  if (vn >= 0) { m.contactActive = false; m.contactStartedGoalward = false; return; } // separating
   // Speed-dependent restitution: a still/slow mallet SMOTHERS the puck
   // (real goalie play - the puck drops dead for possession), a driven
   // mallet bounces it lively. This is what makes traps, dribbles and
