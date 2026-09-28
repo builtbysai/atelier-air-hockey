@@ -237,8 +237,8 @@ test('preferences UI wires both audio sliders', async () => {
   assert.match(template, /id="soundVol"/, 'preferences need the sound volume slider');
   assert.match(template, /id="soundVolVal"/, 'sound slider needs a readout');
   assert.match(template, /<div class="setlabel">Sound effects<\/div>/, 'audio category should be unambiguous');
-  assert.match(template, /data-set="instantReplay" data-val="off">Off<\/button>\s*<button data-set="instantReplay" data-val="goals">On<\/button>/,
-    'binary replay preference should read left-to-right Off then On');
+  assert.match(template, /data-set="instantReplay" data-val="off">Off<\/button>\s*<button data-set="instantReplay" data-val="goals">Offer<\/button>/,
+    'binary replay preference should put Off left and the enabled option right');
   assert.match(template, /data-set="haptics" data-val="false">Off<\/button>\s*<button data-set="haptics" data-val="true">On<\/button>/,
     'binary haptics preference should read left-to-right Off then On');
   assert.doesNotMatch(template, /data-set="music"/, 'redundant Music toggle must be gone');
