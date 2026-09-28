@@ -38,7 +38,7 @@ Every room also has a concise **House Challenge**, from allowing two goals or fe
 
 The **Workshop** uses the same physics as a match:
 - **Power:** score at 22 km/h.
-- **Control:** build a 10-hit rally.
+- **Control:** trade 10 alternating returns, then 15 and 20 in later stages. Repeated touches by one mallet count once.
 - **Keeper:** make 3 saves in a row.
 - **Free Hit:** open sandbox for shots, banks, and control.
 

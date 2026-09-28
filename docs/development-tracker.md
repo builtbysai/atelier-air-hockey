@@ -1,8 +1,19 @@
 # Atelier Air Hockey — Development Tracker
 
-Updated: 2026-09-27
+Updated: 2026-09-28
 
 This tracker covers the post-v1 stabilization and gameplay-quality pass requested after real-device playtesting and replay review.
+
+## Current status
+
+| Priority | Work | Status |
+| --- | --- | --- |
+| P0 | Free Hit target wall; mallet contact wrap; AI emergency defense; foreground canvas recovery; Exhibition persistence | Shipped on `main` (#60–#64) |
+| P1 | Three-stage Workshop; adaptive GIF export; speed-scaled impact light | Shipped on `main` (#66–#68) |
+| P2 | Rival tactics; goal ceremony | Shipped on `main` (#70–#71) |
+| P2 | Rally definition, progress feedback, and Workshop reset | In PR #73; awaiting final review and merge |
+
+The supplied GIFs show the old 190–199 × 420 export path. The current exporter uses a 640 px long side, a palette built from the clip, and no dark full-frame wash. The mallet and AI fixes are separate physics/decision changes, so export fidelity does not mask either gameplay defect.
 
 ## Working rules
 
@@ -212,14 +223,17 @@ The current goal moment is readable but not sufficiently rewarding.
 - Gold Standard Air Hockey: under-bank deception and same-release shot families.
 - Billy Stubbs / Say AH: floating-triangle defense, re-centering, cut/cross + bank combinations.
 - Bubble & Air Hockey: triangle defense and under/over bank selection based on keeper depth.
+- A [published air-hockey robot strategy](https://publications.lib.chalmers.se/records/fulltext/240634/240634.pdf) prioritizes goal defense against fast inbound pucks and active interception when the puck slows. [EA Air Hockey's designer](https://blog.stevewetherill.com/posts/2022-01-11-ea-air-hockey-designing-a-one-button-mobile-game/) describes transitioning between offensive and defensive mallet positions. These support the emergency-defense override and the rivals' changing defensive depth.
 
 ### Progression
 - Microsoft Research, CHI 2015: effective progressions practice base concepts and combinations with increasing mastery demands.
 - Gameplay progression literature consistently warns against flat difficulty and abrupt spikes; staged escalation should be playtested, not assumed.
+- The [CHI 2015 progression study](https://www.microsoft.com/en-us/research/?p=334439) supports practice that grows in complexity; the Workshop's 20/22/24, 10/15/20, and 3/5/7 targets are design starting points, not empirically validated difficulty settings for this game.
 
 ### Visual feedback / flashing
 - W3C WCAG 2.2 2.3.1: avoid more than three flashes in one second or stay below luminance/area thresholds.
 - Impact feedback should communicate hit strength and importance; spectacle is not useful if every hit reads as maximum.
+- The [W3C flash criterion](https://www.w3.org/WAI/WCAG22/Understanding/three-flashes-or-below-threshold) informs the capped, local impact glint. [MDN's GIF format guide](https://developer.mozilla.org/en-US/docs/Glossary/GIF) explains the 256-color limit behind the adaptive palette. [MDN's canvas recovery guidance](https://developer.mozilla.org/en-US/docs/Web/API/CanvasRenderingContext2D/isContextLost) documents repainting after context restoration.
 
 ## Execution order
 

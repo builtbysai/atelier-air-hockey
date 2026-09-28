@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
 
 const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
 
@@ -29,4 +30,30 @@ test('rally HUD starts early, reads clearly, and reserves stronger feedback for 
   assert.match(game, /addText\(CX, CY - 72, 'RALLY ' \+ rallyN/);
   assert.match(game, /return 'RALLY · ' \+ G\.rallyHudN/);
   assert.match(game, /G\.stats\.rally = 0; G\.stats\.rallyLastSide = -1/);
+});
+
+test('Workshop stage and point resets begin a fresh exchange', () => {
+  const start = game.indexOf('  resetPoint(note) {');
+  const end = game.indexOf('  complete() {', start);
+  const reset = game.slice(start, end);
+  assert.match(reset, /G\.stats\.rally = 0; G\.stats\.rallyLastSide = -1/);
+});
+
+test('dribbles stay on one rally count and the next stage counts its first return', () => {
+  const start = game.indexOf('function noteRallyTouch(side) {');
+  const end = game.indexOf('function onMalletHit', start);
+  const events = [];
+  const state = {
+    G: { state:'play', demo:false, mode:'workshop', stats:{ rally:0, bestRally:0, rallyLastSide:-1 }, rallyHudN:0, rallyHudT:0 },
+    Practice: { onRally: n => events.push(n) },
+    addText() {}, CX:720, CY:520, THEME:{ gold:'#fff' },
+  };
+  vm.runInNewContext(game.slice(start, end) + '\nthis.touch = noteRallyTouch;', state);
+  for (const side of [0, 0, 0, 1, 1, 0]) state.touch(side);
+  assert.deepEqual(events, [1, 2, 3]);
+  assert.equal(state.G.stats.bestRally, 3);
+  state.G.stats.rally = 0;
+  state.G.stats.rallyLastSide = -1;
+  state.touch(0);
+  assert.deepEqual(events, [1, 2, 3, 1]);
 });

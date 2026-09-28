@@ -433,7 +433,7 @@ function workshopStageGoal(id, stage) {
 function workshopStageTarget(id, stage) {
   const goal = workshopStageGoal(id, stage);
   if (id === 'power') return 'Score at ' + goal + ' km/h';
-  if (id === 'control') return 'Build a ' + goal + '-hit rally';
+  if (id === 'control') return 'Trade ' + goal + ' alternating returns';
   if (id === 'keeper') return 'Make ' + goal + ' saves in a row';
   return WORKSHOP_DRILLS[id]?.target || '';
 }
@@ -568,7 +568,7 @@ const Practice = {
     if (!this.active) return;
     resetPositions();
     this.preparePoint();
-    if (G.stats) G.stats.rally = 0;
+    if (G.stats) { G.stats.rally = 0; G.stats.rallyLastSide = -1; }
     startCount();
     rollServe(WORKSHOP_DRILLS[this.id].serve);
     $('topbar').classList.remove('hidden');
