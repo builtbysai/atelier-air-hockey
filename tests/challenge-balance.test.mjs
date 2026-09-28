@@ -12,8 +12,8 @@ function number(pattern, label) {
 function challengeValue(id) {
   return number(new RegExp('\\b' + id + ':\\s*\\{[^\\n]*?value:(\\d+)'), id + ' challenge');
 }
-function workshopGoal(id) {
-  return number(new RegExp('\\b' + id + ':\\s*\\{[^\\n]*?goal:(\\d+)'), id + ' Workshop goal');
+function workshopBaseline(id) {
+  return number(new RegExp('\\b' + id + ':\\s*\\{[^\\n]*?stages:\\[(\\d+)'), id + ' Workshop baseline');
 }
 
 test('speed challenges stay inside the real puck-speed envelope', () => {
@@ -27,15 +27,15 @@ test('speed challenges stay inside the real puck-speed envelope', () => {
 });
 
 test('House challenges build on Workshop skill targets instead of undercutting them', () => {
-  assert.ok(challengeValue('mid') >= workshopGoal('control'),
+  assert.ok(challengeValue('mid') >= workshopBaseline('control'),
     'Mid-Century rally challenge should meet or exceed the Control drill');
-  assert.ok(challengeValue('brut') >= workshopGoal('power'),
+  assert.ok(challengeValue('brut') >= workshopBaseline('power'),
     'Beton power challenge should meet or exceed the Power drill');
-  assert.ok(challengeValue('sashi') > workshopGoal('keeper'),
+  assert.ok(challengeValue('sashi') > workshopBaseline('keeper'),
     'Sashiko save challenge should exceed the Keeper drill baseline');
-  assert.ok(challengeValue('zel') > workshopGoal('control'),
+  assert.ok(challengeValue('zel') > workshopBaseline('control'),
     'Zellige scoring-rally challenge should exceed the Control drill');
-  assert.ok(challengeValue('neon') > workshopGoal('power'),
+  assert.ok(challengeValue('neon') > workshopBaseline('power'),
     'Neon speed challenge should exceed the Power drill');
 });
 
