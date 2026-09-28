@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased: composed music, room QR invites, HUD master mute, netcode feel (feat/audio-qr-music-240924)
+## 2026-09-28: gameplay and reliability pass
+
+- Free Hit now uses a continuous target wall. Workshop Power, Control, and Keeper drills have three stages with saved progress.
+- Fixed mallet contact wrapping into own goals, AI recovery during live goal threats, black canvas recovery after backgrounding, and Exhibition matches changing saved progression.
+- Improved GIF export fidelity, speed-scaled mallet impact light, rival tactics, goal celebrations, and rally feedback.
+- Online guests now keep the current match score and stats across point countdowns. Installed app updates now use a cache identity derived from app content.
+- See [the development tracker](docs/development-tracker.md) for the original findings, acceptance criteria, and verification.
+
+## 2026-09-24: composed music, room QR invites, HUD master mute, netcode feel
 
 ### Music: composed, not random
 - Every table's room is now composed material: an ordered chord progression
@@ -82,7 +90,8 @@
   simultaneous with pointer on the other side), online host (WASD → left mallet),
   online guest (WASD → right mallet), portrait (W → toward the far goal),
   P pause/resume, M sound toggle.
-## Unreleased: online netcode repair (feat/online-netcode-240924)
+
+## 2026-09-24: online netcode repair
 
 **The remote mallet actually moves now, and the netcode survives real networks.**
 

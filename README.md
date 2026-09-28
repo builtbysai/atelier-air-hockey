@@ -37,10 +37,10 @@ The **Table Tour** has mastery progression and alternate unlock paths. Four room
 Every room also has a concise **House Challenge**, from allowing two goals or fewer in Noir Deco to a 24 km/h + two-goal-margin finish in Neon Atelier. Challenges clear only on a human House win and persist locally.
 
 The **Workshop** uses the same physics as a match:
-- **Power:** score at 22 km/h.
+- **Power:** score at 20, 22, then 24 km/h across three stages.
 - **Control:** trade 10 alternating returns, then 15 and 20 in later stages. Repeated touches by one mallet count once.
-- **Keeper:** make 3 saves in a row.
-- **Free Hit:** open sandbox for shots, banks, and control.
+- **Keeper:** make 3, 5, then 7 saves in a row across three stages.
+- **Free Hit:** continuous practice against a target wall, with your own goal still live for defensive practice.
 
 Cleared drills stay replayable for personal bests. Workshop clears, House Challenges, mastery, records, personal bests (fastest win, top speed, longest rally, biggest margin), and achievements persist on your device.
 
