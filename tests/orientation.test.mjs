@@ -45,7 +45,7 @@ async function loadGame() {
     requestAnimationFrame() {}, setTimeout() {}, clearTimeout() {},
     performance: { now: () => 0 },
   });
-  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, touchOffsetScreen, resize, loadSettings, Settings, G, win: window, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; } };`,
+  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, touchOffsetScreen, touchTargetRink, resize, loadSettings, Settings, G, win: window, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; } };`,
     context, { filename: 'src/game.js' });
   return context.__t;
 }
@@ -153,6 +153,46 @@ test('mirrored online guest touch still advances toward center in landscape', as
   const before = t.screenToRink(220, 180);
   const after = t.screenToRink(220 + off.x, 180 + off.y);
   assert.ok(after.x < before.x, 'mirrored guest physical rink X should move leftward toward center');
+});
+
+test('touch target tapers near center so the mallet never develops a sticky dead zone', async () => {
+  const t = await loadGame();
+  t.G.mode = 'ai';
+  t.G.onlineFlip = false;
+  t.view = { w: 844, h: 390, s: 0.5, ox: 0, oy: 0, portrait: false, dpr: 1, camera: 'top', cam: null };
+
+  const targetAt = x => {
+    const sc = rinkToScreen(t, x, 520, false);
+    return t.touchTargetRink(0, sc.x, sc.y);
+  };
+
+  // Far from center there is room for the full one-diameter visual offset.
+  const far = targetAt(500);
+  assert.ok(Math.abs(far.x - 592) < 1e-6, 'open-space touch should keep the full offset');
+
+  // Inside the taper zone, moving the finger toward center must still move the
+  // mallet toward center. A fixed offset would clamp both targets to the same X.
+  const nearA = targetAt(650);
+  const nearB = targetAt(670);
+  assert.ok(nearB.x > nearA.x, 'mallet target must keep responding near center');
+  assert.ok(nearA.x < 712 && nearB.x < 712, 'taper should avoid slamming the target into the center clamp');
+  assert.ok((nearB.x - 670) < (nearA.x - 650), 'finger-to-mallet offset should shrink as boundary room disappears');
+});
+
+test('mirrored online guest gets the same no-stick taper toward center', async () => {
+  const t = await loadGame();
+  t.G.mode = 'online';
+  t.G.onlineFlip = true;
+  t.view = { w: 844, h: 390, s: 0.5, ox: 0, oy: 0, portrait: false, dpr: 1, camera: 'top', cam: null };
+
+  const targetAt = x => {
+    const sc = rinkToScreen(t, x, 520, false);
+    return t.touchTargetRink(1, sc.x, sc.y);
+  };
+  const a = targetAt(790);
+  const b = targetAt(770);
+  assert.ok(b.x < a.x, 'guest mallet target must keep moving toward center near its mirrored boundary');
+  assert.ok(a.x > 728 && b.x > 728, 'guest taper should stay inside the side-1 center clamp');
 });
 
 test('preferences UI offers automatic and explicit orientation controls', async () => {
