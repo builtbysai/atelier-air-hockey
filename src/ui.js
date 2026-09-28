@@ -345,12 +345,13 @@ function renderWorkshopMenu() {
   for (const id of ['power','control','keeper','free']) {
     const el = document.querySelector('[data-workshop="' + id + '"]');
     const state = $('workshop' + id[0].toUpperCase() + id.slice(1) + 'State');
-    const free = id === 'free', done = !free && Workshop.done(id), best = free ? '' : Workshop.bestLabel(id);
-    if (el) el.classList.toggle('cleared', done);
+    const free = id === 'free', stage = free ? 0 : Workshop.stage(id), best = free ? '' : Workshop.bestLabel(id);
+    if (el) el.classList.toggle('cleared', stage >= 1);
     if (state) {
       if (free) state.textContent = 'OPEN TABLE';
-      else if (done) state.textContent = best ? 'CLEARED · PB ' + best : 'CLEARED';
-      else state.textContent = best ? 'PB ' + best : 'NOT CLEARED';
+      else if (stage >= 3) state.textContent = 'MASTERED' + (best ? ' · PB ' + best : '');
+      else if (stage > 0) state.textContent = stage + '/3 CLEARED' + (best ? ' · PB ' + best : '');
+      else state.textContent = 'STAGE 1/3' + (best ? ' · PB ' + best : '');
     }
   }
 }
@@ -363,13 +364,16 @@ function renderProgress() {
   const unlocked = FEATS.filter(f => Feats.data[f.id]).length;
   const openRooms = THEME_ORDER.filter(tableUnlocked).length;
   summary.textContent = openRooms + '/' + THEME_ORDER.length + ' rooms open · ' +
-    Mastery.masteredCount() + ' mastered · ' + TableChallenges.count() + '/10 challenges · ' +
-    Workshop.count() + '/3 Workshop drills';
+    Mastery.masteredCount() + ' tables mastered · ' + TableChallenges.count() + '/10 challenges · ' +
+    Workshop.count() + '/3 drills cleared · ' + Workshop.masteredCount() + '/3 drills mastered';
   const featRows = FEATS.map(f => '<div class="progress-item"><span>' + (Feats.data[f.id] ? '★ ' : '○ ') + f.name + '</span><span>' + f.desc + '</span></div>').join('');
   const workshopRows = ['power','control','keeper'].map(id => {
-    const best = Workshop.bestLabel(id);
-    const status = Workshop.done(id) ? 'cleared' : WORKSHOP_DRILLS[id].target.toLowerCase();
-    return '<div class="progress-item"><span>' + (Workshop.done(id) ? '★ ' : '○ ') + WORKSHOP_DRILLS[id].name + '</span><span>' +
+    const best = Workshop.bestLabel(id), stage = Workshop.stage(id);
+    const nextStage = Math.min(3, stage + 1);
+    const status = stage >= 3 ? 'mastered'
+      : stage > 0 ? stage + '/3 cleared · next ' + workshopStageTarget(id, nextStage).toLowerCase()
+      : workshopStageTarget(id, 1).toLowerCase();
+    return '<div class="progress-item"><span>' + (stage >= 3 ? '★ ' : stage > 0 ? '◆ ' : '○ ') + WORKSHOP_DRILLS[id].name + '</span><span>' +
       status + (best ? ' · PB ' + best : '') + '</span></div>';
   }).join('');
   const tableRows = THEME_ORDER.map(id => {
