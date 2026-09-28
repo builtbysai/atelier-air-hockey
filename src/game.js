@@ -340,12 +340,25 @@ const Workshop = {
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
-  done(id) { return !!this.data[id]; },
-  complete(id) {
-    if (!id || this.data[id]) return false;
-    this.data[id] = 1; this.save();
+  // Stored drill values are completed stage numbers. Legacy saves used 1,
+  // which naturally migrates to Stage 1 without losing unlock progress.
+  stage(id) {
+    const n = Number(this.data[id]);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.max(0, Math.min(3, Math.floor(n)));
+  },
+  done(id) { return this.stage(id) >= 1; },
+  mastered(id) { return this.stage(id) >= 3; },
+  completeStage(id, stage) {
+    if (!id) return false;
+    const next = Math.max(1, Math.min(3, Math.floor(Number(stage) || 1)));
+    if (this.stage(id) >= next) return false;
+    this.data[id] = next; this.save();
     return true;
   },
+  // Compatibility for older callers: "complete" still means the first clear,
+  // which is the stage that unlocks the same route as before.
+  complete(id) { return this.completeStage(id, 1); },
   best(id) {
     const n = Number(this.data._best && this.data._best[id]);
     return Number.isFinite(n) && n > 0 ? n : 0;
@@ -366,6 +379,7 @@ const Workshop = {
     return String(Math.round(n));
   },
   count() { return ['power','control','keeper'].filter(id => this.done(id)).length; },
+  masteredCount() { return ['power','control','keeper'].filter(id => this.mastered(id)).length; },
 };
 
 // The first four rooms are always open. Later rooms use related skill gates
@@ -405,24 +419,47 @@ function tableUnlockSnapshot() {
 }
 
 const WORKSHOP_DRILLS = Object.freeze({
-  power:   { name:'Power',    target:'Score at 22 km/h',        goal:22, coach:0,    serve:1 },
-  control: { name:'Control',  target:'Build a 10-hit rally',     goal:10, coach:0,    serve:1 },
-  keeper:  { name:'Keeper',   target:'Make 3 saves in a row',    goal:3,  coach:1,    serve:-1 },
-  free:    { name:'Free Hit', target:'Shots, banks, and control', goal:0,  coach:null, serve:1, free:true },
+  power:   { name:'Power',    stages:[20,22,24], unit:'KM/H', coach:0,    serve:1 },
+  control: { name:'Control',  stages:[10,15,20], unit:'HITS', coach:0,    serve:1 },
+  keeper:  { name:'Keeper',   stages:[3,5,7],    unit:'SAVES', coach:1,   serve:-1 },
+  free:    { name:'Free Hit', target:'Shots, banks, and control', coach:null, serve:1, free:true },
 });
+function workshopStageGoal(id, stage) {
+  const d = WORKSHOP_DRILLS[id];
+  if (!d || !d.stages || !d.stages.length) return 0;
+  const i = Math.max(0, Math.min(d.stages.length - 1, (Number(stage) || 1) - 1));
+  return d.stages[i];
+}
+function workshopStageTarget(id, stage) {
+  const goal = workshopStageGoal(id, stage);
+  if (id === 'power') return 'Score at ' + goal + ' km/h';
+  if (id === 'control') return 'Build a ' + goal + '-hit rally';
+  if (id === 'keeper') return 'Make ' + goal + ' saves in a row';
+  return WORKSHOP_DRILLS[id]?.target || '';
+}
 const Practice = {
-  active:false, id:null, progress:0, wasCleared:false, freeHits:0,
+  active:false, id:null, progress:0, stage:1, replayMastered:false, freeHits:0, sessionUnlocks:[],
   begin(id) {
-    if (!WORKSHOP_DRILLS[id]) return false;
-    this.active = true; this.id = id; this.progress = 0; this.wasCleared = Workshop.done(id); this.freeHits = 0;
+    const d = WORKSHOP_DRILLS[id];
+    if (!d) return false;
+    const completed = d.free ? 0 : Workshop.stage(id);
+    this.active = true;
+    this.id = id;
+    this.progress = 0;
+    this.stage = d.free ? 0 : Math.min(completed + 1, d.stages.length);
+    this.replayMastered = !d.free && completed >= d.stages.length;
+    this.freeHits = 0;
+    this.sessionUnlocks = [];
     Workshop.current = id;
     this.syncHud();
     return true;
   },
   cancel() {
-    this.active = false; this.id = null; this.progress = 0; this.wasCleared = false; this.freeHits = 0; Workshop.current = null;
+    this.active = false; this.id = null; this.progress = 0; this.stage = 1;
+    this.replayMastered = false; this.freeHits = 0; this.sessionUnlocks = []; Workshop.current = null;
     const hud = $('workshopHud'); if (hud) hud.classList.add('hidden');
   },
+  goal() { return workshopStageGoal(this.id, this.stage); },
   preparePoint() {
     if (!this.active || this.id !== 'free') return;
     // Free Hit is genuinely solo. Park the unused rival outside the rendered
@@ -437,20 +474,50 @@ const Practice = {
     const d = WORKSHOP_DRILLS[this.id]; if (!d) return;
     const hud = $('workshopHud'), title = $('workshopHudTitle'), target = $('workshopHudTarget'), prog = $('workshopHudProgress');
     if (hud) hud.classList.remove('hidden');
-    if (title) title.textContent = 'WORKSHOP · ' + d.name.toUpperCase();
-    if (target) target.textContent = note || d.target;
+    if (title) title.textContent = d.free
+      ? 'WORKSHOP · ' + d.name.toUpperCase()
+      : 'WORKSHOP · ' + d.name.toUpperCase() + ' · STAGE ' + this.stage + '/' + d.stages.length;
+    if (target) {
+      if (note) target.textContent = note;
+      else if (this.replayMastered) target.textContent = 'MASTERED · ' + workshopStageTarget(this.id, this.stage);
+      else target.textContent = d.free ? d.target : workshopStageTarget(this.id, this.stage);
+    }
     if (!prog) return;
     if (d.free) {
       prog.textContent = this.freeHits ? this.freeHits + ' TARGET' + (this.freeHits === 1 ? '' : 'S') : 'OPEN TABLE';
       return;
     }
     const value = this.id === 'power' ? Math.round(this.progress) : this.progress;
-    prog.textContent = value + ' / ' + d.goal + (this.id === 'power' ? ' KM/H' : '');
+    prog.textContent = value + ' / ' + this.goal() + ' ' + d.unit;
   },
   maybeClear() {
     const d = WORKSHOP_DRILLS[this.id];
-    if (!d || d.free || this.wasCleared || this.progress < d.goal) return false;
-    this.complete(); return true;
+    const goal = this.goal();
+    if (!d || d.free || this.progress < goal) return false;
+    // A fully mastered drill remains replayable for PBs, but never re-awards
+    // progression or interrupts the session with another completion card.
+    if (Workshop.stage(this.id) >= this.stage) {
+      this.syncHud('MASTERED · keep pushing your PB');
+      return false;
+    }
+
+    const clearedStage = this.stage;
+    const before = tableUnlockSnapshot();
+    Workshop.completeStage(this.id, clearedStage);
+    const unlocked = newlyUnlockedTables(before);
+    for (const id of unlocked) if (!this.sessionUnlocks.includes(id)) this.sessionUnlocks.push(id);
+
+    if (clearedStage < d.stages.length) {
+      this.stage = clearedStage + 1;
+      this.progress = 0;
+      addText(CX, CY, 'STAGE ' + clearedStage + ' CLEAR', THEME.gold || '#d8a93f', 30);
+      const unlockText = unlocked.length ? ' · Unlocked ' + unlocked.map(x => THEMES[x].name).join(', ') : '';
+      this.resetPoint('Stage ' + clearedStage + ' clear' + unlockText + ' · Stage ' + this.stage);
+      return true;
+    }
+
+    this.complete();
+    return true;
   },
   onFreeTarget(speedKmh) {
     if (!this.active || this.id !== 'free') return;
@@ -488,7 +555,7 @@ const Practice = {
     if (this.id === 'power' && scorer === 0) {
       this.progress = Math.max(this.progress, speedKmh);
       Workshop.bumpBest('power', speedKmh);
-      this.syncHud(speedKmh >= WORKSHOP_DRILLS.power.goal ? 'Power target hit' : 'Keep driving through the puck');
+      this.syncHud(speedKmh >= this.goal() ? 'Power target hit' : 'Keep driving through the puck');
       if (this.maybeClear()) return;
     } else if (this.id === 'control') {
       this.progress = 0; this.syncHud('Rally reset · build it again');
@@ -497,7 +564,7 @@ const Practice = {
     }
     this.resetPoint();
   },
-  resetPoint() {
+  resetPoint(note) {
     if (!this.active) return;
     resetPositions();
     this.preparePoint();
@@ -505,26 +572,24 @@ const Practice = {
     startCount();
     rollServe(WORKSHOP_DRILLS[this.id].serve);
     $('topbar').classList.remove('hidden');
-    this.syncHud();
+    this.syncHud(note);
   },
   complete() {
     if (!this.active || !this.id) return;
-    const id = this.id, d = WORKSHOP_DRILLS[id], before = tableUnlockSnapshot();
-    const fresh = Workshop.complete(id);
-    const unlocked = newlyUnlockedTables(before);
+    const id = this.id, d = WORKSHOP_DRILLS[id];
     const best = Workshop.bestLabel(id);
+    const unlocked = this.sessionUnlocks.slice();
     this.active = false;
     G.state = 'practiceDone';
     clearCeremony(); Replay.reset();
     hideAll();
     const hud = $('workshopHud'); if (hud) hud.classList.add('hidden');
     const title = $('workshopDoneTitle'), copy = $('workshopDoneText');
-    if (title) title.textContent = d.name + ' complete.';
+    if (title) title.textContent = d.name + ' mastered.';
     if (copy) {
       const pb = best ? 'PB ' + best + '. ' : '';
-      copy.textContent = unlocked.length
-        ? pb + 'Unlocked ' + unlocked.map(x => THEMES[x].name).join(', ') + '.'
-        : pb + 'Clear saved. Replay the drill to push your best.';
+      const unlock = unlocked.length ? 'Unlocked ' + unlocked.map(x => THEMES[x].name).join(', ') + '. ' : '';
+      copy.textContent = pb + unlock + 'All 3 stages cleared.';
     }
     $('workshopDone').classList.remove('hidden');
     Haptics.fire('win');
