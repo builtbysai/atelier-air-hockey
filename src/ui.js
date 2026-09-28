@@ -467,6 +467,7 @@ function buildCarousel() {
   const track = $('carTrack'), dots = $('carDots');
   if (!track || track.children.length) return;
   track.setAttribute('role', 'listbox'); track.setAttribute('aria-label', 'Table selection');
+  track.setAttribute('aria-orientation', 'horizontal');
   if (dots) dots.setAttribute('aria-hidden', 'true');
   THEME_ORDER.forEach((id, i) => {
     const T = THEMES[id];
@@ -484,9 +485,11 @@ function buildCarousel() {
     d.addEventListener('click', pick);
     d.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'Home' || e.key === 'End') {
         e.preventDefault();
-        const next = (i + (e.key === 'ArrowRight' ? 1 : -1) + THEME_ORDER.length) % THEME_ORDER.length;
+        const next = e.key === 'Home' ? 0
+          : e.key === 'End' ? THEME_ORDER.length - 1
+          : (i + (e.key === 'ArrowRight' ? 1 : -1) + THEME_ORDER.length) % THEME_ORDER.length;
         carGo(next);
         requestAnimationFrame(() => track.children[next]?.focus({ preventScroll:true }));
       }
