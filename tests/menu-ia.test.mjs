@@ -126,3 +126,15 @@ test('Match Rules detail is centered and compact labels remain visible on phones
 test('all overlays centrally hide gameplay chrome', () => {
   assert.match(game, /function hideAll\(\)[\s\S]*?\$\('topbar'\)\.classList\.add\('hidden'\)/);
 });
+
+test('dialog focus trap ignores controls hidden from the tab order', () => {
+  assert.match(ui,
+    /filter\(el => !el\.closest\('\.hidden,\[hidden\],\[aria-hidden="true"\]'\)\)/,
+    'shared dialog focus trap must filter hidden controls');
+
+  const win = template.match(/<div class="overlay hidden" id="winov"[\s\S]*?<div class="overlay hidden" id="gifov"/)?.[0] || '';
+  assert.match(win, /class="btn reel-action hidden" id="btnMatchReel"/,
+    'result dialog should keep its conditional reel action');
+  assert.match(win, /class="btn hidden" id="btnWinReplay"/,
+    'result dialog should keep its conditional replay action');
+});
