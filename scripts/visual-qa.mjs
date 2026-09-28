@@ -21,7 +21,10 @@ const matrix = [
   },
 ];
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({
+  headless: true,
+  ...(process.env.ATELIER_QA_BROWSER === 'chrome' ? { channel: 'chrome' } : {}),
+});
 const failures = [];
 
 try {

@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [ui, game, css, workflow, runner] = await Promise.all([
+const [ui, game, css, workflow, runner, rivalRunner] = await Promise.all([
   readFile(new URL('../src/ui.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/game.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
   readFile(new URL('../.github/workflows/visual-qa.yml', import.meta.url), 'utf8'),
   readFile(new URL('../scripts/visual-qa.mjs', import.meta.url), 'utf8'),
+  readFile(new URL('../scripts/rival-soak.mjs', import.meta.url), 'utf8'),
 ]);
 
 test('visual QA route is localhost only', () => {
@@ -44,6 +45,14 @@ test('visual QA validates three viewport classes and no-scroll cards', () => {
   assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
   assert.match(runner, /vertical card overflow/);
   assert.match(workflow, /playwright@1\.55\.0/);
+  assert.match(workflow, /google-chrome --version/);
+  assert.doesNotMatch(workflow, /playwright install --with-deps chromium/);
+  assert.match(workflow, /ATELIER_QA_BROWSER: chrome/);
+  assert.match(runner, /process\.env\.ATELIER_QA_BROWSER === 'chrome'/);
+  assert.match(runner, /channel: 'chrome'/);
+  assert.match(rivalRunner, /process\.env\.ATELIER_QA_BROWSER === 'chrome'/);
+  assert.match(rivalRunner, /channel:'chrome'/);
+  assert.match(workflow, /Run deterministic rival soak[\s\S]*?ATELIER_QA_BROWSER: chrome/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /atelier-visual-qa/);
 });
