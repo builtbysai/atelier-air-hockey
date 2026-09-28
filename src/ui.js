@@ -210,6 +210,25 @@ const UpdateSys = {
 };
 
 // ---------- settings ----------
+function syncReducedMotionPreference(reduce) {
+  PRM.reduce = !!reduce;
+  // System preference may choose the safe session default, but never overrides
+  // a shake level the player explicitly picked and saved themselves.
+  if (!PRM.userShake) Settings.shake = PRM.reduce ? 'subtle' : 'full';
+}
+function installReducedMotionPreference() {
+  try {
+    if (!window.matchMedia) return;
+    const mq = matchMedia('(prefers-reduced-motion: reduce)');
+    syncReducedMotionPreference(mq.matches);
+    const onChange = e => {
+      syncReducedMotionPreference(e.matches);
+      applySettingsToUI();
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+  } catch (e) {}
+}
 function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
   // Lock them during an online match so peers can't desynchronize.
@@ -218,6 +237,7 @@ function setSetting(key, val) {
   if (key === 'firstTo') val = parseInt(val, 10);
   if (key === 'soundVolume' || key === 'musicVolume') val = clamp(Math.round(Number(val) || 0), 0, 100);
   Settings[key] = val;
+  if (key === 'shake') PRM.userShake = true;
   if (key === 'soundVolume') Settings.sound = val > 0;
   if (key === 'musicVolume') Settings.music = val > 0;
   saveSettings(); applySettingsToUI();
@@ -927,15 +947,10 @@ function boot() {
   Record.load(); Best.load(); Feats.load(); Tour.load(); Mastery.load(); TableChallenges.load(); Workshop.load();
   refreshRecordLines(); // paint any stored records under the menu buttons
   refreshTour(); // tour counter + conquered-table pips
-  // accessibility: prefers-reduced-motion drops Shake to Subtle for the
-  // session - unless the player explicitly chose a shake level - and
-  // fxFlash() kills flashes, confetti, and room reactivity from then on.
-  try {
-    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      PRM.reduce = true;
-      if (!PRM.userShake) Settings.shake = 'subtle';
-    }
-  } catch (e) {}
+  // Accessibility: keep reduced-motion live for the whole PWA session.
+  // Canvas flashes/room reactivity read PRM.reduce directly; an explicit
+  // in-app Shake choice remains authoritative.
+  installReducedMotionPreference();
   resize(); wireUI(); applySettingsToUI();
   let initialTheme = 'deco';
   try { const savedTheme = localStorage.getItem('atelier-ah-theme'); if (savedTheme && THEMES[savedTheme]) initialTheme = savedTheme; } catch (e) {}
