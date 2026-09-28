@@ -44,6 +44,11 @@ test('visual QA validates three viewport classes and no-scroll cards', () => {
   assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
   assert.match(runner, /vertical card overflow/);
   assert.match(workflow, /playwright@1\.55\.0/);
+  assert.match(workflow, /google-chrome --version/);
+  assert.doesNotMatch(workflow, /playwright install --with-deps chromium/);
+  assert.match(workflow, /ATELIER_QA_BROWSER: chrome/);
+  assert.match(runner, /process\.env\.ATELIER_QA_BROWSER === 'chrome'/);
+  assert.match(runner, /channel: 'chrome'/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /atelier-visual-qa/);
 });
