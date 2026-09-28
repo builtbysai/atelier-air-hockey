@@ -58,6 +58,14 @@ try {
         continue;
       }
 
+      if (state === 'update') {
+        const updateVisible = await page.evaluate(() => {
+          const el = document.getElementById('updateReady');
+          return !!el && !el.classList.contains('hidden') && getComputedStyle(el).display !== 'none';
+        });
+        if (!updateVisible) failures.push(`${group.dir}/update: update banner is not visible`);
+      }
+
       const overflowingCards = await page.evaluate(() =>
         [...document.querySelectorAll('.overlay:not(.hidden) .card')]
           // Progress is intentionally a scrollable passport; gameplay/menu/result
