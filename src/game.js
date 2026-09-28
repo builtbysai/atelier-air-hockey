@@ -2217,6 +2217,32 @@ function touchOffsetScreen(side, cx, cy) {
   return { x: 0, y: topPlayer ? off : -off };
 }
 
+// Convert a touch point into its mallet target. The visual finger offset is
+// full strength in open space, then fades over the final two offset-lengths
+// before a playable boundary. That avoids the fixed-offset dead zone where a
+// finger can move away from center/rail but the clamped mallet appears stuck.
+function touchTargetRink(side, cx, cy, raw = screenToRink(cx, cy)) {
+  const off = touchOffsetScreen(side, cx, cy);
+  const shifted = screenToRink(cx + off.x, cy + off.y);
+  const dx = shifted.x - raw.x, dy = shifted.y - raw.y;
+  const m = side === 0 ? G.m1 : G.m2;
+  const r = (m && m.r) || MALLET_R;
+  const minX = side === 0 ? PX + r : CX + 8;
+  const maxX = side === 0 ? CX - 8 : PX + PW - r;
+  const minY = PY + r, maxY = PY + PH - r;
+
+  // roomRatio is how many full offset vectors fit before the first bound.
+  // Full offset returns at ratio >= 2; inside that zone it scales linearly,
+  // so retreating the finger always retreats the mallet instead of sticking.
+  let roomRatio = Infinity;
+  if (dx > 1e-6) roomRatio = Math.min(roomRatio, (maxX - raw.x) / dx);
+  else if (dx < -1e-6) roomRatio = Math.min(roomRatio, (raw.x - minX) / -dx);
+  if (dy > 1e-6) roomRatio = Math.min(roomRatio, (maxY - raw.y) / dy);
+  else if (dy < -1e-6) roomRatio = Math.min(roomRatio, (raw.y - minY) / -dy);
+  const scale = Number.isFinite(roomRatio) ? clamp(roomRatio / 2, 0, 1) : 1;
+  return { x: raw.x + dx * scale, y: raw.y + dy * scale };
+}
+
 function onPointerDown(e) {
   AudioSys.init(); AudioSys.resume();
   interacted = true;
@@ -2241,8 +2267,7 @@ function onPointerDown(e) {
   }
   const side = pointers.get(e.pointerId);
   const m = side === 0 ? G.m1 : G.m2;
-  const off = touch ? touchOffsetScreen(side, e.clientX, e.clientY) : null;
-  const r = screenToRink(e.clientX + (off ? off.x : 0), e.clientY + (off ? off.y : 0));
+  const r = touch ? touchTargetRink(side, e.clientX, e.clientY, raw) : raw;
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
 }
@@ -2251,8 +2276,7 @@ function onPointerMove(e) {
   if (G.state === 'menu' || G.state === 'win' || G.state === 'replay') return;
   const side = pointers.get(e.pointerId);
   const touch = e.pointerType === 'touch';
-  const off = touch ? touchOffsetScreen(side, e.clientX, e.clientY) : null;
-  const r = screenToRink(e.clientX + (off ? off.x : 0), e.clientY + (off ? off.y : 0));
+  const r = touch ? touchTargetRink(side, e.clientX, e.clientY) : screenToRink(e.clientX, e.clientY);
   const m = side === 0 ? G.m1 : G.m2;
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
