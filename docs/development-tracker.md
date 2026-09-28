@@ -11,7 +11,17 @@ This tracker covers the post-v1 stabilization and gameplay-quality pass requeste
 | P0 | Free Hit target wall; mallet contact wrap; AI emergency defense; foreground canvas recovery; Exhibition persistence | Shipped on `main` (#60–#64) |
 | P1 | Three-stage Workshop; adaptive GIF export; speed-scaled impact light | Shipped on `main` (#66–#68) |
 | P2 | Rival tactics; goal ceremony | Shipped on `main` (#70–#71) |
-| P2 | Rally definition, progress feedback, and Workshop reset | In PR #73; awaiting final review and merge |
+| P2 | Rally definition, progress feedback, and Workshop reset | Completed in #73 |
+| Audit | Short-landscape Help overflow after adding rally explanation | Fixed in #73 |
+
+All items in this tracker are complete. The sections below preserve the original findings, plan, and acceptance criteria for reference.
+
+## Verification
+
+- `npm test`: 280 tests pass, including physics, progression, export, focus recovery, and persistence checks.
+- Browser Visual QA: compact phone, mobile, landscape, and desktop surfaces pass; replay and GIF export decode and display; Help fits without scrolling in short landscape.
+- Rival Lab: 28 deterministic matches pass with no deadlocks or AI own goals in the audit run; Rookie, Club Pro, and Champion retain distinct shot behavior.
+- Manual screenshot review: short-landscape Help and mobile GIF preview remain readable.
 
 The supplied GIFs show the old 190–199 × 420 export path. The current exporter uses a 640 px long side, a palette built from the clip, and no dark full-frame wash. The mallet and AI fixes are separate physics/decision changes, so export fidelity does not mask either gameplay defect.
 

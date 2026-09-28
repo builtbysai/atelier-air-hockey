@@ -34,6 +34,8 @@ test('visual QA validates compact, mobile, landscape, and desktop viewports', ()
   assert.match(runner, /width: 1440, height: 900/);
   assert.match(runner, /workshop-menu/);
   assert.match(runner, /workshop-free/);
+  assert.match(runner, /page\.click\('#btnHelp'\)/);
+  assert.match(runner, /helpOverflow/);
   assert.match(runner, /page\.on\('pageerror'/);
   assert.match(runner, /#btnMatchReel/);
   assert.match(runner, /replayContext/);

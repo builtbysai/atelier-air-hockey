@@ -362,6 +362,11 @@
   #help h1{ font-size:24px; text-align:center; }
   #help p{ font-size:14px; line-height:1.65; color:var(--sub); margin:10px 0; }
   #help p b{ color:var(--title); }
+  @media (max-height:540px) and (min-width:700px){
+    #help .card{ max-width:650px; }
+    #help h1{ margin:0 0 5px; }
+    #help p{ margin:5px 0; line-height:1.4; }
+  }
   .seg3{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
   .seg{ display:flex; gap:8px; }
   .seg button{
