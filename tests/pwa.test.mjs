@@ -61,7 +61,7 @@ test('camera and orientation preferences persist in the existing settings object
   assert.match(game, /camera: 'top'/);
   assert.match(game, /orientation: 'auto'/);
   assert.match(game, /localStorage\.setItem\('atelier-ah-settings', JSON\.stringify\(Settings\)\)/);
-  assert.match(game, /localStorage\.getItem\('atelier-ah-settings'\)/);
+  assert.match(game, /loadSavedObject\('atelier-ah-settings'\)/);
 });
 
 test('fullscreen UI respects device safe areas', () => {

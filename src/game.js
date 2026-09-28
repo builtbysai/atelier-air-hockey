@@ -17,7 +17,6 @@ const PUCK_R = 26, MALLET_R = 46, RAIL = 26;
 // the new default - narrower than the old fixed 230 (36% of the wall was
 // swallowing deflections). The host's choice rides the countdown event
 // online; guests apply it as a match-scoped override (G.gwNet).
-const GOAL_W = 230; // the Wide preset; legacy fixed width - use goalW() below
 const GOAL_PRESETS = { narrow: 170, standard: 200, wide: 230 };
 function goalW() {
   if (G.gwNet > 0) return G.gwNet; // online guest: the host's width for this match
@@ -46,13 +45,16 @@ const Settings = {
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
 const PRM = { reduce: false, userShake: false };
-function loadSettings() {
-  let stored = {};
+function loadSavedObject(key) {
   try {
-    stored = JSON.parse(localStorage.getItem('atelier-ah-settings') || '{}');
-    PRM.userShake = Object.prototype.hasOwnProperty.call(stored, 'shake');
-    for (const k of Object.keys(Settings)) if (stored[k] !== undefined) Settings[k] = stored[k];
-  } catch (e) {}
+    const value = JSON.parse(localStorage.getItem(key) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch (e) { return {}; }
+}
+function loadSettings() {
+  const stored = loadSavedObject('atelier-ah-settings');
+  PRM.userShake = Object.prototype.hasOwnProperty.call(stored, 'shake');
+  for (const k of Object.keys(Settings)) if (stored[k] !== undefined) Settings[k] = stored[k];
   if (![5, 7, 11].includes(Settings.firstTo)) Settings.firstTo = 7;
   if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
@@ -91,10 +93,7 @@ function saveSettings() {
 const Record = {
   key: 'atelier-ah-record',
   data: {},
-  load() {
-    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
-    catch (e) { this.data = {}; }
-  },
+  load() { this.data = loadSavedObject(this.key); },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
@@ -133,10 +132,7 @@ function refreshRecordLines() {
 const Best = {
   key: 'atelier-ah-best',
   data: {},
-  load() {
-    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
-    catch (e) { this.data = {}; }
-  },
+  load() { this.data = loadSavedObject(this.key); },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
@@ -175,10 +171,7 @@ const FEATS = [
 const Feats = {
   key: 'atelier-ah-feats',
   data: {},
-  load() {
-    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
-    catch (e) { this.data = {}; }
-  },
+  load() { this.data = loadSavedObject(this.key); },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
@@ -197,10 +190,7 @@ const Feats = {
 const Tour = {
   key: 'atelier-ah-tour',
   data: {},
-  load() {
-    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
-    catch (e) { this.data = {}; }
-  },
+  load() { this.data = loadSavedObject(this.key); },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
@@ -247,10 +237,7 @@ function refreshTour() {
 const Mastery = {
   key: 'atelier-ah-mastery',
   data: {},
-  load() {
-    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
-    catch (e) { this.data = {}; }
-  },
+  load() { this.data = loadSavedObject(this.key); },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
@@ -291,10 +278,7 @@ const TABLE_CHALLENGES = Object.freeze({
 const TableChallenges = {
   key:'atelier-ah-table-challenges',
   data:{},
-  load() {
-    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
-    catch (e) { this.data = {}; }
-  },
+  load() { this.data = loadSavedObject(this.key); },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
@@ -332,11 +316,7 @@ const Workshop = {
   data: {},
   current: null,
   returnTheme: 'deco',
-  load() {
-    try { this.data = JSON.parse(localStorage.getItem(this.key)) || {}; }
-    catch (e) { this.data = {}; }
-    if (!this.data || typeof this.data !== 'object') this.data = {};
-  },
+  load() { this.data = loadSavedObject(this.key); },
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
