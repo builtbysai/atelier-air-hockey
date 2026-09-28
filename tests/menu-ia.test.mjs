@@ -138,3 +138,13 @@ test('dialog focus trap ignores controls hidden from the tab order', () => {
   assert.match(win, /class="btn hidden" id="btnWinReplay"/,
     'result dialog should keep its conditional replay action');
 });
+
+
+test('table carousel uses one roving keyboard tab stop', () => {
+  assert.match(ui, /d\.tabIndex = i === 0 \? 0 : -1/);
+  assert.match(ui, /d\.setAttribute\('aria-selected', i === 0 \? 'true' : 'false'\)/);
+  assert.match(ui, /option\.tabIndex = selected \? 0 : -1/);
+  assert.match(ui, /option\.setAttribute\('aria-selected', selected \? 'true' : 'false'\)/);
+  assert.match(ui, /e\.key === 'ArrowRight' \|\| e\.key === 'ArrowLeft'/);
+  assert.match(ui, /track\.children\[next\]\?\.focus\(\{ preventScroll:true \}\)/);
+});

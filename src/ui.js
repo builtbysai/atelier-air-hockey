@@ -472,7 +472,8 @@ function buildCarousel() {
     const T = THEMES[id];
     const d = document.createElement('div');
     d.className = 'tslide'; d.dataset.theme = id;
-    d.setAttribute('role', 'option'); d.tabIndex = 0;
+    d.setAttribute('role', 'option'); d.tabIndex = i === 0 ? 0 : -1;
+    d.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
     d.setAttribute('aria-label', T.name + ' table');
     d.innerHTML = '<canvas data-thumb="' + id + '" width="640" height="400"></canvas>' +
       '<div class="tlock hidden"><strong>LOCKED</strong><small data-lock-reason></small></div>' +
@@ -483,8 +484,12 @@ function buildCarousel() {
     d.addEventListener('click', pick);
     d.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
-      if (e.key === 'ArrowRight') carStep(1);
-      if (e.key === 'ArrowLeft') carStep(-1);
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const next = (i + (e.key === 'ArrowRight' ? 1 : -1) + THEME_ORDER.length) % THEME_ORDER.length;
+        carGo(next);
+        requestAnimationFrame(() => track.children[next]?.focus({ preventScroll:true }));
+      }
     });
     track.appendChild(d);
     const dot = document.createElement('i');
@@ -512,6 +517,12 @@ function carFromScroll() {
 function carPaint(i) {
   const dots = $('carDots');
   if (dots) [...dots.children].forEach((d, j) => d.classList.toggle('sel', j === i));
+  const track = $('carTrack');
+  if (track) [...track.children].forEach((option, j) => {
+    const selected = j === i;
+    option.tabIndex = selected ? 0 : -1;
+    option.setAttribute('aria-selected', selected ? 'true' : 'false');
+  });
   const cc = $('carCount');
   if (cc) cc.textContent = (i + 1) + ' / ' + THEME_ORDER.length;
 }
