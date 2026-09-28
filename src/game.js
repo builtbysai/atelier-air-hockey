@@ -3761,7 +3761,7 @@ function startGame(mode, diff) {
   // the serve flavor once so local and online both use the same point
   rollServe(Math.random() < 0.5 ? 1 : -1);
   // ONLINE: the host's countdown mirrors to the guest so both start even
-  if (mode === 'online' && Net.role === 'host') Net.sendCountdown();
+  if (mode === 'online' && Net.role === 'host') Net.sendCountdown(true);
 }
 function startWorkshop(id) {
   const d = WORKSHOP_DRILLS[id];
