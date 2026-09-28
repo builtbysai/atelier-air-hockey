@@ -79,13 +79,17 @@ test('result sharing creates a themed PNG and uses file sharing when available',
   assert.match(share, /shareDownload\(blob, file\.name\)/);
 });
 
-test('GIF export captures real replay frames and burns in a replay marker', () => {
+test('GIF export captures a higher fidelity replay with an adaptive shared palette', () => {
   assert.match(game, /GifExport\.active\) GifExport\.capture\(t\)/);
   assert.match(share, /x\.drawImage\(canvas, 0, 0, w, h\)/);
   assert.match(share, /x\.fillText\('REPLAY',51,22\)/);
-  assert.match(share, /10 fps: enough motion, sane mobile payload/);
-  assert.match(share, /this\.frames\.push\(gifIndex332/);
-  assert.match(share, /encodeGifIndexedAsync/);
+  assert.match(share, /const longSide = 640/);
+  assert.match(share, /this\.nextCapture = t \+ 80/);
+  assert.match(share, /this\.frames\.push\(gifPack555/);
+  assert.match(share, /encodeGifPackedAdaptiveAsync/);
+  assert.match(share, /gifAdaptivePalette555/);
+  assert.doesNotMatch(share, /rgba\(7,6,6,0\.08\)/,
+    'export should not darken the whole replay compared with live play');
   assert.match(share, /preview\.decode/);
   assert.match(template, /id="gifPreview"/);
   assert.match(template, /id="btnGifShare"/);
@@ -111,6 +115,35 @@ test('built-in encoder emits a GIF89a stream with trailer', async () => {
   assert.equal(new TextDecoder().decode(bytes.slice(0,6)), 'GIF89a');
   assert.equal(bytes[bytes.length - 1], 0x3b);
   assert.ok(bytes.length > 800, 'global palette + animated frames should be present');
+});
+
+test('adaptive GIF palette preserves clip colors instead of forcing RGB332', () => {
+  const context = vm.createContext({
+    Blob, Uint8Array, Uint16Array, Uint32Array, Map, Math, console,
+    setTimeout(){}, clearTimeout(){},
+  });
+  vm.runInContext(share + '\nthis.__gif = { gifPack555, gifBuildAdaptivePalette555 };', context, { filename:'src/share.js' });
+  const rgba = new Uint8Array([
+    8,6,6,255,       216,169,63,255,
+    233,217,166,255, 72,42,28,255,
+    8,6,6,255,       216,169,63,255,
+    233,217,166,255, 72,42,28,255,
+  ]);
+  const packed = context.__gif.gifPack555(rgba);
+  const adaptive = context.__gif.gifBuildAdaptivePalette555([packed]);
+  assert.ok(adaptive.size >= 4);
+
+  const nearest = (r,g,b) => {
+    let best = Infinity;
+    for (let i=0;i<adaptive.size;i++) {
+      const dr=adaptive.palette[i*3]-r, dg=adaptive.palette[i*3+1]-g, db=adaptive.palette[i*3+2]-b;
+      best=Math.min(best,Math.hypot(dr,dg,db));
+    }
+    return best;
+  };
+  assert.ok(nearest(216,169,63) < 18, 'gold accent should survive quantization');
+  assert.ok(nearest(8,6,6) < 18, 'near-black table tone should survive quantization');
+  assert.ok(nearest(233,217,166) < 18, 'warm ink should survive quantization');
 });
 
 test('GIF LZW stays decodable after crossing code-width boundaries', () => {
