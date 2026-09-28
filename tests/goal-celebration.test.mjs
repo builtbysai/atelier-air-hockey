@@ -13,7 +13,9 @@ test('mid-match goal ceremony is a composed screen-space payoff', () => {
   assert.match(game, /G\.goalScorerLabel/);
   assert.match(game, /G\.goalMomentLabel/);
   assert.match(game, /G\.goalSpeedKmh/);
-  assert.match(game, /G\.score\[0\] \+ '  :  ' \+ G\.score\[1\]/);
+  assert.match(game, /side === G\.goalSide/);
+  assert.match(game, /const scorerKick/);
+  assert.match(game, /G\.goalRewardLabel/);
   assert.match(game, /createRadialGradient/);
   assert.match(game, /WINNING GOAL/);
   assert.match(game, /NEXT GOAL WINS/);
@@ -71,4 +73,19 @@ test('goal and score changes are announced outside the canvas', () => {
   const block = game.slice(start, end);
   assert.ok(block.indexOf('G.goalMomentLabel = goalMomentContext(scorer)') < block.indexOf('announceGoalStatus(scorer)'),
     'the live announcement should include the final goal context');
+});
+
+
+test('goal payoff rewards shot craft without making every goal equally loud', () => {
+  assert.match(game, /skillLabel\(g\)/);
+  assert.match(game, /if \(g\.bankShot\) return 'BANK SHOT'/);
+  assert.match(game, /return 'SAVE \+ SCORE'/);
+  assert.match(game, /return 'RALLY FINISH · ' \+ g\.rally/);
+  assert.match(game, /return 'ROCKET · ' \+ g\.speedKmh \+ ' KM\/H'/);
+  const start = game.indexOf('function drawGoalTextScreen');
+  const end = game.indexOf('function renderScreenTail', start);
+  const block = game.slice(start, end);
+  assert.match(block, /if \(G\.goalRewardLabel\)/);
+  assert.match(block, /rewardW/);
+  assert.match(block, /if \(!PRM\.reduce && yours\)/);
 });
