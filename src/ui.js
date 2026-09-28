@@ -581,7 +581,8 @@ function updateStartLabel() {
 function installDialogA11y() {
   let returnFocus = null;
   const visible = () => document.querySelector('.overlay[role="dialog"]:not(.hidden)');
-  const focusables = dlg => [...dlg.querySelectorAll('button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')];
+  const focusables = dlg => [...dlg.querySelectorAll('button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')]
+    .filter(el => !el.closest('.hidden,[hidden],[aria-hidden="true"]'));
   const sync = () => {
     const dlg = visible();
     if (dlg) {
