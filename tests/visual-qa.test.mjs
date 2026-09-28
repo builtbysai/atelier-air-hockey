@@ -46,6 +46,14 @@ test('visual QA validates compact, mobile, landscape, and desktop viewports', ()
   assert.match(runner, /closest\('\.overlay'\)\?\.id !== 'progress'/);
   assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
   assert.match(runner, /vertical card overflow/);
+  assert.match(runner, /mobile' \|\| group\.dir === 'landscape'/);
+  assert.match(runner, /new PointerEvent\(type/);
+  assert.match(runner, /pointerType:'touch'/);
+  assert.match(runner, /moving toward center did not advance rink X/);
+  assert.match(runner, /pointerup did not release the active touch/);
+  assert.match(ui, /window\.__atelierVisualQA\.controlState = \(\) =>/);
+  assert.match(ui, /activePointers:pointers\.size/);
+  assert.match(ui, /centerLimit:CX - MALLET_R/);
   assert.match(runner, /state === 'update'/);
   assert.match(runner, /update banner is not visible/);
   assert.match(ui, /UpdateSys\.waiting = \{ postMessage\(\) \{\} \}; UpdateSys\.dismissed = false/);
