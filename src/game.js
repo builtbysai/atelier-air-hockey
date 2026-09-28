@@ -1952,6 +1952,7 @@ G.m1 = mkMallet(0); G.m2 = mkMallet(1);
 // ---------- view / input mapping ----------
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+let canvasContextLost = false;
 let view = { w: 0, h: 0, s: 1, ox: 0, oy: 0, portrait: false, camera: 'top', cam: null };
 // flat playfield staging canvas for the 2.5D warp (rink resolution).
 // Created lazily on first 2.5D frame so minimal-DOM test sandboxes that load
@@ -1994,6 +1995,24 @@ function resize() {
   fitCamera();
   paintRoom();
   paintTableWarp(); // 2.5D: re-warp the static table for the new fit
+}
+
+// Mobile browsers can discard a canvas backing store while an installed PWA
+// is backgrounded. Keep simulation state frozen, but explicitly rebuild and
+// repaint the presentation surface when the page becomes visible again.
+// contextlost/contextrestored are not supported everywhere, so foreground
+// repaint remains the cross-browser fallback.
+function markCanvasContextLost() { canvasContextLost = true; }
+function recoverCanvasSurface() {
+  if (canvasContextLost) return false;
+  if (typeof ctx.isContextLost === 'function' && ctx.isContextLost()) return false;
+  resize();       // assigning canvas width/height rebuilds the backing store
+  render();       // paint the paused/current state immediately, before input
+  return true;
+}
+function markCanvasContextRestored() {
+  canvasContextLost = false;
+  recoverCanvasSurface();
 }
 
 // ---------- 2.5D camera ----------

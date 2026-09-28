@@ -836,12 +836,19 @@ function wireUI() {
       WakeSys.release();
       pauseForFocusLoss();
     } else {
+      // Backgrounded PWAs can return with a discarded/blank canvas backing
+      // store even though the simulation state is intact. Re-fit and repaint
+      // before the player taps Resume; audio and simulation stay paused.
+      recoverCanvasSurface();
       WakeSys.sync();
       UpdateSys.sync();
     }
   });
   window.addEventListener('blur', () => { keyDrive.clear(); pauseForFocusLoss(); });
+  window.addEventListener('focus', () => recoverCanvasSurface());
   window.addEventListener('pagehide', () => WakeSys.release());
+  canvas.addEventListener('contextlost', () => markCanvasContextLost());
+  canvas.addEventListener('contextrestored', () => markCanvasContextRestored());
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   window.addEventListener('pointerup', onPointerUp);
