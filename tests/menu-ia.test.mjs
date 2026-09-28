@@ -148,3 +148,11 @@ test('table carousel uses one roving keyboard tab stop', () => {
   assert.match(ui, /e\.key === 'ArrowRight' \|\| e\.key === 'ArrowLeft'/);
   assert.match(ui, /track\.children\[next\]\?\.focus\(\{ preventScroll:true \}\)/);
 });
+
+
+test('table listbox declares horizontal orientation and supports Home/End', () => {
+  assert.match(ui, /track\.setAttribute\('aria-orientation', 'horizontal'\)/);
+  assert.match(ui, /e\.key === 'Home' \|\| e\.key === 'End'/);
+  assert.match(ui, /e\.key === 'Home' \? 0/);
+  assert.match(ui, /e\.key === 'End' \? THEME_ORDER\.length - 1/);
+});
