@@ -53,3 +53,22 @@ test('CI guards rival identity and simulation health', () => {
   assert.match(workflow, /Run deterministic rival soak/);
   assert.match(workflow, /atelier-rival-soak/);
 });
+
+
+test('a live goal threat interrupts recover before the goalie skates home', () => {
+  const recoverStart = game.indexOf("case 'recover':");
+  const recoverEnd = game.indexOf("case 'escape':", recoverStart);
+  const block = game.slice(recoverStart, recoverEnd);
+  assert.match(block, /if \(threat\) \{[\s\S]*?b\.state = 'defend'; b\.tState = 0;[\s\S]*?aimDefense\(\);[\s\S]*?break;/);
+  assert.ok(block.indexOf('if (threat)') < block.indexOf('goHome()'),
+    'emergency threat must preempt the recovery retreat in the same decision tick');
+});
+
+test('normal defend and emergency recover share one predicted defensive target', () => {
+  const thinkStart = game.indexOf('function aiThink');
+  const driveStart = game.indexOf('function aiDrive', thinkStart);
+  const block = game.slice(thinkStart, driveStart);
+  assert.match(block, /const aimDefense = \(\) => \{/);
+  assert.match(block, /predictPuck\(s\.x, s\.y, s\.vx, s\.vy/);
+  assert.match(block, /case 'defend': \{\s*aimDefense\(\);/);
+});
