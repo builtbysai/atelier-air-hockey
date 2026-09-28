@@ -45,7 +45,7 @@ async function loadGame() {
     requestAnimationFrame() {}, setTimeout() {}, clearTimeout() {},
     performance: { now: () => 0 },
   });
-  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, resize, loadSettings, Settings, win: window, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; } };`,
+  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, touchOffsetScreen, resize, loadSettings, Settings, G, win: window, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; } };`,
     context, { filename: 'src/game.js' });
   return context.__t;
 }
@@ -106,6 +106,53 @@ test('screenToRink inverts the render transform in both orientations', async () 
       assert.ok(Math.abs(back.y - y) < 1e-6, `portrait=${portrait} round-trip y (${y} -> ${back.y})`);
     }
   }
+});
+
+test('touch offset follows the player axis in top-down landscape and portrait', async () => {
+  const t = await loadGame();
+  t.G.mode = 'ai';
+
+  t.view = { w: 844, h: 390, s: 0.5, ox: 0, oy: 0, portrait: false, dpr: 1, camera: 'top', cam: null };
+  const landscape = t.touchOffsetScreen(0, 220, 180);
+  assert.ok(landscape.x > 0, 'left-side player should place the mallet ahead of the finger toward center');
+  assert.equal(landscape.y, 0, 'landscape offset must not drift vertically');
+  const l0 = t.screenToRink(220, 180);
+  const l1 = t.screenToRink(220 + landscape.x, 180 + landscape.y);
+  assert.ok(l1.x > l0.x && Math.abs(l1.y - l0.y) < 1e-6, 'landscape touch should advance along rink X only');
+
+  t.view = { w: 390, h: 844, s: 0.5, ox: 0, oy: 0, portrait: true, dpr: 1, camera: 'top', cam: null };
+  const portrait = t.touchOffsetScreen(0, 180, 500);
+  assert.equal(portrait.x, 0, 'portrait offset stays on screen Y');
+  assert.ok(portrait.y < 0, 'bottom player should place the mallet above the finger');
+  const p0 = t.screenToRink(180, 500);
+  const p1 = t.screenToRink(180 + portrait.x, 500 + portrait.y);
+  assert.ok(p1.x > p0.x && Math.abs(p1.y - p0.y) < 1e-6, 'portrait touch should advance along the same physical rink X axis');
+});
+
+test('local 2P far-side touch offset reverses toward center in both orientations', async () => {
+  const t = await loadGame();
+  t.G.mode = '2p';
+
+  t.view = { w: 844, h: 390, s: 0.5, ox: 0, oy: 0, portrait: false, dpr: 1, camera: 'top', cam: null };
+  const landscape = t.touchOffsetScreen(1, 650, 180);
+  assert.ok(landscape.x < 0 && landscape.y === 0, 'right-side player should advance leftward toward center');
+
+  t.view = { w: 390, h: 844, s: 0.5, ox: 0, oy: 0, portrait: true, dpr: 1, camera: 'top', cam: null };
+  const portrait = t.touchOffsetScreen(1, 180, 220);
+  assert.ok(portrait.x === 0 && portrait.y > 0, 'top player should advance downward toward center');
+});
+
+test('mirrored online guest touch still advances toward center in landscape', async () => {
+  const t = await loadGame();
+  t.G.mode = 'online';
+  t.G.onlineFlip = true;
+  t.view = { w: 844, h: 390, s: 0.5, ox: 0, oy: 0, portrait: false, dpr: 1, camera: 'top', cam: null };
+
+  const off = t.touchOffsetScreen(1, 220, 180);
+  assert.ok(off.x > 0 && off.y === 0, 'guest forward screen direction should remain rightward after mirroring');
+  const before = t.screenToRink(220, 180);
+  const after = t.screenToRink(220 + off.x, 180 + off.y);
+  assert.ok(after.x < before.x, 'mirrored guest physical rink X should move leftward toward center');
 });
 
 test('preferences UI offers automatic and explicit orientation controls', async () => {
