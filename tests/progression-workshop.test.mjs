@@ -16,9 +16,10 @@ test('Workshop is a real playable practice surface', () => {
   assert.ok(game.includes('function startWorkshop(id)'));
   assert.ok(game.includes("G.mode = 'workshop'"));
   assert.ok(game.includes('const WORKSHOP_DRILLS ='));
-  assert.ok(game.includes('Score at 22 km/h'));
-  assert.ok(game.includes('Build a 10-hit rally'));
-  assert.ok(game.includes('Make 3 saves in a row'));
+  assert.ok(game.includes("stages:[20,22,24]"));
+  assert.ok(game.includes("stages:[10,15,20]"));
+  assert.ok(game.includes("stages:[3,5,7]"));
+  assert.ok(game.includes('function workshopStageTarget(id, stage)'));
   assert.ok(game.includes("name:'Free Hit'"));
   assert.ok(game.includes("coach:null"));
 });
@@ -40,11 +41,14 @@ test('Workshop stores meaningful personal bests without changing the three progr
   assert.ok(game.includes("Workshop.bumpBest('power', speedKmh)"));
   assert.ok(game.includes("Workshop.bumpBest('control', this.progress)"));
   assert.ok(game.includes("Workshop.bumpBest('keeper', this.progress)"));
-  assert.ok(game.includes("this.wasCleared = Workshop.done(id)"));
-  assert.ok(game.includes("d.free || this.wasCleared"));
+  assert.ok(game.includes("stage(id)"));
+  assert.ok(game.includes("done(id) { return this.stage(id) >= 1; }"));
+  assert.ok(game.includes("completeStage(id, stage)"));
+  assert.ok(game.includes("this.stage = d.free ? 0 : Math.min(completed + 1, d.stages.length)"));
+  assert.ok(game.includes("Workshop.completeStage(this.id, clearedStage)"));
   assert.ok(game.includes("count() { return ['power','control','keeper']"));
-  assert.ok(ui.includes("CLEARED · PB "));
-  assert.ok(ui.includes("PB ' + best"));
+  assert.ok(ui.includes("stage + '/3 CLEARED'"));
+  assert.ok(ui.includes("'MASTERED' + (best ? ' · PB ' + best : '')"));
 });
 
 test('Keeper clear requires a save streak and Free Hit is a coachless sandbox', () => {
