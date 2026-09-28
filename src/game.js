@@ -3693,6 +3693,20 @@ function goalMomentContext(scorer) {
   if (mine === theirs + 1) return 'LEAD TAKEN';
   return '';
 }
+function spokenSideLabel(side) {
+  const label = sideLabel(side);
+  if (label === 'YOU') return 'You';
+  if (label === 'P1') return 'Player one';
+  if (label === 'P2') return 'Player two';
+  return label.charAt(0) + label.slice(1).toLowerCase();
+}
+function announceGoalStatus(scorer) {
+  const el = $('gameStatus');
+  if (!el) return;
+  const moment = G.goalMomentLabel ? ' ' + G.goalMomentLabel + '.' : '';
+  el.textContent = spokenSideLabel(scorer) + ' scores. Score ' +
+    G.score[0] + ' to ' + G.score[1] + '.' + moment;
+}
 function beginGoalCeremony(scorer) {
   G.pausedGoalCeremony = null;
   boardKick(scorer);
@@ -3722,6 +3736,7 @@ function beginGoalCeremony(scorer) {
   announceStreak(scorer);
   G.goalScorerLabel = goalScorerCallout(scorer);
   G.goalMomentLabel = goalMomentContext(scorer);
+  announceGoalStatus(scorer);
   const winningGoal = G.score[scorer] >= Settings.firstTo;
   const goalNotes = THEME.goalChord || [523.25, 659.25, 783.99, 1046.5];
   // Human-owned goals keep the full room signature. Conceded/exhibition goals
