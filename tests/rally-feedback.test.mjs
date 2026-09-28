@@ -22,7 +22,10 @@ test('all mallet collision feedback paths identify the touching side', () => {
 
 test('rally HUD starts early, reads clearly, and reserves stronger feedback for milestones', () => {
   assert.match(game, /rallyN >= 3/);
-  assert.match(game, /rallyN % 5 === 0 \? 0\.95 : 0\.46/);
+  assert.match(game, /if \(rallyN >= 5 && rallyN % 5 === 0\)/);
+  assert.match(game, /G\.rallyHudN = rallyN; G\.rallyHudT = 0\.95/);
+  assert.match(game, /else if \(rallyN >= 3\)/);
+  assert.match(game, /G\.rallyHudN = rallyN; G\.rallyHudT = 0\.46/);
   assert.match(game, /addText\(CX, CY - 72, 'RALLY ' \+ rallyN/);
   assert.match(game, /return 'RALLY · ' \+ G\.rallyHudN/);
   assert.match(game, /G\.stats\.rally = 0; G\.stats\.rallyLastSide = -1/);
