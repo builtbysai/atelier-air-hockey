@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { appCacheName } from './app-version.mjs';
 // PNG structural validation: signature, IHDR dimensions, chunk bounds, terminal IEND
 function checkPNG(buf, name, w, h) {
   assert.equal(buf[0], 0x89, name + ': bad PNG signature'); assert.equal(buf[1], 0x50, name + ': bad PNG signature');
@@ -23,6 +24,9 @@ const [index, template, net, game, ui, boards, themes, css] = await Promise.all(
   readFile('src/themes.js','utf8'), readFile('src/styles.css','utf8')
 ]);
 assert.equal(index, template, 'index.html must be generated from src/template.html');
+const sw = await readFile('sw.js', 'utf8');
+assert.match(sw, new RegExp("^const CACHE = '" + await appCacheName() + "';"),
+  'sw.js cache identity must match the built app');
 for (const f of ['styles.css','themes.js','scoreboards.js','net.js','game.js','ui.js']) assert.match(index, new RegExp('src/' + f.replace('.', '\\.')));
 assert.doesNotMatch(index, /src\/app\.js/); assert.doesNotMatch(index, /<style>/); assert.doesNotMatch(index, /<script>\s/);
 assert.match(net, /\.onMessage\s*=/); assert.match(net, /\{ target: Net\.peerId \}/); assert.match(net, /onPeerJoin\s*=/);

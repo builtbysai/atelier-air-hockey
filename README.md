@@ -88,7 +88,7 @@ Offline play makes no game-network request. Online play loads Trystero and uses 
 
 ## Development
 
-`src/` is the source of truth. The runtime is split into `themes.js`, `scoreboards.js`, `net.js`, `game.js`, `share.js`, and `ui.js`, with `styles.css` and `template.html` as the page shell. Root `index.html` is generated from `src/template.html` for GitHub Pages.
+`src/` is the source of truth. The runtime is split into `themes.js`, `scoreboards.js`, `net.js`, `game.js`, `share.js`, and `ui.js`, with `styles.css` and `template.html` as the page shell. `npm run build` generates root `index.html` from `src/template.html` and updates the service worker's cache identity from the app contents, so installed players receive the next safe update prompt.
 
 ```bash
 npm run build
