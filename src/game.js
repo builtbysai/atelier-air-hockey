@@ -4096,10 +4096,11 @@ function frame(t) {
   // Local visual QA freezes the simulation after ui.js composes a deterministic
   // state. Public builds can never enable this: the QA route is localhost-only.
   if (window.__atelierVisualQA?.freeze) { render(); return; }
-  // focus-loss freeze: sim, demo, particles, and the net pump all hold; the
-  // frozen frame keeps rendering under the veil. lastT keeps updating so
-  // resume can't time-jump.
-  if (G.focusLost) { render(); return; }
+  // Focus-loss freeze: sim, demo, particles, and the net pump all hold.
+  // The DOM veil already covers the last rendered frame, so skip repainting
+  // the canvas until focus returns. lastT still updates above, preventing a
+  // resume time-jump while avoiding wasted GPU work behind the veil.
+  if (G.focusLost) return;
   if (G.freezeT > 0) { G.freezeT -= rdt; render(); return; } // hit-stop
   G.trauma = Math.max(0, G.trauma - rdt * 1.7);
   // juice timers decay every frame, whatever the state
