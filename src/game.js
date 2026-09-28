@@ -3857,6 +3857,12 @@ function advanceAfterGoal() {
   // ONLINE: the host's countdown mirrors to the guest so both start even
   if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
 }
+function matchPersistsProgress(mode = G.mode) {
+  // Exhibition is observational only. Keep this as the single contract used
+  // by result persistence so future stats/mastery features cannot accidentally
+  // treat AI-vs-AI viewing as player progression.
+  return mode === 'ai' || mode === '2p';
+}
 function resultIsHumanWin() {
   if (G.mode === 'ai') return G.winSide === 0;
   if (G.mode === '2p') return true;
@@ -3896,10 +3902,11 @@ function showWin() {
   $('topbar').classList.add('hidden');
   const humanWin = resultIsHumanWin();
   const you = G.winSide === 0;
+  const canPersist = matchPersistsProgress();
 
-  // Local records stay exactly as before.
-  if (G.mode === 'ai') Record.bump('ai' + G.difficulty, G.winSide === 0);
-  else if (G.mode === '2p') { Record.bump('p1', G.winSide === 0); Record.bump('p2', G.winSide === 1); }
+  // Only eligible played matches may write persistent result data.
+  if (canPersist && G.mode === 'ai') Record.bump('ai' + G.difficulty, G.winSide === 0);
+  else if (canPersist && G.mode === '2p') { Record.bump('p1', G.winSide === 0); Record.bump('p2', G.winSide === 1); }
 
   let winnerName;
   if (G.mode === '2p') winnerName = you ? 'Player One' : 'Player Two';
@@ -3937,7 +3944,7 @@ function showWin() {
   const awards = $('winFeats');
   if (awards) { awards.innerHTML = ''; awards.classList.add('hidden'); }
   let firstTableWin = false;
-  if ((G.mode === 'ai' || G.mode === '2p') && (G.mode === '2p' || G.winSide === 0)) {
+  if (canPersist && (G.mode === '2p' || G.winSide === 0)) {
     const key = G.mode === 'ai' ? 'ai' + G.difficulty : 'p2p';
     const recs = checkBest(key, secs, kmh, st.bestRally || 0, margin);
     recs.forEach(label => addWinAward('record', label));
