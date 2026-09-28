@@ -26,7 +26,9 @@ test('visual QA freezes simulation and animation noise', () => {
   assert.match(css, /\.visual-qa \*, \.visual-qa \*::before, \.visual-qa \*::after/);
 });
 
-test('visual QA validates three viewport classes and no-scroll cards', () => {
+test('visual QA validates compact, mobile, landscape, and desktop viewports', () => {
+  assert.match(runner, /width: 360, height: 640/);
+  assert.match(runner, /dir: 'compact'/);
   assert.match(runner, /width: 390, height: 844/);
   assert.match(runner, /width: 844, height: 390/);
   assert.match(runner, /width: 1440, height: 900/);
