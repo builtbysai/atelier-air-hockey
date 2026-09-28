@@ -145,7 +145,13 @@ function renderWinHighlights() {
   }
 }
 
-// ---- tiny fixed-palette GIF89a encoder ------------------------------------
+// ---- compact GIF89a encoder + adaptive global palette ---------------------
+// GIF still caps every animation at 256 colors, but a fixed RGB332 palette
+// throws away exactly the muted darks, warm golds, and table accents Atelier
+// uses most. Live export stores frames as RGB555 (2 bytes/pixel), builds one
+// palette from the whole clip with weighted median cut, then indexes each
+// frame against that shared palette. A shared palette avoids frame-to-frame
+// shimmer while staying much lighter than retaining 4-byte RGBA frames.
 function gifPushU16(out, n) { out.push(n & 255, (n >> 8) & 255); }
 function gifPalette332() {
   const p = new Uint8Array(256 * 3);
@@ -162,6 +168,99 @@ function gifIndex332(rgba) {
   const out = new Uint8Array(n);
   for (let i = 0, j = 0; i < n; i++, j += 4)
     out[i] = (rgba[j] & 0xe0) | ((rgba[j+1] >> 3) & 0x1c) | (rgba[j+2] >> 6);
+  return out;
+}
+function gifPack555(rgba) {
+  const n = rgba.length >> 2;
+  const out = new Uint16Array(n);
+  for (let i = 0, j = 0; i < n; i++, j += 4)
+    out[i] = ((rgba[j] >> 3) << 10) | ((rgba[j+1] >> 3) << 5) | (rgba[j+2] >> 3);
+  return out;
+}
+function gifHistogram555(frames) {
+  const counts = new Uint32Array(32768);
+  for (const frame of frames) for (let i = 0; i < frame.length; i++) counts[frame[i]]++;
+  return counts;
+}
+function gifAdaptivePalette555(counts) {
+  const colors = [];
+  for (let key = 0; key < counts.length; key++) {
+    const count = counts[key];
+    if (!count) continue;
+    colors.push({
+      key, count,
+      r:(key >> 10) & 31,
+      g:(key >> 5) & 31,
+      b:key & 31,
+    });
+  }
+
+  const palette = new Uint8Array(256 * 3);
+  const lookup = new Uint8Array(32768);
+  if (!colors.length) return { palette, lookup, size:1 };
+
+  const makeBox = list => {
+    let r0=31, r1=0, g0=31, g1=0, b0=31, b1=0, weight=0;
+    for (const c of list) {
+      if (c.r < r0) r0=c.r; if (c.r > r1) r1=c.r;
+      if (c.g < g0) g0=c.g; if (c.g > g1) g1=c.g;
+      if (c.b < b0) b0=c.b; if (c.b > b1) b1=c.b;
+      weight += c.count;
+    }
+    const rr=r1-r0, gr=g1-g0, br=b1-b0;
+    return { colors:list, weight, r0,r1,g0,g1,b0,b1, range:Math.max(rr,gr,br), rr,gr,br };
+  };
+  const boxes = [makeBox(colors)];
+
+  while (boxes.length < 256) {
+    let bi=-1, best=-1;
+    for (let i=0;i<boxes.length;i++) {
+      const b=boxes[i];
+      if (b.colors.length < 2 || b.range <= 0) continue;
+      const score=b.range * Math.sqrt(b.weight);
+      if (score > best) { best=score; bi=i; }
+    }
+    if (bi < 0) break;
+    const box=boxes.splice(bi,1)[0];
+    const channel = box.gr >= box.rr && box.gr >= box.br ? 'g' : box.rr >= box.br ? 'r' : 'b';
+    box.colors.sort((a,b) => a[channel]-b[channel]);
+    const half=box.weight/2;
+    let acc=0, cut=1;
+    for (let i=0;i<box.colors.length-1;i++) {
+      acc += box.colors[i].count;
+      if (acc >= half) { cut=i+1; break; }
+    }
+    boxes.push(makeBox(box.colors.slice(0,cut)), makeBox(box.colors.slice(cut)));
+  }
+
+  for (let pi=0; pi<boxes.length; pi++) {
+    const box=boxes[pi];
+    let sr=0,sg=0,sb=0,sw=0;
+    for (const c of box.colors) {
+      sr += c.r*c.count; sg += c.g*c.count; sb += c.b*c.count; sw += c.count;
+      lookup[c.key]=pi;
+    }
+    const scale=255/31;
+    palette[pi*3]=Math.round((sr/sw)*scale);
+    palette[pi*3+1]=Math.round((sg/sw)*scale);
+    palette[pi*3+2]=Math.round((sb/sw)*scale);
+  }
+  // The GIF header advertises a 256-entry table. Fill unused entries with the
+  // final real color instead of introducing unrelated black palette noise.
+  const last=Math.max(0,boxes.length-1);
+  for (let pi=boxes.length;pi<256;pi++) {
+    palette[pi*3]=palette[last*3];
+    palette[pi*3+1]=palette[last*3+1];
+    palette[pi*3+2]=palette[last*3+2];
+  }
+  return { palette, lookup, size:boxes.length };
+}
+function gifBuildAdaptivePalette555(frames) {
+  return gifAdaptivePalette555(gifHistogram555(frames));
+}
+function gifIndexPacked555(packed, lookup) {
+  const out=new Uint8Array(packed.length);
+  for (let i=0;i<packed.length;i++) out[i]=lookup[packed[i]];
   return out;
 }
 function gifLzw(indices) {
@@ -193,10 +292,6 @@ function gifLzw(indices) {
     emit(prefix);
     if (nextCode < 4096) {
       dict.set(key, nextCode++);
-      // GIF's decoder learns dictionary entries one code later than the
-      // compressor. Keep the current width through the boundary code, then
-      // widen the *next* code. Growing at === corrupts streams once the table
-      // crosses 9 -> 10 bits (small fixture tests never reached that point).
       if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++;
     } else {
       emit(clear); reset();
@@ -207,18 +302,18 @@ function gifLzw(indices) {
   if (bitCount > 0) bytes.push(bitBuf & 255);
   return bytes;
 }
-function gifStart332(width, height) {
+function gifStartPalette(width, height, palette) {
   const out = [];
   const ascii = str => { for (let i = 0; i < str.length; i++) out.push(str.charCodeAt(i)); };
   ascii('GIF89a');
   gifPushU16(out, width); gifPushU16(out, height);
   out.push(0xf7, 0, 0);
-  out.push(...gifPalette332());
-  // Netscape loop extension.
+  out.push(...palette);
   out.push(0x21,0xff,0x0b); ascii('NETSCAPE2.0');
   out.push(0x03,0x01,0x00,0x00,0x00);
   return out;
 }
+function gifStart332(width, height) { return gifStartPalette(width, height, gifPalette332()); }
 function gifAppendIndexedFrame(out, indexed, width, height, delayMs) {
   const delay = Math.max(2, Math.round(delayMs / 10));
   out.push(0x21,0xf9,0x04,0x00,delay & 255,(delay >> 8) & 255,0x00,0x00);
@@ -241,21 +336,27 @@ function encodeGifIndexed(frames, width, height, delayMs) {
   for (const indexed of frames) gifAppendIndexedFrame(out, indexed, width, height, delayMs);
   return gifBlob(out);
 }
-// Kept as a small public-test seam: callers with RGBA frames still get the
-// same encoder, while the live exporter quantizes during capture to use ~1/4
-// the memory on mobile.
+// Public test/backward-compatibility seam for the original fixed-palette path.
 function encodeGif332(frames, width, height, delayMs) {
   return encodeGifIndexed(frames.map(gifIndex332), width, height, delayMs);
 }
 function gifYield() { return new Promise(resolve => setTimeout(resolve, 0)); }
-async function encodeGifIndexedAsync(frames, width, height, delayMs, onProgress) {
-  const out = gifStart332(width, height);
-  for (let i = 0; i < frames.length; i++) {
-    gifAppendIndexedFrame(out, frames[i], width, height, delayMs);
-    if (onProgress) onProgress(i + 1, frames.length);
-    // Encoding a replay should never freeze the result screen for seconds.
-    // Yield every other frame so taps/paint remain responsive on phones.
-    if ((i & 1) === 1) await gifYield();
+async function encodeGifPackedAdaptiveAsync(frames, width, height, delayMs, onProgress) {
+  const counts=new Uint32Array(32768);
+  for (let fi=0;fi<frames.length;fi++) {
+    const frame=frames[fi];
+    for (let i=0;i<frame.length;i++) counts[frame[i]]++;
+    if (onProgress) onProgress('palette',fi+1,frames.length);
+    if ((fi & 1)===1) await gifYield();
+  }
+  const adaptive=gifAdaptivePalette555(counts);
+  await gifYield();
+  const out=gifStartPalette(width,height,adaptive.palette);
+  for (let i=0;i<frames.length;i++) {
+    const indexed=gifIndexPacked555(frames[i],adaptive.lookup);
+    gifAppendIndexedFrame(out,indexed,width,height,delayMs);
+    if (onProgress) onProgress('encode',i+1,frames.length);
+    if ((i & 1)===1) await gifYield();
   }
   return gifBlob(out);
 }
@@ -270,8 +371,9 @@ const GifExport = {
     if (this.url) { URL.revokeObjectURL(this.url); this.url = null; }
     this.blob = null;
     const aspect = Math.max(0.35, Math.min(2.2, (view.w || 16) / (view.h || 9)));
-    if (aspect >= 1) { this.width = 420; this.height = Math.max(190, Math.round(420 / aspect)); }
-    else { this.height = 420; this.width = Math.max(190, Math.round(420 * aspect)); }
+    const longSide = 640;
+    if (aspect >= 1) { this.width = longSide; this.height = Math.max(280, Math.round(longSide / aspect)); }
+    else { this.height = longSide; this.width = Math.max(280, Math.round(longSide * aspect)); }
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.width; this.canvas.height = this.height;
     this.ctx = this.canvas.getContext('2d', { willReadFrequently:true });
@@ -285,19 +387,20 @@ const GifExport = {
   capture(t) {
     if (!this.active || G.state !== 'replay' || !this.ctx) return;
     if (t < this.nextCapture) return;
-    this.nextCapture = t + 100; // 10 fps: enough motion, sane mobile payload.
+    this.nextCapture = t + 80; // 12.5 fps keeps fast puck motion readable without runaway payloads.
     const x = this.ctx, w = this.width, h = this.height;
     x.drawImage(canvas, 0, 0, w, h);
-    // Burn a restrained replay treatment into the GIF itself.
-    x.fillStyle = 'rgba(7,6,6,0.08)'; x.fillRect(0,0,w,h);
-    x.strokeStyle = THEME.gold || '#d8a93f'; x.globalAlpha = 0.55; x.lineWidth = 1;
+    // Keep the captured table faithful to live play. The old full-frame dark
+    // wash made exports visibly muddier than the game; only a small replay
+    // marker and hairline frame are burned into the shared asset.
+    x.strokeStyle = THEME.gold || '#d8a93f'; x.globalAlpha = 0.42; x.lineWidth = 1;
     x.strokeRect(4.5,4.5,w-9,h-9); x.globalAlpha = 1;
-    x.fillStyle = 'rgba(10,8,7,0.78)'; x.fillRect(10,10,82,24);
+    x.fillStyle = 'rgba(10,8,7,0.72)'; x.fillRect(10,10,82,24);
     x.fillStyle = THEME.gold || '#d8a93f'; x.font = '700 11px sans-serif';
     x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('REPLAY',51,22);
-    // Store palette indices, not 4-byte RGBA. A typical mobile replay drops
-    // from ~10-20 MB of raw frame memory to ~2-5 MB before encoding begins.
-    this.frames.push(gifIndex332(x.getImageData(0,0,w,h).data));
+    // RGB555 keeps twice the source color precision of the old indexed
+    // capture while using half the memory of retained RGBA frames.
+    this.frames.push(gifPack555(x.getImageData(0,0,w,h).data));
   },
   finish() {
     if (!this.active) return;
@@ -317,8 +420,11 @@ const GifExport = {
   },
   async encode(frames, w, h, job) {
     try {
-      const blob = await encodeGifIndexedAsync(frames, w, h, 100, (done, total) => {
-        if (job === this.job) $('gifStatus').textContent = 'Encoding ' + done + ' / ' + total + ' frames…';
+      const blob = await encodeGifPackedAdaptiveAsync(frames, w, h, 80, (phase, done, total) => {
+        if (job !== this.job) return;
+        $('gifStatus').textContent = phase === 'palette'
+          ? 'Building color palette ' + done + ' / ' + total + '…'
+          : 'Encoding ' + done + ' / ' + total + ' frames…';
       });
       if (job !== this.job) return;
       if (this.url) URL.revokeObjectURL(this.url);
