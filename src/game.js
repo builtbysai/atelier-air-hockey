@@ -1519,7 +1519,7 @@ const G = {
   puckSq: 1, puckSqA: 0,    // squash amount / angle
   puckSqV: 0,              // squash spring velocity (damped-spring recovery)
   letterT: 0, flashA: 0,
-  hitFlash: 0, hitFlashX: 0, hitFlashY: 0, // SMASH-tier impact flash
+  hitFlash: 0, hitFlashX: 0, hitFlashY: 0, hitFlashR: 160, // speed-scaled SMASH impact flash
   roomPulse: 0,             // room reactivity: decays, feeds the lamp-glow overlay
   saveT: 0,                 // save-moment puck glow timer
   nearCd: 0, dipT: 0,       // near-miss cooldown + shared time-dip timer
@@ -3443,6 +3443,19 @@ function addText(x, y, str, color, size = 44) {
 // SMASH (>1400). Each tier buys more shake, a bigger flash, and a deeper
 // pitch; SMASH also startles the room itself (see G.roomPulse).
 function hitTier(impact) { return impact > 1400 ? 2 : impact > 650 ? 1 : 0; }
+function impactFlashProfile(impact) {
+  // Human brightness perception is not linear. Start the visible SMASH range
+  // gently, ease up with speed, and cap both alpha and footprint so even the
+  // hardest legal puck strike reads as force instead of a white-out.
+  const t = clamp((impact - 1400) / 1300, 0, 1);
+  const smooth = t * t * (3 - 2 * t);
+  const maxEnergy = Settings.effects === 'subtle' ? 0.34 : 0.48;
+  return {
+    energy: lerp(0.12, maxEnergy, smooth),
+    radius: lerp(125, Settings.effects === 'subtle' ? 175 : 205, smooth),
+    room: lerp(0.30, 0.82, smooth),
+  };
+}
 function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
   // rally bookkeeping first - the clack pitches up ~3% per hit so long
   // rallies audibly tighten (capped at +36%)
@@ -3464,8 +3477,10 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
   if (tier >= 1) G.freezeT = Math.max(G.freezeT, Math.min(tier === 2 ? 0.045 : 0.032, 0.010 + v * 0.022));
   addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
   if (tier === 2) {
+    const flash = impactFlashProfile(impact);
     if (fxFlash()) {
-      G.hitFlash = 0.8; G.hitFlashX = x; G.hitFlashY = y;
+      G.hitFlash = Math.max(G.hitFlash, flash.energy);
+      G.hitFlashX = x; G.hitFlashY = y; G.hitFlashR = flash.radius;
       // SMASH slow-mo beat: ~90ms at the dip scale right after the 45ms
       // hit-stop - the Holedown blend (freeze, then a near-halt beat, then
       // full speed). Rides the shared dipT channel with the near-miss dip
@@ -3473,7 +3488,7 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
       // only, so it can never touch the goal ceremony's reserved slow-mo.
       G.dipT = Math.max(G.dipT, 0.09);
     }
-    if (fxRoom()) G.roomPulse = 1;
+    if (fxRoom()) G.roomPulse = Math.max(G.roomPulse, flash.room);
     if (!suppressHaptic) Haptics.fire('smash');
   }
   // puck squash along the impact normal, 10–20%. Restarts the recovery
@@ -4504,13 +4519,16 @@ function drawFxFlat(c) {
     c.restore();
   }
 
-  // SMASH-tier impact flash: a hard white-gold pop exactly where it landed
+  // SMASH-tier impact flash: speed-scaled, short, and warm enough to read
+  // as an impact glint without washing the whole table white.
   if (G.hitFlash > 0 && fxFlash()) {
-    const hg = c.createRadialGradient(G.hitFlashX, G.hitFlashY, 8, G.hitFlashX, G.hitFlashY, 260);
-    hg.addColorStop(0, 'rgba(255,255,255,' + (0.55 * G.hitFlash).toFixed(3) + ')');
+    const r = G.hitFlashR || 160;
+    const hg = c.createRadialGradient(G.hitFlashX, G.hitFlashY, 6, G.hitFlashX, G.hitFlashY, r);
+    hg.addColorStop(0, 'rgba(255,246,224,' + (0.55 * G.hitFlash).toFixed(3) + ')');
+    hg.addColorStop(0.28, hexA(THEME.gold || '#d8a93f', 0.22 * G.hitFlash));
     hg.addColorStop(1, 'rgba(255,255,255,0)');
     c.save(); c.fillStyle = hg;
-    c.fillRect(G.hitFlashX - 270, G.hitFlashY - 270, 540, 540);
+    c.fillRect(G.hitFlashX - r, G.hitFlashY - r, r * 2, r * 2);
     c.restore();
   }
 }
@@ -5295,8 +5313,8 @@ function drawFx25(cam) {
     flash(gx, CY, 420, THEME.flash || 'rgba(216,169,63,1)', G.flashA * 0.55);
   }
   if (G.hitFlash > 0 && fxFlash()) {
-    flash(G.hitFlashX, G.hitFlashY, 260,
-      'rgba(255,255,255,' + (0.55 * G.hitFlash).toFixed(3) + ')', 1);
+    flash(G.hitFlashX, G.hitFlashY, G.hitFlashR || 160,
+      'rgba(255,246,224,' + (0.55 * G.hitFlash).toFixed(3) + ')', 1);
   }
 }
 
