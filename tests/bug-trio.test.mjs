@@ -200,10 +200,10 @@ test('bug 2: rally milestones and match-point feedback use one lane below the sc
   assert.doesNotMatch(source, /RALLY ×/);
   assert.doesNotMatch(source, /drawPlaque\([^\n]*150, 71/);
   assert.match(source, /rallyN >= 5 && rallyN % 5 === 0/);
-  assert.match(source, /G\.rallyHudN \+ ' HIT RALLY'/);
+  assert.match(source, /return 'RALLY · ' \+ G\.rallyHudN/);
   assert.match(source, /drawPlaque\(c, CX, 164, status/);
   const status = source.slice(source.indexOf('function hudStatusText'), source.indexOf('function drawHudCore'));
-  assert.ok(status.indexOf('MATCH POINT') < status.indexOf('HIT RALLY'),
+  assert.ok(status.indexOf('MATCH POINT') < status.indexOf("return 'RALLY · '"),
     'match point should take priority over the rally milestone');
 });
 
