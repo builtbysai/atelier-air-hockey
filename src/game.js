@@ -411,16 +411,16 @@ const WORKSHOP_DRILLS = Object.freeze({
   free:    { name:'Free Hit', target:'Shots, banks, and control', goal:0,  coach:null, serve:1, free:true },
 });
 const Practice = {
-  active:false, id:null, progress:0, wasCleared:false,
+  active:false, id:null, progress:0, wasCleared:false, freeHits:0,
   begin(id) {
     if (!WORKSHOP_DRILLS[id]) return false;
-    this.active = true; this.id = id; this.progress = 0; this.wasCleared = Workshop.done(id);
+    this.active = true; this.id = id; this.progress = 0; this.wasCleared = Workshop.done(id); this.freeHits = 0;
     Workshop.current = id;
     this.syncHud();
     return true;
   },
   cancel() {
-    this.active = false; this.id = null; this.progress = 0; this.wasCleared = false; Workshop.current = null;
+    this.active = false; this.id = null; this.progress = 0; this.wasCleared = false; this.freeHits = 0; Workshop.current = null;
     const hud = $('workshopHud'); if (hud) hud.classList.add('hidden');
   },
   preparePoint() {
@@ -441,7 +441,7 @@ const Practice = {
     if (target) target.textContent = note || d.target;
     if (!prog) return;
     if (d.free) {
-      prog.textContent = 'OPEN TABLE';
+      prog.textContent = this.freeHits ? this.freeHits + ' TARGET' + (this.freeHits === 1 ? '' : 'S') : 'OPEN TABLE';
       return;
     }
     const value = this.id === 'power' ? Math.round(this.progress) : this.progress;
@@ -451,6 +451,12 @@ const Practice = {
     const d = WORKSHOP_DRILLS[this.id];
     if (!d || d.free || this.wasCleared || this.progress < d.goal) return false;
     this.complete(); return true;
+  },
+  onFreeTarget(speedKmh) {
+    if (!this.active || this.id !== 'free') return;
+    this.freeHits++;
+    this.syncHud('Target hit · ' + Math.max(1, Math.round(speedKmh || 0)) + ' km/h');
+    addText(PX + PW - 92, CY, 'TARGET', THEME.gold || '#d8a93f', 34);
   },
   onRally(n) {
     if (!this.active) return;
@@ -470,6 +476,15 @@ const Practice = {
   },
   onGoal(scorer, speedKmh) {
     if (!this.active) return;
+    if (this.id === 'free') {
+      // The far end is a rebound target, not a goal. Only an own goal reaches
+      // onGoal() in Free Hit; reset so the player still has to defend.
+      if (scorer === 1) {
+        this.resetPoint();
+        this.syncHud('Own goal · reset');
+      }
+      return;
+    }
     if (this.id === 'power' && scorer === 0) {
       this.progress = Math.max(this.progress, speedKmh);
       Workshop.bumpBest('power', speedKmh);
@@ -2304,16 +2319,25 @@ function collideWalls(p) {
       onRailHit(p.x, PY + PH, imp, false, 0, -1);
     }
   }
-  // end walls with goal mouths
+  // end walls with goal mouths. Free Hit closes the far/right mouth into
+  // a rebound target so practice stays continuous while the player's own
+  // left goal remains live.
   const inMouth = Math.abs(p.y - CY) < goalW() / 2 - 6;
+  const freeTarget = G.mode === 'workshop' && Practice.active && Practice.id === 'free';
   // the goal frame rings: contact just outside the mouth is a post hit
   const nearPost = !inMouth && Math.abs(p.y - CY) < goalW() / 2 + 42;
   if (p.x < PX + r && !inMouth) {
     p.x = PX + r;
     if (p.vx < 0) { const imp = -p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX, p.y, imp, nearPost, 1, 0); }
-  } else if (p.x > PX + PW - r && !inMouth) {
+  } else if (p.x > PX + PW - r && (!inMouth || freeTarget)) {
     p.x = PX + PW - r;
-    if (p.vx > 0) { const imp = p.vx; p.vx = -p.vx * paceWall(); p.vy *= 0.995; onRailHit(PX + PW, p.y, imp, nearPost, -1, 0); }
+    if (p.vx > 0) {
+      const imp = p.vx;
+      p.vx = -p.vx * paceWall(); p.vy *= 0.995;
+      onRailHit(PX + PW, p.y, imp, freeTarget && inMouth ? false : nearPost, -1, 0);
+      if (freeTarget && inMouth)
+        Practice.onFreeTarget(imp * (2.4384 / PW) * 3.6);
+    }
   }
 }
 
@@ -4303,7 +4327,9 @@ function drawTableFlat(c) {
   // goal-frame rattle: a hard frame hit visibly shakes the trim for ~0.4s
   // (fxFlash() gates it for Minimal effects + prefers-reduced-motion; the
   // jitter itself scales with the Shake setting, like trauma shake)
+  const freeHit = G.mode === 'workshop' && Practice.active && Practice.id === 'free';
   for (let side = 0; side < 2; side++) {
+    if (freeHit && side === 1) continue;
     const gx = side === 0 ? PX : PX + PW;
     let ox = 0, oy = 0;
     if (G.rattle && G.rattle.side === side && fxFlash()) {
@@ -4312,6 +4338,21 @@ function drawTableFlat(c) {
     }
     c.save(); c.translate(ox, oy);
     THEME.drawGoalTrim(c, side, gx, CY, goalW());
+    c.restore();
+  }
+
+  if (freeHit) {
+    const tx = PX + PW - 54, half = goalW() / 2;
+    c.save();
+    c.globalAlpha = 0.82;
+    c.strokeStyle = THEME.gold || '#d8a93f';
+    c.lineWidth = 3;
+    c.beginPath(); c.moveTo(PX + PW - 3, CY - half); c.lineTo(PX + PW - 3, CY + half); c.stroke();
+    for (const r of [22, 44, 68]) {
+      c.globalAlpha = r === 22 ? 0.9 : 0.42;
+      c.lineWidth = r === 22 ? 3 : 2;
+      c.beginPath(); c.arc(tx, CY, r, 0, TAU); c.stroke();
+    }
     c.restore();
   }
 
@@ -4973,6 +5014,29 @@ function drawGoalPocket25(cam, side) {
   ctx.restore();
 }
 
+function drawPracticeTarget25(cam) {
+  const tx = PX + PW - 54, half = goalW() / 2;
+  const top = camProject(cam, PX + PW - 3, CY - half, 0);
+  const bot = camProject(cam, PX + PW - 3, CY + half, 0);
+  if (top && bot) {
+    ctx.save();
+    ctx.globalAlpha = 0.82; ctx.strokeStyle = THEME.gold || '#d8a93f';
+    ctx.lineWidth = Math.max(1, 3 * (top.s + bot.s) / 2);
+    ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(bot.x, bot.y); ctx.stroke();
+    ctx.restore();
+  }
+  for (const r of [22, 44, 68]) {
+    const e = tableEll25(cam, tx, CY, 0, r);
+    if (!e) continue;
+    ctx.save();
+    ctx.globalAlpha = r === 22 ? 0.9 : 0.42;
+    ctx.strokeStyle = THEME.gold || '#d8a93f';
+    ctx.lineWidth = Math.max(1, (r === 22 ? 3 : 2) * e.s);
+    ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx, e.ry, 0, 0, TAU); ctx.stroke();
+    ctx.restore();
+  }
+}
+
 // Table-bound dynamics in the 2.5D view: everything drawTableFlat draws
 // per frame on top of the static table (scuffs, trail, speed lines, goal
 // trim, frame flash, post glow), projected to true depth. The static table
@@ -5031,9 +5095,17 @@ function drawDynTable25(cam) {
     }
   }
   // Recessed goal pockets keep both mouths legible in low-angle views.
-  for (let side = 0; side < 2; side++) drawGoalPocket25(cam, side);
+  const freeHit = G.mode === 'workshop' && Practice.active && Practice.id === 'free';
+  for (let side = 0; side < 2; side++) {
+    if (freeHit && side === 1) continue;
+    drawGoalPocket25(cam, side);
+  }
   // Theme trim remains on top so every room keeps its identity.
-  for (let side = 0; side < 2; side++) drawTrim25(cam, side);
+  for (let side = 0; side < 2; side++) {
+    if (freeHit && side === 1) continue;
+    drawTrim25(cam, side);
+  }
+  if (freeHit) drawPracticeTarget25(cam);
   // goal-frame flash: the scored-on frame lights up in theme gold
   if (G.goalFrameT > 0 && fxFlash()) {
     const fgx = G.goalSide === 0 ? PX + PW : PX, gw = goalW();
