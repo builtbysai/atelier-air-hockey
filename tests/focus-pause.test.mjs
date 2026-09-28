@@ -260,3 +260,17 @@ test('focus loss during a goal uses the same preserved-ceremony pause path', asy
   assert.equal(t.G.goalMomentLabel, 'MATCH POINT');
   assert.equal(t.G.goalSpeedKmh, 23);
 });
+
+
+test('focus-loss freeze skips canvas repaint while keeping the frame heartbeat', async () => {
+  const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  const start = source.indexOf('// Focus-loss freeze:');
+  const end = source.indexOf('if (G.freezeT > 0)', start);
+  const frozen = source.slice(start, end);
+  assert.match(frozen, /if \(G\.focusLost\) return;/,
+    'focus loss should return before the render path');
+  assert.doesNotMatch(frozen, /render\(\)/,
+    'the hidden canvas should not repaint behind the focus veil');
+  assert.ok(source.indexOf('lastT = t;', start - 500) < start,
+    'lastT must still update before the focus-loss early return');
+});
