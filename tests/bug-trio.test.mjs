@@ -25,9 +25,9 @@ async function loadGame(overrides = {}) {
       addEventListener() {}, hidden: false, title: '',
     },
   }, overrides));
-  vm.runInContext(`${sb}\n${source}\nthis.__sideLabel = sideLabel; this.__drawScoreboard = drawScoreboard; this.__freshBoard = freshBoard; this.__glueEscapeDir = glueEscapeDir; this.__G = G;`,
+  vm.runInContext(`${sb}\n${source}\nthis.__sideLabel = sideLabel; this.__drawScoreboard = drawScoreboard; this.__freshBoard = freshBoard; this.__glueEscapeDir = glueEscapeDir; this.__contactWrapReleaseNormal = contactWrapReleaseNormal; this.__G = G;`,
     context, { filename: 'src/game.js' });
-  return { G: context.__G, sideLabel: context.__sideLabel, drawScoreboard: context.__drawScoreboard, freshBoard: context.__freshBoard, glueEscapeDir: context.__glueEscapeDir };
+  return { G: context.__G, sideLabel: context.__sideLabel, drawScoreboard: context.__drawScoreboard, freshBoard: context.__freshBoard, glueEscapeDir: context.__glueEscapeDir, contactWrapReleaseNormal: context.__contactWrapReleaseNormal };
 }
 
 /* Canvas 2D stub: absorbs everything, records fillText calls. */
@@ -225,4 +225,32 @@ test('side-rail glue escape exposes the rail side used by the hard release', asy
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
   assert.match(source, /nearT, nearB, nearL \} = glueEscapeDir/,
     'hard-release branch must actually consume the returned nearL flag');
+});
+
+
+test('continuous mallet contact cannot wrap from table-facing to goal-facing side', async () => {
+  const { contactWrapReleaseNormal } = await loadGame();
+
+  const left = { side:0, x:500, y:520, contactActive:false, contactStartedGoalward:false };
+  assert.equal(contactWrapReleaseNormal(left, { x:530, y:520 }, 1, 0), null);
+  assert.equal(left.contactStartedGoalward, false, 'safe-side contact begins table-facing');
+  left.contactActive = true;
+  const leftRelease = contactWrapReleaseNormal(left, { x:495, y:545 }, -0.2, 0.98);
+  assert.ok(leftRelease && leftRelease.nx > 0, 'left player wrap releases back toward open ice');
+
+  const right = { side:1, x:940, y:520, contactActive:false, contactStartedGoalward:false };
+  assert.equal(contactWrapReleaseNormal(right, { x:910, y:520 }, -1, 0), null);
+  right.contactActive = true;
+  const rightRelease = contactWrapReleaseNormal(right, { x:945, y:495 }, 0.2, -0.98);
+  assert.ok(rightRelease && rightRelease.nx < 0, 'right player wrap releases back toward open ice');
+});
+
+test('incoming goal-side contact remains legal for real saves', async () => {
+  const { contactWrapReleaseNormal } = await loadGame();
+  const m = { side:0, x:500, y:520, contactActive:false, contactStartedGoalward:false };
+  assert.equal(contactWrapReleaseNormal(m, { x:485, y:520 }, -1, 0), null);
+  assert.equal(m.contactStartedGoalward, true, 'incoming save is recognized as goal-side contact');
+  m.contactActive = true;
+  assert.equal(contactWrapReleaseNormal(m, { x:475, y:540 }, -0.9, 0.4), null,
+    'guard must not reject a puck that genuinely arrived from the goal side');
 });
