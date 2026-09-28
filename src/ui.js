@@ -951,6 +951,13 @@ function applyVisualQaState(name) {
       hideAll(); G.state = 'menu'; $('menu').classList.remove('hidden'); break;
   }
   UpdateSys.sync();
+  window.__atelierVisualQA.controlState = () => ({
+    state:G.state,
+    portrait:!!view.portrait,
+    activePointers:pointers.size,
+    centerLimit:CX - MALLET_R,
+    m1:{ x:G.m1.x, y:G.m1.y, tx:G.m1.tx, ty:G.m1.ty },
+  });
   return true;
 }
 
