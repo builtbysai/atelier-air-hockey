@@ -120,3 +120,16 @@ test('Workshop HUD is separate from the match scoreboard', () => {
   assert.ok(game.includes("G.demo || G.mode === 'workshop'"));
   assert.ok(css.includes('.workshop-hud'));
 });
+
+
+test('Free Hit closes the far goal into a continuous rebound target', () => {
+  assert.ok(game.includes("const freeTarget = G.mode === 'workshop' && Practice.active && Practice.id === 'free'"));
+  assert.ok(game.includes("p.x > PX + PW - r && (!inMouth || freeTarget)"));
+  assert.ok(game.includes('Practice.onFreeTarget'));
+  assert.ok(game.includes("this.id === 'free'"));
+  assert.ok(game.includes("this.syncHud('Own goal · reset')"));
+  assert.ok(game.includes('function drawPracticeTarget25(cam)'));
+  assert.ok(game.includes('if (freeHit) drawPracticeTarget25(cam)'));
+  assert.ok(game.includes('if (freeHit && side === 1) continue'));
+  assert.ok(game.includes("addText(PX + PW - 92, CY, 'TARGET'"));
+});
