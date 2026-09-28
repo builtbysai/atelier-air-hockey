@@ -14,12 +14,13 @@ This tracker covers the post-v1 stabilization and gameplay-quality pass requeste
 | P2 | Rally definition, progress feedback, and Workshop reset | Completed in #73 |
 | Audit | Short-landscape Help overflow after adding rally explanation | Fixed in #73 |
 | Follow-up audit | Online guest score and match stats reset after every goal countdown | Fixed; new-match and next-point countdowns now have separate paths |
+| Follow-up audit | Installed PWA update prompt missed app-only releases | Fixed; build derives the service worker cache identity from app content |
 
 All items in this tracker are complete. The sections below preserve the original findings, plan, and acceptance criteria for reference.
 
 ## Verification
 
-- `npm test`: 285 tests pass, including physics, progression, export, focus recovery, persistence, and online point-flow checks.
+- `npm test`: 286 tests pass, including physics, progression, export, focus recovery, persistence, online point-flow, and PWA update checks.
 - Browser Visual QA: compact phone, mobile, landscape, and desktop surfaces pass; replay and GIF export decode and display; Help fits without scrolling in short landscape.
 - Rival Lab: 28 deterministic matches pass with no deadlocks or AI own goals in the audit run; Rookie, Club Pro, and Champion retain distinct shot behavior.
 - Manual screenshot review: short-landscape Help and mobile GIF preview remain readable.

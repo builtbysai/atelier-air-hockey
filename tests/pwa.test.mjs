@@ -29,7 +29,7 @@ test('installed app exposes shortcuts, screenshots, and a real maskable icon', (
 });
 
 test('service worker caches the complete current app shell', () => {
-  assert.match(sw, /atelier-air-hockey-v33/);
+  assert.match(sw, /atelier-air-hockey-[a-f0-9]{12}/);
   assert.doesNotMatch(sw, /atelier-air-hockey-v24\.2/);
   assert.match(sw, /src\/vendor\/qrcode\.js/);
   assert.match(sw, /src\/share\.js/);
@@ -38,6 +38,18 @@ test('service worker caches the complete current app shell', () => {
   assert.match(sw, /networkFirstNavigation/);
   assert.match(sw, /networkFirstAsset/);
   assert.match(sw, /js\|css\|webmanifest/);
+});
+
+test('build ties the worker cache identity to the app content', async () => {
+  const build = await readFile(new URL('../scripts/build.mjs', import.meta.url), 'utf8');
+  const check = await readFile(new URL('../scripts/check.mjs', import.meta.url), 'utf8');
+  const version = await readFile(new URL('../scripts/app-version.mjs', import.meta.url), 'utf8');
+  assert.match(build, /appCacheName\(\)/);
+  assert.match(check, /appCacheName\(\)/);
+  assert.match(version, /'src\/game\.js'/);
+  assert.match(version, /'src\/net\.js'/);
+  assert.match(version, /'index\.html'/);
+  assert.match(version, /hash\.update\(sw\.replace/);
 });
 
 test('service worker update check is non-blocking at boot', () => {
