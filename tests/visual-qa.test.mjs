@@ -46,6 +46,10 @@ test('visual QA validates compact, mobile, landscape, and desktop viewports', ()
   assert.match(runner, /closest\('\.overlay'\)\?\.id !== 'progress'/);
   assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
   assert.match(runner, /vertical card overflow/);
+  assert.match(css, /@media \(max-width:380px\) and \(max-height:680px\)/);
+  assert.match(css, /#menu \.lobfoot a, #menu \.lobfoot \.ver\{ display:none; \}/);
+  assert.match(css, /#settings \.setrow\{[\s\S]*?flex-direction:row/);
+  assert.match(css, /\.win-awards\{[\s\S]*?flex-wrap:nowrap/);
   assert.match(workflow, /playwright@1\.55\.0/);
   assert.match(workflow, /google-chrome --version/);
   assert.doesNotMatch(workflow, /playwright install --with-deps chromium/);
