@@ -1607,7 +1607,7 @@ const G = {
 };
 function freshStats() {
   return {
-    topSpeed: 0, rally: 0, bestRally: 0, bestGoalRally: 0, bankGoals: [0, 0],
+    topSpeed: 0, rally: 0, bestRally: 0, bestGoalRally: 0, rallyLastSide: -1, bankGoals: [0, 0],
     saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0],
   };
 }
@@ -2554,7 +2554,7 @@ function collideMallet(p, m, dt) {
       p.x = m.x + nx * minD; p.y = m.y + ny * minD;
       p.vx = nx * 560; p.vy = ny * 560;
       m.hitSq = 0.8; m.hitSqA = Math.atan2(ny, nx);
-      onMalletHit(p.x, p.y, 500, nx, ny);
+      onMalletHit(p.x, p.y, 500, nx, ny, m.side, false);
     } else {
       if (nearT || nearB) {
         p.y = nearT ? PY + p.r : PY + PH - p.r;
@@ -2568,7 +2568,7 @@ function collideMallet(p, m, dt) {
       p.vx = rx * 950; p.vy = ry * 950;
       m.ghostT = 0.30;
       m.hitSq = 0.72; m.hitSqA = Math.atan2(ry, rx);
-      onMalletHit(p.x, p.y, 750, rx, ry);
+      onMalletHit(p.x, p.y, 750, rx, ry, m.side, false);
     }
     m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
     Highlights.noteTouch(m.side);
@@ -2650,7 +2650,7 @@ function collideMallet(p, m, dt) {
     // it along the contact normal for a couple frames before it springs back
     m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
     m.hitSqA = Math.atan2(ny, nx);
-    onMalletHit(p.x, p.y, impact, nx, ny, savedThisHit);
+    onMalletHit(p.x, p.y, impact, nx, ny, m.side, savedThisHit);
   }
   m.contactActive = true;
 }
@@ -3521,18 +3521,23 @@ function impactFlashProfile(impact) {
     room: lerp(0.30, 0.82, smooth),
   };
 }
-function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
-  // rally bookkeeping first - the clack pitches up ~3% per hit so long
-  // rallies audibly tighten (capped at +36%)
-  let rallyN = 0;
-  if (G.state === 'play' && !G.demo && G.stats) {
+function onMalletHit(x, y, impact, nx, ny, side, suppressHaptic) {
+  // A rally is an exchange, not every micro-contact. Dribbles, traps, and
+  // repeated touches by the same mallet no longer inflate the counter. Each
+  // alternating return advances it once, which makes the HUD and Workshop
+  // Control target describe the same thing a player sees on the table.
+  let rallyN = G.stats ? G.stats.rally : 0;
+  if (G.state === 'play' && !G.demo && G.stats && side !== G.stats.rallyLastSide) {
+    G.stats.rallyLastSide = side;
     G.stats.rally++;
     if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
     rallyN = G.stats.rally;
     if (G.mode === 'workshop') Practice.onRally(rallyN);
-    if (G.mode !== 'online' && rallyN >= 5 && rallyN % 5 === 0) {
+    if (G.mode !== 'online' && rallyN >= 3) {
       G.rallyHudN = rallyN;
-      G.rallyHudT = 0.9;
+      G.rallyHudT = rallyN % 5 === 0 ? 0.95 : 0.46;
+      if (rallyN % 5 === 0)
+        addText(CX, CY - 72, 'RALLY ' + rallyN, THEME.gold || '#d8a93f', 30);
     }
   }
   const v = clamp(impact / 2200, 0, 1);
@@ -3873,7 +3878,7 @@ function beginGoalCeremony(scorer) {
   G.pausedGoalCeremony = null;
   boardKick(scorer);
   G.goalSide = scorer;
-  if (G.stats) G.stats.rally = 0; // new rally after each goal
+  if (G.stats) { G.stats.rally = 0; G.stats.rallyLastSide = -1; } // new exchange after each goal
   G.rallyHudT = 0; G.rallyHudN = 0;
   G.state = 'goal';
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
@@ -4687,8 +4692,8 @@ function hudStatusText() {
     if (G.mode === 'online') return (m0 ? onlineSideLabel(0) : onlineSideLabel(1)) + ' · MATCH POINT';
     return sideLabel(m0 ? 0 : 1) + ' · MATCH POINT';
   }
-  if (G.state === 'play' && G.rallyHudT > 0 && G.rallyHudN >= 5)
-    return G.rallyHudN + ' HIT RALLY';
+  if (G.state === 'play' && G.rallyHudT > 0 && G.rallyHudN >= 3)
+    return 'RALLY · ' + G.rallyHudN;
   return '';
 }
 
