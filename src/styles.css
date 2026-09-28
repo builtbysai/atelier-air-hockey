@@ -13,6 +13,11 @@
   }
   #game{ position:fixed; inset:0; display:block; touch-action:none; }
   .hidden{ display:none !important; }
+  .sr-only{
+    position:absolute !important; width:1px !important; height:1px !important;
+    padding:0 !important; margin:-1px !important; overflow:hidden !important;
+    clip-path:inset(50%) !important; white-space:nowrap !important; border:0 !important;
+  }
 
   #topbar{ position:fixed; top:10px; top:calc(10px + env(safe-area-inset-top)); right:12px; right:calc(12px + env(safe-area-inset-right)); display:flex; gap:8px; z-index:30; }
   .iconbtn{

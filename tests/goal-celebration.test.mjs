@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+const [game, template, css] = await Promise.all([
+  readFile(new URL('../src/game.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/template.html', import.meta.url), 'utf8'),
+  readFile(new URL('../src/styles.css', import.meta.url), 'utf8'),
+]);
 
 test('mid-match goal ceremony is a composed screen-space payoff', () => {
   assert.match(game, /function drawGoalTextScreen\(c, w, h\)/);
@@ -54,4 +58,17 @@ test('goal ceremony duration respects the player-facing hierarchy', () => {
   assert.match(game, /goalIsYours\(G\.goalSide\) \? GOAL_HOLD_OWN : GOAL_HOLD_CONCEDE/);
   assert.ok(1.60 < 1.95, 'ordinary conceded goals should return to play sooner than player goals');
   assert.ok(1.95 < 2.70, 'winning goals should retain the longest payoff');
+});
+
+
+test('goal and score changes are announced outside the canvas', () => {
+  assert.match(template, /id="gameStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"/);
+  assert.match(css, /\.sr-only\{[\s\S]*?clip-path:inset\(50%\)/);
+  assert.match(game, /function announceGoalStatus\(scorer\)/);
+  assert.match(game, /spokenSideLabel\(scorer\) \+ ' scores\. Score '/);
+  const start = game.indexOf('function beginGoalCeremony');
+  const end = game.indexOf('function updateGoal', start);
+  const block = game.slice(start, end);
+  assert.ok(block.indexOf('G.goalMomentLabel = goalMomentContext(scorer)') < block.indexOf('announceGoalStatus(scorer)'),
+    'the live announcement should include the final goal context');
 });
