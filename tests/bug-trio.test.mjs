@@ -25,9 +25,9 @@ async function loadGame(overrides = {}) {
       addEventListener() {}, hidden: false, title: '',
     },
   }, overrides));
-  vm.runInContext(`${sb}\n${source}\nthis.__sideLabel = sideLabel; this.__drawScoreboard = drawScoreboard; this.__freshBoard = freshBoard; this.__G = G;`,
+  vm.runInContext(`${sb}\n${source}\nthis.__sideLabel = sideLabel; this.__drawScoreboard = drawScoreboard; this.__freshBoard = freshBoard; this.__glueEscapeDir = glueEscapeDir; this.__G = G;`,
     context, { filename: 'src/game.js' });
-  return { G: context.__G, sideLabel: context.__sideLabel, drawScoreboard: context.__drawScoreboard, freshBoard: context.__freshBoard };
+  return { G: context.__G, sideLabel: context.__sideLabel, drawScoreboard: context.__drawScoreboard, freshBoard: context.__freshBoard, glueEscapeDir: context.__glueEscapeDir };
 }
 
 /* Canvas 2D stub: absorbs everything, records fillText calls. */
@@ -205,4 +205,24 @@ test('bug 2: rally milestones and match-point feedback use one lane below the sc
   const status = source.slice(source.indexOf('function hudStatusText'), source.indexOf('function drawHudCore'));
   assert.ok(status.indexOf('MATCH POINT') < status.indexOf('HIT RALLY'),
     'match point should take priority over the rally milestone');
+});
+
+
+test('side-rail glue escape exposes the rail side used by the hard release', async () => {
+  const { glueEscapeDir } = await loadGame();
+  const left = glueEscapeDir({ x: 226, y: 420 }, -1, 0);
+  assert.equal(left.railed, true);
+  assert.equal(left.nearL, true);
+  assert.equal(left.nearR, false);
+  assert.equal(left.rx, 0, 'left rail pin should escape vertically');
+
+  const right = glueEscapeDir({ x: 1214, y: 620 }, 1, 0);
+  assert.equal(right.railed, true);
+  assert.equal(right.nearL, false);
+  assert.equal(right.nearR, true);
+  assert.equal(right.rx, 0, 'right rail pin should escape vertically');
+
+  const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  assert.match(source, /nearT, nearB, nearL \} = glueEscapeDir/,
+    'hard-release branch must actually consume the returned nearL flag');
 });
