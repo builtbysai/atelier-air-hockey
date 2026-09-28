@@ -87,6 +87,47 @@ try {
         animations: 'disabled',
       });
     }
+    if (group.dir === 'mobile' || group.dir === 'landscape') {
+      // Real browser touch smoke: drive the same PointerEvent path a phone uses.
+      // Unit tests already prove the coordinate math; this catches broken event
+      // wiring, orientation direction, center clamping, and pointer cleanup.
+      pageErrors = [];
+      const touchUrl = new URL(BASE);
+      touchUrl.searchParams.set('qa', 'top');
+      await page.goto(touchUrl.href, { waitUntil:'domcontentloaded' });
+      await page.waitForFunction(() =>
+        window.__atelierVisualQA?.freeze === true &&
+        typeof window.__atelierVisualQA?.controlState === 'function',
+        null, { timeout:5000 }
+      );
+      const portrait = group.dir === 'mobile';
+      const down = portrait ? { x:195, y:600 } : { x:280, y:195 };
+      const move = portrait ? { x:195, y:500 } : { x:390, y:195 };
+      const dispatch = async (type, point) => page.evaluate(({ type, point }) => {
+        const canvas = document.getElementById('game');
+        canvas.dispatchEvent(new PointerEvent(type, {
+          pointerId:17, pointerType:'touch', isPrimary:true, bubbles:true,
+          clientX:point.x, clientY:point.y, buttons:type === 'pointerup' ? 0 : 1,
+        }));
+        return window.__atelierVisualQA.controlState();
+      }, { type, point });
+      const downState = await dispatch('pointerdown', down);
+      const moveState = await dispatch('pointermove', move);
+      const upState = await dispatch('pointerup', move);
+      const label = group.dir + '/touch-control';
+      if (downState.portrait !== portrait)
+        failures.push(label + ': unexpected board orientation');
+      if (![downState.m1.tx, downState.m1.ty, moveState.m1.tx, moveState.m1.ty].every(Number.isFinite))
+        failures.push(label + ': non-finite mallet target');
+      if (!(moveState.m1.tx > downState.m1.tx + 8))
+        failures.push(label + ': moving toward center did not advance rink X');
+      if (moveState.m1.tx > moveState.centerLimit + 0.5)
+        failures.push(label + ': touch target crossed the player center clamp');
+      if (upState.activePointers !== 0)
+        failures.push(label + ': pointerup did not release the active touch');
+      if (pageErrors.length) failures.push(label + ': ' + pageErrors.join(' | '));
+    }
+
     if (group.dir === 'mobile') {
       // Match Reel smoke test: queue three selected moments, advance them with
       // the same Skip/Next control a player sees, then land back on results.
