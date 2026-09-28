@@ -28,6 +28,8 @@ jobs:
           ATELIER_QA_BROWSER: chrome
         run: node scripts/visual-qa.mjs
       - name: Run deterministic rival soak
+        env:
+          ATELIER_QA_BROWSER: chrome
         run: node scripts/rival-soak.mjs
       - name: Upload rival soak report
         if: always()
