@@ -30,9 +30,11 @@ const Settings = {
   shake: 'full',      // 'off' | 'subtle' | 'full'
   sound: true,        // compatibility gate, derived from soundVolume
   soundVolume: 100,   // 0-100 - 0 is muted, 100 preserves today's calibrated SFX level
-  masterMuted: false, // HUD audio icon: mutes BOTH buses without changing either saved volume
+  masterMuted: false, // derived: true only when BOTH visible audio sliders are at 0
+  soundBeforeMute: 100, // remembered mix used by the global mute button
   music: true,        // compatibility gate, derived from musicVolume
   musicVolume: 70,    // 0-100 - whole music/ambience bus; 70 is the calibrated unity point
+  musicBeforeMute: 70, // remembered mix used by the global mute button
   haptics: true,
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
@@ -73,8 +75,24 @@ function loadSettings() {
   // The old UI stored a separate Music Off toggle alongside a remembered
   // volume. Respect that explicit choice when moving to the slider-only model.
   if (stored.music === false) Settings.musicVolume = 0;
+
+  if (!Number.isFinite(Settings.soundBeforeMute)) Settings.soundBeforeMute = 100;
+  else Settings.soundBeforeMute = clamp(Math.round(Settings.soundBeforeMute), 0, 100);
+  if (!Number.isFinite(Settings.musicBeforeMute)) Settings.musicBeforeMute = 70;
+  else Settings.musicBeforeMute = clamp(Math.round(Settings.musicBeforeMute), 0, 100);
+
+  // v1 stored a third independent masterMuted gate while leaving the two
+  // sliders visually unchanged. Migrate that state into the slider model so
+  // every audio control now tells the same truth.
+  if (stored.masterMuted === true && (Settings.soundVolume > 0 || Settings.musicVolume > 0)) {
+    Settings.soundBeforeMute = Settings.soundVolume;
+    Settings.musicBeforeMute = Settings.musicVolume;
+    Settings.soundVolume = 0;
+    Settings.musicVolume = 0;
+  }
   Settings.sound = Settings.soundVolume > 0;
   Settings.music = Settings.musicVolume > 0;
+  Settings.masterMuted = !Settings.sound && !Settings.music;
 }
 // Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -621,9 +639,9 @@ const AudioSys = {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
-      // Three gain stages: sfxBus (Sound volume), musicBus (Music volume,
-      // including room ambience), and masterBus (the HUD mute) in front of both.
-      // The sliders keep their values when the HUD master mute is toggled.
+      // Three gain stages: sfxBus (Sound Effects), musicBus (Music, including
+      // room ambience), and a shared masterBus. Global mute now drives the two
+      // visible sliders to zero, so the bus gate and the UI can never disagree.
       this.sfxBus = this.ctx.createGain();
       this.musicBus = this.ctx.createGain();
       this.masterBus = this.ctx.createGain();
@@ -809,8 +827,39 @@ const AudioSys = {
     const v = clamp(Settings.musicVolume, 0, 100) / 70;
     this.musicBus.gain.value = (!Settings.music || v <= 0) ? 0 : Math.min(2, Math.pow(v, 1.5));
   }, // whole music + ambience bus; 70 is unity
-  syncMaster() { if (this.masterBus) this.masterBus.gain.value = Settings.masterMuted ? 0 : 1; }, // HUD icon: both buses at once, toggles underneath untouched
-  setMasterMuted(m) { Settings.masterMuted = !!m; try { saveSettings(); } catch (e) {} this.syncMaster(); return Settings.masterMuted; },
+  syncPreferenceState() {
+    Settings.sound = Settings.soundVolume > 0;
+    Settings.music = Settings.musicVolume > 0;
+    Settings.masterMuted = !Settings.sound && !Settings.music;
+    this.muted = !Settings.sound;
+  },
+  syncMaster() { if (this.masterBus) this.masterBus.gain.value = Settings.masterMuted ? 0 : 1; },
+  setMasterMuted(m) {
+    const mute = !!m;
+    const wasMuted = Settings.soundVolume <= 0 && Settings.musicVolume <= 0;
+    if (mute && !wasMuted) {
+      // Snapshot the exact mix, including an intentionally-zero channel.
+      Settings.soundBeforeMute = Settings.soundVolume;
+      Settings.musicBeforeMute = Settings.musicVolume;
+      Settings.soundVolume = 0;
+      Settings.musicVolume = 0;
+    } else if (!mute && wasMuted) {
+      let sound = clamp(Math.round(Number(Settings.soundBeforeMute) || 0), 0, 100);
+      let music = clamp(Math.round(Number(Settings.musicBeforeMute) || 0), 0, 100);
+      // If both sliders were manually dragged to zero before any mute snapshot,
+      // restore the calibrated defaults rather than making "unmute" a no-op.
+      if (sound <= 0 && music <= 0) { sound = 100; music = 70; }
+      Settings.soundVolume = sound;
+      Settings.musicVolume = music;
+    }
+    this.syncPreferenceState();
+    try { saveSettings(); } catch (e) {}
+    this.syncMute();
+    this.syncMusic();
+    this.syncMaster();
+    MusicSys.syncEnabled();
+    return Settings.masterMuted;
+  },
   _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
     if (this._nb) return this._nb;
     const len = Math.floor(this.ctx.sampleRate * 2);

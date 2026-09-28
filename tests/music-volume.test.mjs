@@ -236,11 +236,21 @@ test('preferences UI wires both audio sliders', async () => {
   assert.match(template, /id="musicVolVal"/, 'music slider needs a readout');
   assert.match(template, /id="soundVol"/, 'preferences need the sound volume slider');
   assert.match(template, /id="soundVolVal"/, 'sound slider needs a readout');
+  assert.match(template, /<div class="setlabel">Sound effects<\/div>/, 'audio category should be unambiguous');
+  assert.match(template, /data-set="instantReplay" data-val="off">Off<\/button>\s*<button data-set="instantReplay" data-val="goals">Offer<\/button>/,
+    'binary replay preference should put Off left and the enabled option right');
+  assert.match(template, /data-set="haptics" data-val="false">Off<\/button>\s*<button data-set="haptics" data-val="true">On<\/button>/,
+    'binary haptics preference should read left-to-right Off then On');
   assert.doesNotMatch(template, /data-set="music"/, 'redundant Music toggle must be gone');
   assert.doesNotMatch(template, /data-set="sound"/, 'redundant Sound toggle must be gone');
   const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
   assert.match(ui, /key === 'musicVolume'/, 'setSetting must parse musicVolume');
   assert.match(ui, /key === 'soundVolume'/, 'setSetting must parse soundVolume');
+  assert.match(ui, /Settings\.masterMuted = !Settings\.sound && !Settings\.music/,
+    'direct slider changes must derive global mute from both channels');
+  assert.match(ui, /AudioSys\.setMasterMuted\(!Settings\.masterMuted\)/,
+    'HUD mute must use the synchronized audio state path');
+  assert.match(ui, /aria-valuetext/, 'volume sliders should expose useful spoken values');
   assert.match(ui, /AudioSys\.syncMusic\(\)/, 'music slider must update the whole music bus');
   assert.match(ui, /AudioSys\.syncMute\(\)/, 'sound slider must update the SFX bus');
   assert.match(ui, /\$\('musicVol'\)/, 'wireUI must listen to music slider');

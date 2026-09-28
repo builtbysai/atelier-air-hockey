@@ -1,6 +1,6 @@
-// Sound vs music independence under slider-only preferences. Sound volume
-// controls sfxBus, Music volume controls musicBus (including ambience), and
-// the HUD master mute gates both without destroying either saved value.
+// Sound vs music independence under synchronized audio preferences. Sound
+// Effects controls sfxBus, Music controls musicBus (including ambience), and
+// the HUD mute moves both visible sliders to zero then restores the prior mix.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -97,7 +97,7 @@ async function loadGame(storageSeed) {
 
 // the lines applySettingsToUI runs for audio on every settings change
 function applyAudio(t) {
-  t.AudioSys.muted = t.Settings.soundVolume <= 0;
+  t.AudioSys.syncPreferenceState();
   t.AudioSys.syncMute();
   t.AudioSys.syncMusic();
   t.AudioSys.syncMaster();
@@ -167,37 +167,63 @@ test('both volume sliders persist independently', async () => {
   assert.equal(t2.Settings.musicVolume, 80, 'music volume persists independently');
 });
 
-test('HUD master mute silences both buses at once', async () => {
+test('legacy master mute migrates into visible zeroed sliders', async () => {
   const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ soundVolume: 40, musicVolume: 70, masterMuted: true }) });
   t.loadSettings();
   applyAudio(t);
-  assert.equal(t.AudioSys.masterBus.gain.value, 0, 'master bus must be muted');
-  assert.ok(t.AudioSys.sfxBus.gain.value > 0, 'sfx bus keeps its own volume underneath');
-  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music bus keeps its own volume underneath');
+  assert.equal(t.Settings.soundVolume, 0, 'legacy master mute must move Sound Effects to zero');
+  assert.equal(t.Settings.musicVolume, 0, 'legacy master mute must move Music to zero');
+  assert.equal(t.Settings.soundBeforeMute, 40, 'legacy Sound mix is remembered for unmute');
+  assert.equal(t.Settings.musicBeforeMute, 70, 'legacy Music mix is remembered for unmute');
+  assert.equal(t.Settings.masterMuted, true, 'derived global mute stays active');
+  assert.equal(t.AudioSys.masterBus.gain.value, 0, 'master output gate follows the derived mute state');
 });
 
-test('unmuting the master restores each bus to its own setting', async () => {
-  const { t } = await loadGame({ 'atelier-ah-settings': JSON.stringify({ soundVolume: 0, musicVolume: 70, masterMuted: true }) });
-  t.loadSettings();
-  applyAudio(t);
-  assert.equal(t.AudioSys.masterBus.gain.value, 0, 'master starts muted');
-  t.AudioSys.setMasterMuted(false);
-  assert.equal(t.AudioSys.masterBus.gain.value, 1, 'master bus reopens');
-  assert.equal(t.AudioSys.sfxBus.gain.value, 0, 'sound volume stays at 0');
-  assert.equal(t.AudioSys.musicBus.gain.value, 1, 'music volume stays at its unity setting');
-});
-
-test('master mute never changes saved slider values', async () => {
+test('HUD mute zeroes both sliders and persists the restore mix', async () => {
   const { t, storage } = await loadGame();
   t.loadSettings();
   t.Settings.soundVolume = 45;
   t.Settings.musicVolume = 82;
   t.AudioSys.setMasterMuted(true);
-  assert.equal(t.Settings.soundVolume, 45, 'sound slider untouched by master mute');
-  assert.equal(t.Settings.musicVolume, 82, 'music slider untouched by master mute');
+  assert.equal(t.Settings.soundVolume, 0, 'Sound Effects slider moves to zero');
+  assert.equal(t.Settings.musicVolume, 0, 'Music slider moves to zero');
+  assert.equal(t.Settings.soundBeforeMute, 45, 'Sound restore mix is remembered');
+  assert.equal(t.Settings.musicBeforeMute, 82, 'Music restore mix is remembered');
+  assert.equal(t.Settings.masterMuted, true, 'global state derives as muted');
   const saved = JSON.parse(storage._dump()['atelier-ah-settings']);
-  assert.equal(saved.masterMuted, true, 'master mute persists');
-  assert.equal(saved.soundVolume, 45, 'sound slider persists alongside it');
-  assert.equal(saved.musicVolume, 82, 'music slider persists alongside it');
+  assert.equal(saved.soundVolume, 0, 'zeroed Sound slider persists');
+  assert.equal(saved.musicVolume, 0, 'zeroed Music slider persists');
+  assert.equal(saved.soundBeforeMute, 45, 'Sound restore level persists');
+  assert.equal(saved.musicBeforeMute, 82, 'Music restore level persists');
 });
 
+test('HUD unmute restores the exact pre-mute channel mix', async () => {
+  const { t } = await loadGame();
+  t.loadSettings();
+  t.Settings.soundVolume = 0;
+  t.Settings.musicVolume = 64;
+  t.AudioSys.setMasterMuted(true);
+  assert.equal(t.Settings.soundVolume, 0);
+  assert.equal(t.Settings.musicVolume, 0);
+  t.AudioSys.setMasterMuted(false);
+  assert.equal(t.Settings.soundVolume, 0, 'intentionally silent Sound Effects remains silent');
+  assert.equal(t.Settings.musicVolume, 64, 'Music returns to its pre-mute value');
+  assert.equal(t.Settings.masterMuted, false, 'restoring one audible channel clears global mute');
+  assert.equal(t.AudioSys.masterBus.gain.value, 1, 'master output reopens');
+  assert.equal(t.AudioSys.sfxBus.gain.value, 0, 'Sound bus follows restored slider');
+  assert.ok(t.AudioSys.musicBus.gain.value > 0, 'Music bus follows restored slider');
+});
+
+test('derived global mute follows direct slider values', async () => {
+  const { t } = await loadGame();
+  t.loadSettings();
+  t.Settings.soundVolume = 0;
+  t.Settings.musicVolume = 0;
+  t.AudioSys.syncPreferenceState();
+  assert.equal(t.Settings.masterMuted, true, 'both zero means globally muted');
+  t.Settings.musicVolume = 25;
+  t.AudioSys.syncPreferenceState();
+  assert.equal(t.Settings.masterMuted, false, 'raising either slider clears global mute');
+  assert.equal(t.Settings.music, true, 'Music compatibility gate follows the slider');
+  assert.equal(t.Settings.sound, false, 'Sound compatibility gate follows the slider');
+});

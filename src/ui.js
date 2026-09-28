@@ -233,16 +233,20 @@ function setSetting(key, val) {
   // ONLINE: gameplay rules are agreed at match start (host->guest 'hello').
   // Lock them during an online match so peers can't desynchronize.
   if ((key === 'firstTo' || key === 'pace' || key === 'goalW') && G.mode === 'online' && (G.state === 'play' || G.state === 'count' || G.state === 'goal')) return;
-  if (key === 'haptics' || key === 'masterMuted') val = (val === 'true');
+  if (key === 'haptics') val = (val === 'true');
   if (key === 'firstTo') val = parseInt(val, 10);
   if (key === 'soundVolume' || key === 'musicVolume') val = clamp(Math.round(Number(val) || 0), 0, 100);
   Settings[key] = val;
   if (key === 'shake') PRM.userShake = true;
-  if (key === 'soundVolume') Settings.sound = val > 0;
-  if (key === 'musicVolume') Settings.music = val > 0;
+  if (key === 'soundVolume' || key === 'musicVolume') {
+    Settings.sound = Settings.soundVolume > 0;
+    Settings.music = Settings.musicVolume > 0;
+    Settings.masterMuted = !Settings.sound && !Settings.music;
+    // Keep a useful restore point when sliders are adjusted directly. A
+    // central mute snapshots the exact current mix separately in AudioSys.
+    if (val > 0) Settings[key === 'soundVolume' ? 'soundBeforeMute' : 'musicBeforeMute'] = val;
+  }
   saveSettings(); applySettingsToUI();
-  if (key === 'soundVolume') AudioSys.syncMute();
-  if (key === 'musicVolume') { AudioSys.syncMusic(); MusicSys.syncEnabled(); }
   // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
@@ -285,7 +289,7 @@ function applySettingsToUI() {
       btn.title = rulesLocked ? 'Match rules are locked during an online match' : '';
     });
   });
-  AudioSys.muted = Settings.soundVolume <= 0;
+  AudioSys.syncPreferenceState();
   AudioSys.syncMute();
   AudioSys.syncMusic();
   AudioSys.syncMaster();
@@ -310,12 +314,19 @@ function applySettingsToUI() {
   if (cf) cf.textContent = 'First to ' + Settings.firstTo;
   if (cp) cp.textContent = paceLabel;
   if (cg) cg.textContent = goalLabel;
+  const audioValueText = value => value === 0 ? 'Muted' : value + '%';
   const sv = $('soundVol'), svv = $('soundVolVal');
-  if (sv && document.activeElement !== sv) sv.value = Settings.soundVolume;
-  if (svv) svv.textContent = Settings.soundVolume === 0 ? 'MUTE' : Settings.soundVolume;
+  if (sv) {
+    if (document.activeElement !== sv) sv.value = Settings.soundVolume;
+    sv.setAttribute('aria-valuetext', Settings.soundVolume === 0 ? 'Muted' : Settings.soundVolume + ' percent');
+  }
+  if (svv) svv.textContent = audioValueText(Settings.soundVolume);
   const mv = $('musicVol'), mvv = $('musicVolVal');
-  if (mv && document.activeElement !== mv) mv.value = Settings.musicVolume;
-  if (mvv) mvv.textContent = Settings.musicVolume === 0 ? 'MUTE' : Settings.musicVolume;
+  if (mv) {
+    if (document.activeElement !== mv) mv.value = Settings.musicVolume;
+    mv.setAttribute('aria-valuetext', Settings.musicVolume === 0 ? 'Muted' : Settings.musicVolume + ' percent');
+  }
+  if (mvv) mvv.textContent = audioValueText(Settings.musicVolume);
 }
 
 
@@ -793,9 +804,10 @@ function wireUI() {
   $('replaySkip').addEventListener('click', () => Replay.finish());
   $('btnSound').addEventListener('click', () => {
     AudioSys.init();
-    // HUD icon is the MASTER mute: silences music AND sound at once.
-    // The Preferences sliders keep their saved values underneath.
-    setSetting('masterMuted', String(!Settings.masterMuted)); // persists; button UI syncs via applySettingsToUI
+    // One source of truth: global mute changes the visible channel sliders,
+    // and direct slider changes derive the global muted state in return.
+    AudioSys.setMasterMuted(!Settings.masterMuted);
+    applySettingsToUI();
   });
   window.addEventListener('keydown', e => {
     // the focus-loss veil owns the keyboard: only Escape dismisses it
