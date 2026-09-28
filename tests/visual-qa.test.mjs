@@ -46,6 +46,9 @@ test('visual QA validates compact, mobile, landscape, and desktop viewports', ()
   assert.match(runner, /closest\('\.overlay'\)\?\.id !== 'progress'/);
   assert.match(runner, /scrollHeight > card\.clientHeight \+ 2/);
   assert.match(runner, /vertical card overflow/);
+  assert.match(runner, /state === 'update'/);
+  assert.match(runner, /update banner is not visible/);
+  assert.match(ui, /UpdateSys\.waiting = \{ postMessage\(\) \{\} \}; UpdateSys\.dismissed = false/);
   assert.match(css, /@media \(max-width:380px\) and \(max-height:680px\)/);
   assert.match(css, /#menu \.lobfoot a, #menu \.lobfoot \.ver\{ display:none; \}/);
   assert.match(css, /#settings \.setrow\{[\s\S]*?flex-direction:row/);
