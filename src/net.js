@@ -78,6 +78,7 @@ const Net = {
   wire: null,          // {sendSt, sendIn, sendEv} from wireRoom()
   role: null,          // 'host' | 'guest' once a match is live
   active: false,       // true while a match owns the room
+  matchStarted: false, // distinguishes a new match from the next point
   code: null,          // 6-character room code
   waitingForRival: false,
   peerId: null,        // the one accepted rival; all other peers are ignored
@@ -519,6 +520,7 @@ Net.dropRoom = function () {
   try { if (Net.room) Net.room.leave(); } catch (e) {}
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.active = false; Net.waitingForRival = false;
+  Net.matchStarted = false;
   Net.resetConn(); // chip hides with the match
 };
 
@@ -655,7 +657,7 @@ Net.onEvent = function (ev, peerId) {
       else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
       break;
     case 'hello':
-      if (Net.role === 'guest' && !Net.active) Net.onHello(ev);
+      if (Net.role === 'guest') Net.onHello(ev);
       break;
     case 'countdown':
       if (Net.role === 'guest') Net.onCountdown(ev);
@@ -751,6 +753,7 @@ Net.resetConn = function () {
 Net.beginMatch = function (role) {
   Net.role = role;
   Net.active = true;
+  Net.matchStarted = true;
   Net.waitingForRival = false;
   Net.offerSent = false;
   Net.lobbyOpen = false;
@@ -791,14 +794,17 @@ Net.startHostMatch = function () {
   Net.sendHello();
   startCount();
   rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
-  Net.sendCountdown();
+  Net.sendCountdown(true);
 };
 
 /* Guest: the host's settings win. Stash our own, apply theirs, wait. */
 Net.onHello = function (ev) {
   clearTimeout(Net.joinTimer);
   clearTimeout(Net.knockTimer); Net.knockTimer = 0; // the knock landed
-  Net.savedSettings = { firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id };
+  Net.matchStarted = false; // the next countdown begins a new match, including older hosts
+  // A rematch hello may update the host's settings, but the guest's original
+  // preferences must still be restored when they leave the room.
+  if (!Net.savedSettings) Net.savedSettings = { firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id };
   if ([5, 7, 11].includes(+ev.firstTo)) Settings.firstTo = +ev.firstTo;
   if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
   try { applySettingsToUI(); } catch (e) {}
@@ -821,10 +827,24 @@ Net.onHello = function (ev) {
   Net.uiShow('guestwait');
 };
 
-/* Guest: a countdown always starts a fresh leg (first match or rematch). */
+/* Guest: a new-match countdown resets match state; a post-goal countdown
+ * starts only the next point, preserving the score and cumulative stats. */
 Net.onCountdown = function (ev) {
   if (Net.role !== 'guest' || !Net.active) return;
-  Net.beginMatch('guest');
+  const fresh = ev?.fresh === true || !Net.matchStarted || G.state === 'win';
+  if (fresh) Net.beginMatch('guest');
+  else {
+    clearCeremony();
+    hideAll();
+    resetPositions();
+    $('topbar').classList.remove('hidden');
+    // The last goal snapshot belongs to the previous point. Wait for the
+    // host's first countdown snapshot instead of painting stale puck motion.
+    Net.rsnap = null; Net.gview = null; Net.snapT = 0;
+  }
+  if (ev && Number.isInteger(ev.s0) && Number.isInteger(ev.s1) &&
+      ev.s0 >= 0 && ev.s1 >= 0 && ev.s0 <= Settings.firstTo && ev.s1 <= Settings.firstTo)
+    G.score = [ev.s0, ev.s1];
   // the host's goal-mouth width for this match (v20); 0/missing = old host,
   // fall back to the guest's own setting
   G.gwNet = (ev && Number.isFinite(ev.gw)) ? clamp(ev.gw, 150, 260) : 0;
@@ -975,9 +995,9 @@ Net.sendHello = function () {
 // the host's roll is the source of truth, the guest just applies it.
 // gw carries the host's goal-mouth width (v20) so the guest renders and
 // (via the host's snapshots) plays the same table.
-Net.sendCountdown = function () {
+Net.sendCountdown = function (fresh = false) {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({ t: 'countdown', serveDir: G.serveDir,
+  Net.wire.sendEv({ t: 'countdown', fresh, s0:G.score[0], s1:G.score[1], serveDir: G.serveDir,
     svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10,
     gw: Math.round(goalW()) });
 };
@@ -1060,7 +1080,7 @@ Net.restartMatchAsHost = function () {
   Net.sendHello();
   startCount();
   rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
-  Net.sendCountdown();
+  Net.sendCountdown(true);
 };
 
 /* ---------------- leave / disconnect ---------------- */
@@ -1088,6 +1108,7 @@ Net.leave = function () {
 Net.onRivalLeft = function () {
   if (!Net.active && !Net.waitingForRival) return;
   Net.active = false;
+  Net.matchStarted = false;
   Net.waitingForRival = false;
   Net.offerSent = false;
   clearCeremony();

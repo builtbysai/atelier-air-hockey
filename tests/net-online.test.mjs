@@ -171,6 +171,69 @@ test('guest input can never cross the center line', async () => {
 
 // ---------- reconciliation under latency ----------
 
+test('guest point countdown preserves match score and cumulative stats', async () => {
+  const { Net, G, calls, dom } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; Net.matchStarted = true;
+  G.state = 'goal'; G.score = [2, 1];
+  G.stats.bestRally = 12; G.stats.saves = [3, 2];
+  const stats = G.stats;
+  dom.$('topbar').classList.add('hidden');
+  Net.onCountdown({ serveDir:1, svx:500, svy:80, gw:200, s0:2, s1:1 });
+  assert.equal(G.state, 'count');
+  assert.deepEqual([...G.score], [2, 1]);
+  assert.equal(G.stats, stats, 'a new point must retain the same match statistics');
+  assert.equal(G.stats.bestRally, 12);
+  assert.equal(dom.$('topbar').classList.contains('hidden'), false);
+  assert.ok(!calls.includes('freshBoard'), 'a point must not initialize a new match');
+});
+
+test('fresh online countdown resets the guest match even during a restart', async () => {
+  const { Net, G, calls } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; Net.matchStarted = true;
+  G.state = 'pause'; G.score = [4, 3]; G.stats.bestRally = 14;
+  Net.onCountdown({ fresh:true, serveDir:-1, svx:-480, svy:30, gw:200, s0:0, s1:0 });
+  assert.equal(G.state, 'count');
+  assert.deepEqual([...G.score], [0, 0]);
+  assert.equal(G.stats.bestRally, 0);
+  assert.ok(calls.includes('freshBoard'));
+});
+
+test('point countdown supplies the authoritative score when its goal event was lost', async () => {
+  const { Net, G } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; Net.matchStarted = true;
+  G.state = 'goal'; G.score = [1, 1];
+  Net.onCountdown({ fresh:false, serveDir:-1, svx:-500, svy:0, s0:2, s1:1 });
+  assert.deepEqual([...G.score], [2, 1]);
+  assert.equal(G.state, 'count');
+});
+
+test('host marks only new-match countdowns as fresh', async () => {
+  const { Net, G } = await loadNetWorld();
+  Net.role = 'host'; Net.active = true;
+  G.score = [2, 1];
+  const sent = liveWire({ Net });
+  Net.sendCountdown();
+  Net.sendCountdown(true);
+  assert.equal(sent[0].fresh, false);
+  assert.equal(sent[1].fresh, true);
+  assert.deepEqual([sent[0].s0, sent[0].s1], [2, 1]);
+});
+
+test('rematch hello keeps the guest preferences saved for leaving the room', async () => {
+  const { Net, G, context } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; G.state = 'win';
+  Net.matchStarted = true;
+  Net.savedSettings = { firstTo:7, pace:'classic', theme:'deco' };
+  context.Settings.firstTo = 5;
+  Net.onEvent({ t:'hello', firstTo:11, pace:'classic', theme:'deco' }, 'peer');
+  assert.equal(context.Settings.firstTo, 11);
+  assert.equal(Net.savedSettings.firstTo, 7);
+  assert.equal(Net.matchStarted, false);
+  Net.onCountdown({ serveDir:1, svx:500, svy:0, s0:0, s1:0 });
+  assert.ok(G.stats);
+  assert.deepEqual([...G.score], [0, 0]);
+});
+
 test('guest dead reckoning stays bounded under 150ms RTT', async () => {
   const h = await loadNetWorld(), g = await loadNetWorld();
   link(h, g, 75);
