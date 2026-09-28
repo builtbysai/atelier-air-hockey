@@ -2181,19 +2181,18 @@ function driveMallet(m, dt, cap) {
   clampMallet(m);
 }
 
-// Touch finger-offset (v8): the mallet floats away from the fingertip so the
-// finger never covers it - the convention top mobile air hockey games use.
-// Size-aware: roughly one mallet diameter of screen-space offset, scaled by
-// the current view transform, so it feels right on phones and tablets.
-// Direction is away from the player's own body: in portrait 2P the top
-// player (side 1) gets the offset flipped so the mallet sits below the
-// fingertip. Online guests are mirror-flipped to play from their own side,
-// so they always keep the standard upward offset. Mouse/pen are untouched.
-function touchOffsetY(side, cx, cy) {
+// Touch finger-offset: float the mallet roughly one screen-space diameter
+// ahead of the fingertip so the player's hand never covers the striker.
+// "Ahead" follows the actual player axis: horizontal in top-down landscape,
+// vertical in portrait / 2.5D. This keeps the physical forward direction
+// consistent when the same phone rotates between portrait and landscape.
+// Online guests see the board mirrored from their own end, so their forward
+// screen direction stays the same as the host's. Mouse/pen are untouched.
+function touchOffsetScreen(side, cx, cy) {
   let px;
   if (view.camera !== 'top' && view.cam && cx !== undefined) {
-    // size-aware in 2.5D too: measure the mallet's on-screen size at the
-    // touch point through the camera, so the offset feels right at any depth
+    // Size-aware in 2.5D too: measure the mallet's on-screen radius at the
+    // touch point through the camera, so the offset feels right at any depth.
     const r = camUnproject(view.cam, cx, cy);
     const pr = camProject(view.cam, r.x, r.y, 0);
     px = pr ? MALLET_R * pr.s : 40;
@@ -2201,10 +2200,21 @@ function touchOffsetY(side, cx, cy) {
     px = MALLET_R * (view.s || 1); // rink units -> CSS px
   }
   const off = clamp(px * 2.0, 40, 96); // ~one mallet diameter
-  // In 2.5D the far player (side 1) sits at the top of the screen, like the
-  // portrait top player - their offset flips the same way.
+
+  // Unrotated top-down: players occupy the left/right ends, so offset along X.
+  // Local solo/host play advances rightward. The right-side local 2P player
+  // advances leftward. An online guest is mirror-rendered from their own end,
+  // so their on-screen forward direction remains rightward.
+  if (view.camera === 'top' && !view.portrait) {
+    const rightLocal2P = side === 1 && G.mode === '2p';
+    return { x: rightLocal2P ? -off : off, y: 0 };
+  }
+
+  // Portrait and 2.5D use screen Y as the player axis. In local 2P, the far
+  // player sits at the top and therefore advances downward; everyone else
+  // advances upward into the table.
   const topPlayer = side === 1 && G.mode === '2p' && (view.portrait || view.camera !== 'top');
-  return topPlayer ? off : -off;
+  return { x: 0, y: topPlayer ? off : -off };
 }
 
 function onPointerDown(e) {
@@ -2231,7 +2241,8 @@ function onPointerDown(e) {
   }
   const side = pointers.get(e.pointerId);
   const m = side === 0 ? G.m1 : G.m2;
-  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side, e.clientX, e.clientY) : 0));
+  const off = touch ? touchOffsetScreen(side, e.clientX, e.clientY) : null;
+  const r = screenToRink(e.clientX + (off ? off.x : 0), e.clientY + (off ? off.y : 0));
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
 }
@@ -2240,7 +2251,8 @@ function onPointerMove(e) {
   if (G.state === 'menu' || G.state === 'win' || G.state === 'replay') return;
   const side = pointers.get(e.pointerId);
   const touch = e.pointerType === 'touch';
-  const r = screenToRink(e.clientX, e.clientY + (touch ? touchOffsetY(side, e.clientX, e.clientY) : 0));
+  const off = touch ? touchOffsetScreen(side, e.clientX, e.clientY) : null;
+  const r = screenToRink(e.clientX + (off ? off.x : 0), e.clientY + (off ? off.y : 0));
   const m = side === 0 ? G.m1 : G.m2;
   m.tx = r.x; m.ty = r.y;
   G.idleT = 0;
