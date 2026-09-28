@@ -25,7 +25,7 @@ test('soak runner exercises real game physics and real brains', () => {
 
 test('rival telemetry measures behavior rather than only configured stats', () => {
   for (const signal of [
-    'strikesPerMinute','bankRate','keeperReadRate','whiffRate',
+    'strikesPerMinute','bankRate','cutRate','underRate','overRate','deceptiveReleaseRate','delayedReleaseRate','keeperReadRate','whiffRate',
     'counterShots','defends','rebounds','detours','escapes','ownGoals','stateShare'
   ]) assert.ok(game.includes(signal), signal + ' telemetry missing');
   assert.match(game, /b\.lastReadKeeper = readsKeeper/);

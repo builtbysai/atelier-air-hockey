@@ -1549,6 +1549,7 @@ const DIFFS = [
     homeDepth:175, homeTrack:0.40, bankChance:0.08, centerBias:0.28, recover:0.43,
     readKeeper:0.30, rebound:0.12, engageSpeed:1450, attackDelay:0.10, pressureDepth:70, pressBoost:0.10,
     counterWindow:1.05, counterSpeed:1950, blockOffset:82, laneMemory:0.42,
+    triangleFloat:0.18, cutChance:0.62, underShare:0.84, sameRelease:0.18, delayChance:0.10,
   },
   {
     name:'Club Pro', style:'PLACEMENT PLAYER',
@@ -1556,6 +1557,7 @@ const DIFFS = [
     homeDepth:205, homeTrack:0.44, bankChance:0.22, centerBias:0.10, recover:0.32,
     readKeeper:0.72, rebound:0.35, engageSpeed:1780, attackDelay:0.05, pressureDepth:95, pressBoost:0.14,
     counterWindow:0.82, counterSpeed:2200, blockOffset:72, laneMemory:0.16,
+    triangleFloat:0.38, cutChance:0.54, underShare:0.72, sameRelease:0.55, delayChance:0.28,
   },
   {
     name:'Champion', style:'PRESSURE PLAYER',
@@ -1563,6 +1565,7 @@ const DIFFS = [
     homeDepth:240, homeTrack:0.58, bankChance:0.44, centerBias:0.00, recover:0.22,
     readKeeper:0.92, rebound:0.62, engageSpeed:2180, attackDelay:0.00, pressureDepth:125, pressBoost:0.20,
     counterWindow:0.62, counterSpeed:2500, blockOffset:62, laneMemory:0.08,
+    triangleFloat:0.56, cutChance:0.48, underShare:0.64, sameRelease:0.82, delayChance:0.42,
   },
 ];
 const PLAYER_CAP = 4200; // mallet tracking cap - 1:1 feel, no teleporting
@@ -2023,6 +2026,7 @@ function resetPositions() {
     b.state = 'guard'; b.tState = 0; b.tickT = 0;
     b.behindH = false; b.sideH = false; b.threatH = false; b.abortCd = 0;
     b.possessT = 0; b.pinT = 0; b.whiff = false; b.counterT = 0; b.counterCommitted = false; b.lastReadKeeper = false;
+    b.bankX = b.bankY = null; b.shotFamily = 'cross'; b.deceptive = false; b.releaseSide = 0; b.delayedRelease = false; b.windGoal = 0;
     b.hist.length = 0;
     b.seen.x = CX; b.seen.y = CY; b.seen.vx = 0; b.seen.vy = 0;
   }
@@ -2784,7 +2788,8 @@ function mkBrain(side, diffIdx) {
   return {
     side, diff: DIFFS[diffIdx],
     state: 'guard', tState: 0, tickT: 0,
-    aimX: 0, aimY: 0, windT: 0,
+    aimX: 0, aimY: 0, windT: 0, windGoal: 0,
+    bankX: null, bankY: null, shotFamily: 'cross', deceptive:false, releaseSide:0, delayedRelease:false,
     pinT: 0, pinX: 0, pinY: 0, swayT: rnd(10), possessT: 0,
     arPhase: 0, // 'around' detour phase: 0 = sidestep clear, 1 = cross goal-side
     whiff: false, // this strike will swing clean through (a human miss)
@@ -2829,6 +2834,58 @@ function predictPuck(x, y, vx, vy, t) {
   }
   return { x: px, y: py };
 }
+function aiBankPoint(px, py, goalX, targetY, railY) {
+  // Mirror the goal target across the chosen side rail. The straight line to
+  // that mirror intersects the rail at the physically correct single-bank
+  // contact point, so banks are aimed at the goal instead of "just hit a wall".
+  const mirroredY = railY * 2 - targetY;
+  const den = mirroredY - py;
+  const t = Math.abs(den) < 1 ? 0.5 : clamp((railY - py) / den, 0.08, 0.92);
+  return {
+    x: clamp(px + (goalX - px) * t, PX + 70, PX + PW - 70),
+    y: railY,
+  };
+}
+function aiPlanShot(b, s, keeper, foeGoalX) {
+  const D = b.diff;
+  const readsKeeper = Math.random() < (D.readKeeper || 0);
+  b.lastReadKeeper = readsKeeper;
+  const laneY = readsKeeper && keeper ? keeper.y : s.y;
+  const farSide = laneY < CY ? 1 : -1;
+  const farY = CY + farSide * (goalW() / 2 - 12);
+  const puckLane = Math.abs(s.y - CY) > 24 ? Math.sign(s.y - CY) : farSide;
+  const cutY = CY + puckLane * (goalW() / 2 - 12);
+  const error = rnd(-1, 1) * D.aimErr;
+
+  b.bankX = b.bankY = null;
+  b.deceptive = Math.random() < (D.sameRelease || 0);
+  b.delayedRelease = Math.random() < (D.delayChance || 0);
+  b.windGoal = D.windup + (b.delayedRelease ? rnd(0.055, 0.15) : 0);
+
+  const bank = Math.random() < (D.bankChance == null ? 0.12 : D.bankChance);
+  if (bank) {
+    const under = Math.random() < (D.underShare == null ? 0.72 : D.underShare);
+    b.shotFamily = under ? 'under' : 'over';
+    const targetY = clamp(farY + error * 0.45, CY - goalW() / 2 + 10, CY + goalW() / 2 - 10);
+    // An under uses the rail nearest its scoring corner. An over attacks the
+    // same opening from the opposite rail. Both are exact one-bank paths.
+    const targetSide = targetY < CY ? -1 : 1;
+    const railSide = under ? targetSide : -targetSide;
+    const railY = railSide < 0 ? PY + PUCK_R + 8 : PY + PH - PUCK_R - 8;
+    const bankPt = aiBankPoint(s.x, s.y, foeGoalX, targetY, railY);
+    b.bankX = bankPt.x; b.bankY = bankPt.y;
+    b.aimX = bankPt.x; b.aimY = bankPt.y;
+    b.releaseSide = targetSide;
+    return;
+  }
+
+  const cut = Math.random() < (D.cutChance == null ? 0.5 : D.cutChance);
+  b.shotFamily = cut ? 'cut' : 'cross';
+  const targetY = cut ? cutY : farY;
+  b.aimX = foeGoalX;
+  b.aimY = lerp(targetY, CY, D.centerBias || 0) + error;
+  b.releaseSide = targetY < CY ? -1 : 1;
+}
 function aiMatchPressure(b) {
   // Difficulty never secretly changes reaction time or max speed mid-match.
   // The rival only changes positioning/intent: trail -> step higher, lead ->
@@ -2866,8 +2923,14 @@ function aiHome(b) {
   // high and squeezes space. Match pressure moves that line, never raw speed.
   b.swayT += 1 / 60;
   const D = b.diff, pressure = aiMatchPressure(b);
-  const depth = (D.homeDepth || 190) + pressure * (D.pressureDepth || 80);
-  const track = clamp((D.homeTrack == null ? 0.35 : D.homeTrack) + pressure * 0.16, 0.18, 0.78);
+  const fromOwnGoal = clamp((b.side === 0 ? b.seen.x - PX : PX + PW - b.seen.x) / PW, 0, 1);
+  // Floating-triangle principle: when the puck is far away, step a little
+  // closer to center and re-center laterally; as it approaches, sink back
+  // toward the mouth and honor the shooting lane more strongly.
+  const floatDepth = (D.triangleFloat || 0) * 95 * fromOwnGoal;
+  const depth = (D.homeDepth || 190) + pressure * (D.pressureDepth || 80) + floatDepth;
+  const baseTrack = (D.homeTrack == null ? 0.35 : D.homeTrack) + pressure * 0.16;
+  const track = clamp(baseTrack * (1 - fromOwnGoal * 0.14), 0.18, 0.78);
   const hx = b.side === 0 ? PX + depth : PX + PW - depth;
   const sway = 10 + (D.readKeeper || 0) * 12;
   const repeats = Math.max(0, (b.concededLaneRepeat || 0) - 1);
@@ -3087,20 +3150,11 @@ function aiThink(b, dt, m) {
         b.state = 'windup'; b.tState = 0; b.windT = 0; b.possessT = 0;
         b.counterCommitted = counterShot;
         if (counterShot) b.counterT = 0;
-        // pick aim: the FAR post, not the middle - the mouth corner farthest
-        // from the puck's lane forces the keeper to travel across. aimErr
-        // scatters the shot per difficulty, so Rookie sprays it (missing
-        // often) while Champion pins the post.
-        const bank = Math.random() < (D.bankChance == null ? 0.12 : D.bankChance);
-        b.bankY = bank ? (Math.random() < 0.5 ? PY + 40 : PY + PH - 40) : null;
+        // Pick from real air-hockey families: cut/cross straights plus
+        // under/over single banks. Better rivals also disguise those families
+        // behind the same release and vary the hold before the strike.
         const keeper = b.side === 0 ? G.m2 : G.m1;
-        const readsKeeper = Math.random() < (D.readKeeper || 0);
-        b.lastReadKeeper = readsKeeper;
-        const laneY = readsKeeper && keeper ? keeper.y : s.y;
-        const farSide = laneY < CY ? 1 : -1;
-        const farY = CY + farSide * (goalW() / 2 - 12);
-        b.aimX = foeGoalX;
-        b.aimY = lerp(farY, CY, D.centerBias || 0) + rnd(-1, 1) * D.aimErr;
+        aiPlanShot(b, s, keeper, foeGoalX);
       }
       // give up the chase only once the puck is clearly gone: the latched
       // side plus a higher speed bar than the engage-entry bar (hysteresis)
@@ -3108,14 +3162,19 @@ function aiThink(b, dt, m) {
       break;
     }
     case 'windup': {
-      // ANTICIPATION: pull back away from the aim point - telegraphs the smash
+      // ANTICIPATION: skilled rivals hide different shots behind nearly the
+      // same preparation. The real bank/cut direction is revealed only on the
+      // strike; Rookie mostly telegraphs, Champion disguises it often.
       b.windT += D.tick;
       let ax = b.aimX, ay = b.aimY;
-      if (b.bankY !== null) { ax = s.x; ay = b.bankY; } // aim at the rail first
+      if (b.deceptive) {
+        ax = foeGoalX;
+        ay = s.y + b.releaseSide * 72;
+      }
       const dx = ax - s.x, dy = ay - s.y, dl = hyp(dx, dy) || 1;
       const back = 95;
       setTx(s.x - dx / dl * back, s.y - dy / dl * back);
-      if (b.windT > D.windup) {
+      if (b.windT > (b.windGoal || D.windup)) {
         // commit to the strike only if the mallet is still behind the LIVE
         // puck - it can drift during the windup, and lunging from the wrong
         // side blasts it into your own net
@@ -3140,8 +3199,7 @@ function aiThink(b, dt, m) {
         b.state = 'recover'; b.tState = 0; b.abortCd = 0.6; break;
       }
       const px = s.x + s.vx * 0.1, py = s.y + s.vy * 0.1;
-      let ax = b.aimX, ay = b.aimY;
-      if (b.bankY !== null) { ax = s.x; ay = b.bankY; }
+      const ax = b.aimX, ay = b.aimY;
       const dx = ax - px, dy = ay - py, dl = hyp(dx, dy) || 1;
       const through = 150;
       let tx = px + dx / dl * through, ty = py + dy / dl * through;
@@ -3250,7 +3308,7 @@ const RivalLab = {
       style: DIFFS[diffIdx].style,
       stateTime: Object.create(null),
       transitions: Object.create(null),
-      strikes:0, windups:0, banks:0, keeperReads:0, whiffs:0, counterShots:0,
+      strikes:0, windups:0, banks:0, cuts:0, unders:0, overs:0, deceptive:0, delayed:0, keeperReads:0, whiffs:0, counterShots:0,
       defends:0, rebounds:0, detours:0, escapes:0,
       goals:0, ownGoals:0, ownGoalsByState:Object.create(null), saves:0,
     };
@@ -3267,6 +3325,11 @@ const RivalLab = {
     if (brain.state === 'windup') {
       out.windups++;
       if (brain.bankY !== null) out.banks++;
+      if (brain.shotFamily === 'cut') out.cuts++;
+      if (brain.shotFamily === 'under') out.unders++;
+      if (brain.shotFamily === 'over') out.overs++;
+      if (brain.deceptive) out.deceptive++;
+      if (brain.delayedRelease) out.delayed++;
       if (brain.lastReadKeeper) out.keeperReads++;
       if (brain.counterCommitted) out.counterShots++;
     }
@@ -3330,6 +3393,11 @@ const RivalLab = {
       strikesPerMinute:+(out.strikes / Math.max(0.001, seconds) * 60).toFixed(2),
       windups:out.windups,
       bankRate:+(out.banks / Math.max(1, out.windups)).toFixed(3),
+      cutRate:+(out.cuts / Math.max(1, out.windups)).toFixed(3),
+      underRate:+(out.unders / Math.max(1, out.windups)).toFixed(3),
+      overRate:+(out.overs / Math.max(1, out.windups)).toFixed(3),
+      deceptiveReleaseRate:+(out.deceptive / Math.max(1, out.windups)).toFixed(3),
+      delayedReleaseRate:+(out.delayed / Math.max(1, out.windups)).toFixed(3),
       keeperReadRate:+(out.keeperReads / Math.max(1, out.windups)).toFixed(3),
       whiffRate:+(out.whiffs / Math.max(1, out.strikes)).toFixed(3),
       counterShots:out.counterShots,
