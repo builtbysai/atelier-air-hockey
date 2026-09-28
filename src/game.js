@@ -1600,6 +1600,7 @@ const G = {
   rallyHudT: 0, rallyHudN: 0, // brief rally milestones instead of persistent HUD clutter
   goalStreakLabel: '',       // one concise earned callout during goal celebration
   goalMomentLabel: '',       // tie / lead / match-point context
+  goalRewardLabel: '',       // earned shot craft: bank / counter / rally / rocket
   goalScorerLabel: '',       // YOU SCORE / ROOKIE SCORES / P1 SCORES
   goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
   pausedGoalCeremony: null,   // semantic goal payload held across pause/focus loss
@@ -1846,12 +1847,13 @@ const Replay = {
 // simulation path.
 const Highlights = {
   goals: [], nextId: 1, touchSerial: 0,
-  point: null,
+  point: null, latestGoal: null,
   freshPoint() {
     return { saves:[0,0], nearMisses:[0,0], postHits:[0,0], bankBy:-1, bankSerial:-1 };
   },
   reset() {
-    this.goals.length = 0; this.nextId = 1; this.touchSerial = 0; this.point = this.freshPoint();
+    this.goals.length = 0; this.nextId = 1; this.touchSerial = 0;
+    this.point = this.freshPoint(); this.latestGoal = null;
   },
   local() { return G.mode !== 'online' && G.mode !== 'workshop' && !G.demo; },
   noteTouch(side) {
@@ -1889,7 +1891,6 @@ const Highlights = {
   recordGoal(scorer, clip) {
     const point = this.point || this.freshPoint();
     this.point = this.freshPoint();
-    if (!clip || clip.length < 2 || !this.local()) return;
     const st = G.stats || freshStats();
     const speedKmh = Math.round(hyp(G.puck.vx, G.puck.vy) * (2.4384 / PW) * 3.6);
     const score = [G.score[0], G.score[1]];
@@ -1903,17 +1904,31 @@ const Highlights = {
     const bankShot = point.bankBy === scorer && point.bankSerial === this.touchSerial;
     const savesBeforeGoal = point.saves[scorer] || 0;
     const pressure = (point.nearMisses[other] || 0) + (point.postHits[other] || 0);
-    this.goals.push({
-      id: this.nextId++,
-      scorer, clip, speedKmh,
+    const goal = {
+      id: 0,
+      scorer, clip:null, speedKmh,
       rally: st.rally || 0,
       score, prevScore: prev,
       themeId: G.themeId,
       winning, matchPoint, tiesGame, tookLead, erasedDeficit, bankShot,
       savesBeforeGoal, pressure,
       streak: (st.streak && st.streak[scorer]) || 1,
-    });
+    };
+    // Ceremony craft feedback should survive even when the replay buffer is
+    // too short to save a clip. Highlight storage still stays local-only.
+    this.latestGoal = goal;
+    if (!clip || clip.length < 2 || !this.local()) return;
+    goal.id = this.nextId++; goal.clip = clip;
+    this.goals.push(goal);
     if (this.goals.length > 12) this.goals.shift();
+  },
+  skillLabel(g) {
+    if (!g) return '';
+    if (g.bankShot) return 'BANK SHOT';
+    if (g.savesBeforeGoal >= 2) return 'SAVE + SCORE';
+    if ((g.rally || 0) >= 12) return 'RALLY FINISH · ' + g.rally;
+    if ((g.speedKmh || 0) >= 22) return 'ROCKET · ' + g.speedKmh + ' KM/H';
+    return '';
   },
   get(id) { return this.goals.find(g => g.id === Number(id)) || null; },
   scoreGoal(g) {
@@ -3866,8 +3881,9 @@ function announceGoalStatus(scorer) {
   const el = $('gameStatus');
   if (!el) return;
   const moment = G.goalMomentLabel ? ' ' + G.goalMomentLabel + '.' : '';
+  const reward = G.goalRewardLabel ? ' ' + G.goalRewardLabel.replace(' · ', ', ') + '.' : '';
   el.textContent = spokenSideLabel(scorer) + ' scores. Score ' +
-    G.score[0] + ' to ' + G.score[1] + '.' + moment;
+    G.score[0] + ' to ' + G.score[1] + '.' + moment + reward;
 }
 function beginGoalCeremony(scorer) {
   G.pausedGoalCeremony = null;
@@ -3898,6 +3914,10 @@ function beginGoalCeremony(scorer) {
   announceStreak(scorer);
   G.goalScorerLabel = goalScorerCallout(scorer);
   G.goalMomentLabel = goalMomentContext(scorer);
+  const latestGoal = Highlights.latestGoal;
+  const currentLatest = latestGoal && latestGoal.scorer === scorer &&
+    latestGoal.score && latestGoal.score[0] === G.score[0] && latestGoal.score[1] === G.score[1];
+  G.goalRewardLabel = currentLatest ? Highlights.skillLabel(latestGoal) : '';
   announceGoalStatus(scorer);
   const winningGoal = G.score[scorer] >= Settings.firstTo;
   const goalNotes = THEME.goalChord || [523.25, 659.25, 783.99, 1046.5];
@@ -4765,6 +4785,21 @@ function drawGoalTextScreen(c, w, h) {
   c.beginPath(); c.moveTo(left, top); c.lineTo(left + panelW, top);
   c.moveTo(left, top + panelH); c.lineTo(left + panelW, top + panelH); c.stroke();
 
+  if (!PRM.reduce && yours) {
+    const sweep = easeOutCubic(clamp(G.goalT * 2.6, 0, 1));
+    const tick = panelW * 0.11 * sweep;
+    c.globalAlpha = alpha * (0.25 + 0.55 * (1 - clamp((G.goalT - 0.25) * 1.4, 0, 1)));
+    c.strokeStyle = hexA(gold, 0.88); c.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const yy = cy + (i - 1) * panelH * 0.17;
+      c.beginPath();
+      c.moveTo(left - 8 - tick, yy); c.lineTo(left - 8, yy);
+      c.moveTo(left + panelW + 8, yy); c.lineTo(left + panelW + 8 + tick, yy);
+      c.stroke();
+    }
+    c.globalAlpha = alpha;
+  }
+
   c.textAlign = 'center'; c.textBaseline = 'middle';
   c.shadowColor = 'rgba(0,0,0,.62)'; c.shadowBlur = 18;
 
@@ -4784,21 +4819,48 @@ function drawGoalTextScreen(c, w, h) {
   c.fillText('GOAL', 0, 0);
   c.restore();
 
-  // Let the changed score be the payoff, rather than another redundant +1.
+  // Score slam: the number that actually changed gets a short, earned punch.
+  // It reads instantly without adding a redundant "+1" banner.
+  const scoreY = top + panelH * 0.67;
+  const scoreFs = clamp(panelH * 0.20, 24, 48);
+  const scorerKick = PRM.reduce ? 1 : 1 + 0.14 * (1 - easeOutCubic(clamp((G.goalT - 0.08) * 2.5, 0, 1)));
+  const scoreGap = clamp(panelW * 0.075, 36, 58);
   c.save();
-  c.translate(w * 0.5, top + panelH * 0.69); c.scale(scorePop, scorePop);
+  c.translate(w * 0.5, scoreY); c.scale(scorePop, scorePop);
   c.shadowBlur = 10;
-  c.fillStyle = ink;
-  c.font = '800 ' + clamp(panelH * 0.20, 24, 48).toFixed(1) + 'px ' + THEME.font.display;
-  c.fillText(G.score[0] + '  :  ' + G.score[1], 0, 0);
+  c.font = '800 ' + scoreFs.toFixed(1) + 'px ' + THEME.font.display;
+  c.fillStyle = sub; c.fillText(':', 0, 0);
+  for (let side = 0; side < 2; side++) {
+    const sx = side === 0 ? -scoreGap : scoreGap;
+    c.save(); c.translate(sx, 0);
+    if (side === G.goalSide) c.scale(scorerKick, scorerKick);
+    c.fillStyle = side === G.goalSide ? (yours ? gold : ink) : ink;
+    c.fillText(String(G.score[side]), 0, 0);
+    c.restore();
+  }
   c.restore();
 
   const detail = [G.goalMomentLabel, G.goalSpeedKmh ? G.goalSpeedKmh + ' KM/H' : ''].filter(Boolean).join('  ·  ');
   if (detail) {
     c.shadowBlur = 0;
     c.fillStyle = G.goalMomentLabel ? (yours ? gold : ink) : sub;
-    c.font = '700 ' + clamp(panelH * 0.065, 9, 14).toFixed(1) + 'px ' + THEME.font.body;
-    c.fillText(detail, w * 0.5, top + panelH * 0.88);
+    c.font = '700 ' + clamp(panelH * 0.060, 9, 13).toFixed(1) + 'px ' + THEME.font.body;
+    c.fillText(detail, w * 0.5, top + panelH * (G.goalRewardLabel ? 0.82 : 0.88));
+  }
+
+  if (G.goalRewardLabel) {
+    c.shadowBlur = 0;
+    const rewardFs = clamp(panelH * 0.055, 8.5, 12);
+    c.font = '800 ' + rewardFs.toFixed(1) + 'px ' + THEME.font.body;
+    const rewardW = Math.min(panelW * 0.58, c.measureText(G.goalRewardLabel).width + 28);
+    const rewardH = clamp(panelH * 0.105, 16, 24);
+    const rewardY = top + panelH * 0.92;
+    c.fillStyle = hexA(gold, yours ? 0.13 : 0.08);
+    c.fillRect(w * 0.5 - rewardW * 0.5, rewardY - rewardH * 0.5, rewardW, rewardH);
+    c.strokeStyle = hexA(gold, yours ? 0.62 : 0.32); c.lineWidth = 1;
+    c.strokeRect(w * 0.5 - rewardW * 0.5 + 0.5, rewardY - rewardH * 0.5 + 0.5, rewardW - 1, rewardH - 1);
+    c.fillStyle = yours ? gold : ink;
+    c.fillText(G.goalRewardLabel, w * 0.5, rewardY + 0.5);
   }
   c.restore();
 }
