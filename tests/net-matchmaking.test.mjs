@@ -51,15 +51,20 @@ test('Quick Match rendezvous overlaps the current and previous slot', async () =
   assert.deepEqual(Array.from(slots), ['3','2']);
 });
 
-test('lower Quick Match nonce proposes and higher nonce accepts exactly one rival', async () => {
+test('lower Quick Match nonce reserves exactly one rival and higher nonce rejects contention', async () => {
   const a = await loadNet();
   a.Net.quickNonce = 10;
   const sentA = [];
   a.Net.quickSend = async (_action, data, peerId) => { sentA.push({data,peerId}); };
   a.Net.quickHandleMessage({}, { t:'hello', v:1, nonce:20, player:{id:'b',name:'B'} }, 'peer-b');
+  assert.equal(a.Net.quickPeer, 'peer-b');
   assert.equal(sentA.length, 1);
   assert.equal(sentA[0].data.t, 'reserve');
   assert.equal(sentA[0].peerId, 'peer-b');
+
+  a.Net.quickHandleMessage({}, { t:'hello', v:1, nonce:30, player:{id:'c',name:'C'} }, 'peer-c');
+  assert.equal(a.Net.quickPeer, 'peer-b');
+  assert.equal(sentA.length, 1, 'a proposer cannot fan out reservations to multiple rivals');
 
   const b = await loadNet();
   b.Net.quickNonce = 20;
@@ -72,7 +77,32 @@ test('lower Quick Match nonce proposes and higher nonce accepts exactly one riva
 
   b.Net.quickHandleMessage({}, { t:'reserve', v:1, nonce:5, player:{id:'c',name:'C'} }, 'peer-c');
   assert.equal(b.Net.quickPeer, 'peer-a', 'a second reservation cannot steal an accepted pairing');
-  assert.equal(sentB.length, 1);
+  assert.equal(sentB.length, 2);
+  assert.equal(sentB[1].data.t, 'busy');
+  assert.equal(sentB[1].peerId, 'peer-c');
+
+  a.Net.stopQuick();
+  b.Net.stopQuick();
+});
+
+test('Quick Match busy rejection releases the candidate and probes another visible peer', async () => {
+  const { Net } = await loadNet();
+  Net.quickNonce = 10;
+  Net.quickPeer = 'peer-b';
+  const sent = [];
+  Net.quickSend = async (_action, data, peerId) => { sent.push({data,peerId}); };
+  Net.quickEntries = [{
+    action:{},
+    room:{ getPeers:() => ({'peer-b':{}, 'peer-c':{}}) },
+  }];
+
+  Net.quickHandleMessage({}, { t:'busy', v:1, nonce:20 }, 'peer-b');
+
+  assert.equal(Net.quickPeer, null);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].data.t, 'hello');
+  assert.equal(sent[0].peerId, 'peer-c');
+  Net.stopQuick();
 });
 
 test('recent rivals stay local, dedupe, and keep newest first', async () => {
