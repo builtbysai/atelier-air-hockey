@@ -4571,12 +4571,11 @@ function quitToMenu() {
   AudioSys.ui();
 }
 function hideAll() {
-  // ONLINE: online overlays are part of the overlay stack too. Gameplay chrome
-  // is hidden centrally so Pause/Audio can never float over a dialog.
-  for (const id of ['menu', 'progress', 'help', 'rules', 'settings', 'pauseov', 'workshop', 'workshopDone', 'winov', 'gifov', 'onlineov', 'onlinedropov', 'confirmov', 'hint', 'replayOffer']) $(id).classList.add('hidden');
-  $('topbar').classList.add('hidden');
-  const replayHud = $('replayHud'); if (replayHud) replayHud.classList.add('hidden');
-  const workshopHud = $('workshopHud'); if (workshopHud) workshopHud.classList.add('hidden');
+  // Dialog cleanup must be structural, not an allowlist. A newly added modal
+  // should never be able to survive because someone forgot to append its ID
+  // here (the old Controls overlay exposed exactly that failure mode).
+  document.querySelectorAll('.overlay:not([data-persistent-overlay])').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('[data-game-chrome]').forEach(el => el.classList.add('hidden'));
 }
 function $(id) { return document.getElementById(id); }
 

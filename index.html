@@ -32,26 +32,26 @@
 <div id="touchStick0" class="touch-stick hidden" aria-hidden="true"><i></i></div>
 <div id="touchStick1" class="touch-stick hidden" aria-hidden="true"><i></i></div>
 
-<div id="topbar" class="hidden">
+<div id="topbar" class="hidden" data-game-chrome>
   <span class="connchip hidden" id="connChip" title="Connection quality"><i class="unknown"></i><em>–ms</em></span>
   <button class="iconbtn" id="btnPause" title="Pause (P)" aria-label="Pause">&#10074;&#10074;</button>
   <button class="iconbtn" id="btnSound" title="Mute all (M)" aria-label="Mute all audio">&#9834;</button>
 </div>
 
 <!-- first-time hint: one line on the first local match, gone forever after the first goal -->
-<div id="hint" class="hidden">Drag to move your mallet</div>
-<div id="replayHud" class="replay-hud hidden" role="status" aria-live="polite">
+<div id="hint" class="hidden" data-game-chrome>Drag to move your mallet</div>
+<div id="replayHud" class="replay-hud hidden" data-game-chrome role="status" aria-live="polite">
   <span class="replay-copy"><strong class="replay-word">REPLAY</strong><small id="replayContext"></small></span>
   <span class="replay-progress" aria-hidden="true"><i id="replayProgress"></i></span>
   <button id="replaySkip" type="button">Skip</button>
 </div>
-<button id="replayOffer" class="replay-offer hidden" type="button"><span>Watch replay</span><small>before the next serve</small></button>
+<button id="replayOffer" class="replay-offer hidden" data-game-chrome type="button"><span>Watch replay</span><small>before the next serve</small></button>
 <div id="updateReady" class="update-ready hidden" role="status" aria-live="polite">
   <span><strong>Update ready</strong><small>Reload when you’re ready</small></span>
   <button id="btnApplyUpdate" type="button">Update</button>
   <button id="btnDismissUpdate" type="button" aria-label="Dismiss update for now">Later</button>
 </div>
-<div id="workshopHud" class="workshop-hud hidden" role="status" aria-live="polite">
+<div id="workshopHud" class="workshop-hud hidden" data-game-chrome role="status" aria-live="polite">
   <span>
     <strong id="workshopHudTitle">WORKSHOP · POWER</strong>
     <small id="workshopHudTarget">Score at 22 km/h</small>
@@ -222,122 +222,121 @@
 </div>
 
 <div class="overlay hidden" id="settings" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-  <div class="card">
+  <div class="card settings-card">
     <div class="kicker">ROOM PREFERENCES</div>
     <h1 id="settingsTitle">Preferences</h1>
-    <p class="tagline">Tune the room to your liking. Saved on this device.</p>
-    <div class="seclabel">PRESENTATION</div>
-    <div class="setrow">
-      <div class="setlabel">Screen shake</div>
-      <div class="seg">
-        <button data-set="shake" data-val="off">Off</button>
-        <button data-set="shake" data-val="subtle">Subtle</button>
-        <button data-set="shake" data-val="full">Full</button>
-      </div>
-    </div>
-    <div class="setrow">
-      <div class="setlabel">Effects</div>
-      <div class="seg">
-        <button data-set="effects" data-val="minimal">Minimal</button>
-        <button data-set="effects" data-val="subtle">Subtle</button>
-        <button data-set="effects" data-val="full">Full</button>
-      </div>
-    </div>
-    <div class="setrow">
-      <div class="setlabel">Goal replay</div>
-      <div class="seg">
-        <button data-set="instantReplay" data-val="off">Off</button>
-        <button data-set="instantReplay" data-val="goals">Offer</button>
-      </div>
-    </div>
-    <div class="seclabel">AUDIO</div>
-    <div class="setrow">
-      <div class="setlabel">Sound effects</div>
-      <div class="seg volrange">
-        <input type="range" id="soundVol" min="0" max="100" step="1" value="100" aria-label="Sound effects volume">
-        <output id="soundVolVal" for="soundVol">100%</output>
-      </div>
-    </div>
-    <div class="setrow">
-      <div class="setlabel">Music</div>
-      <div class="seg volrange">
-        <input type="range" id="musicVol" min="0" max="100" step="1" value="70" aria-label="Music volume">
-        <output id="musicVolVal" for="musicVol">70%</output>
-      </div>
-    </div>
-    <div class="seclabel">FEEDBACK</div>
-    <div class="setrow">
-      <div class="setlabel">Haptics</div>
-      <div class="seg">
-        <button data-set="haptics" data-val="false">Off</button>
-        <button data-set="haptics" data-val="true">On</button>
-      </div>
-    </div>
-    <button class="setting-link" id="btnControlSettings" type="button">
-      <span><strong>Controls</strong><small>Touch · keyboard · gamepad</small></span>
-      <em>Configure ›</em>
-    </button>
-    <div class="seclabel">VIEW</div>
-    <div class="setrow">
-      <div class="setlabel">Camera</div>
-      <div class="seg">
-        <button data-set="camera" data-val="top">Top-down</button>
-        <button data-set="camera" data-val="elevated">Elevated</button>
-        <button data-set="camera" data-val="surface">Surface</button>
-      </div>
-    </div>
-    <div class="setrow" id="boardRow">
-      <div class="setlabel" id="orientationLabel">Board orientation</div>
-      <div class="seg">
-        <button data-set="orientation" data-val="auto">Auto</button>
-        <button data-set="orientation" data-val="portrait">Portrait</button>
-        <button data-set="orientation" data-val="landscape">Landscape</button>
-      </div>
-    </div>
-    <div class="setnote hidden" id="orientationNote"></div>
-    <button class="btn primary" id="settingsClose" style="margin-top:16px">Done</button>
-  </div>
-</div>
+    <p class="tagline">Saved on this device.</p>
 
-<div class="overlay hidden" id="controls" role="dialog" aria-modal="true" aria-labelledby="controlsTitle">
-  <div class="card controls-card">
-    <div class="kicker">INPUT</div>
-    <h1 id="controlsTitle">Controls</h1>
-    <p class="tagline">Choose how movement feels. Physics stay the same.</p>
-
-    <div class="setrow" id="touchControlRow">
-      <div class="setlabel">Touch</div>
-      <div class="seg">
-        <button data-set="touchControl" data-val="direct">Direct</button>
-        <button data-set="touchControl" data-val="stick">Floating stick</button>
-      </div>
+    <div class="pref-tabs" role="tablist" aria-label="Preference categories">
+      <button class="pref-tab sel" id="prefTabFeel" type="button" role="tab" aria-selected="true" aria-controls="prefPanelFeel" data-pref-tab="feel">Feel</button>
+      <button class="pref-tab" id="prefTabControls" type="button" role="tab" aria-selected="false" aria-controls="prefPanelControls" data-pref-tab="controls">Controls</button>
+      <button class="pref-tab" id="prefTabAudio" type="button" role="tab" aria-selected="false" aria-controls="prefPanelAudio" data-pref-tab="audio">Audio</button>
+      <button class="pref-tab" id="prefTabView" type="button" role="tab" aria-selected="false" aria-controls="prefPanelView" data-pref-tab="view">View</button>
     </div>
-    <div class="setnote" id="touchControlNote">Direct keeps the mallet attached to your gesture and preserves the strongest flick control.</div>
 
-    <div class="setrow">
-      <div class="setlabel">Keyboard feel</div>
-      <div class="seg">
-        <button data-set="keyboardFeel" data-val="precise">Precise</button>
-        <button data-set="keyboardFeel" data-val="balanced">Balanced</button>
-        <button data-set="keyboardFeel" data-val="fast">Fast</button>
-      </div>
-    </div>
-    <div class="setnote">Keys ramp from fine movement into attack speed, so quick taps stay controllable.</div>
+    <div class="pref-pages">
+      <section class="pref-panel" id="prefPanelFeel" role="tabpanel" aria-labelledby="prefTabFeel" data-pref-panel="feel">
+        <div class="setrow">
+          <div class="setlabel">Screen shake</div>
+          <div class="seg">
+            <button data-set="shake" data-val="off">Off</button>
+            <button data-set="shake" data-val="subtle">Subtle</button>
+            <button data-set="shake" data-val="full">Full</button>
+          </div>
+        </div>
+        <div class="setrow">
+          <div class="setlabel">Effects</div>
+          <div class="seg">
+            <button data-set="effects" data-val="minimal">Minimal</button>
+            <button data-set="effects" data-val="subtle">Subtle</button>
+            <button data-set="effects" data-val="full">Full</button>
+          </div>
+        </div>
+        <div class="setrow">
+          <div class="setlabel">Goal replay</div>
+          <div class="seg">
+            <button data-set="instantReplay" data-val="off">Off</button>
+            <button data-set="instantReplay" data-val="goals">Offer</button>
+          </div>
+        </div>
+        <div class="setrow">
+          <div class="setlabel">Haptics</div>
+          <div class="seg">
+            <button data-set="haptics" data-val="false">Off</button>
+            <button data-set="haptics" data-val="true">On</button>
+          </div>
+        </div>
+      </section>
 
-    <div class="setrow">
-      <div class="setlabel">Gamepad feel</div>
-      <div class="seg">
-        <button data-set="gamepadFeel" data-val="precise">Precise</button>
-        <button data-set="gamepadFeel" data-val="balanced">Balanced</button>
-        <button data-set="gamepadFeel" data-val="fast">Fast</button>
-      </div>
-    </div>
-    <div class="setnote">Left stick uses a radial dead zone. Menu/Start pauses. Mouse and trackpad always use direct control.</div>
+      <section class="pref-panel hidden" id="prefPanelControls" role="tabpanel" aria-labelledby="prefTabControls" data-pref-panel="controls">
+        <div class="setrow" id="touchControlRow">
+          <div class="setlabel">Touch</div>
+          <div class="seg">
+            <button data-set="touchControl" data-val="direct">Direct</button>
+            <button data-set="touchControl" data-val="stick">Floating stick</button>
+          </div>
+        </div>
+        <div class="setnote" id="touchControlNote">Direct keeps the mallet attached to your gesture and preserves the strongest flick control.</div>
+        <div class="setrow">
+          <div class="setlabel">Keyboard</div>
+          <div class="seg">
+            <button data-set="keyboardFeel" data-val="precise">Precise</button>
+            <button data-set="keyboardFeel" data-val="balanced">Balanced</button>
+            <button data-set="keyboardFeel" data-val="fast">Fast</button>
+          </div>
+        </div>
+        <div class="setrow">
+          <div class="setlabel">Gamepad</div>
+          <div class="seg">
+            <button data-set="gamepadFeel" data-val="precise">Precise</button>
+            <button data-set="gamepadFeel" data-val="balanced">Balanced</button>
+            <button data-set="gamepadFeel" data-val="fast">Fast</button>
+          </div>
+        </div>
+        <div class="setnote">Keyboard ramps from precise taps into attack speed. Gamepad uses a radial dead zone. Mouse and trackpad stay direct.</div>
+        <button class="pref-reset" id="controlsReset" type="button">Reset controls</button>
+      </section>
 
-    <div class="controls-actions">
-      <button class="btn" id="controlsReset" type="button">Reset controls</button>
-      <button class="btn primary" id="controlsClose" type="button">Done</button>
+      <section class="pref-panel hidden" id="prefPanelAudio" role="tabpanel" aria-labelledby="prefTabAudio" data-pref-panel="audio">
+        <div class="setrow">
+          <div class="setlabel">Sound effects</div>
+          <div class="seg volrange">
+            <input type="range" id="soundVol" min="0" max="100" step="1" value="100" aria-label="Sound effects volume">
+            <output id="soundVolVal" for="soundVol">100%</output>
+          </div>
+        </div>
+        <div class="setrow">
+          <div class="setlabel">Music</div>
+          <div class="seg volrange">
+            <input type="range" id="musicVol" min="0" max="100" step="1" value="70" aria-label="Music volume">
+            <output id="musicVolVal" for="musicVol">70%</output>
+          </div>
+        </div>
+        <div class="setnote">The top-right mute button controls both channels together.</div>
+      </section>
+
+      <section class="pref-panel hidden" id="prefPanelView" role="tabpanel" aria-labelledby="prefTabView" data-pref-panel="view">
+        <div class="setrow">
+          <div class="setlabel">Camera</div>
+          <div class="seg">
+            <button data-set="camera" data-val="top">Top-down</button>
+            <button data-set="camera" data-val="elevated">Elevated</button>
+            <button data-set="camera" data-val="surface">Surface</button>
+          </div>
+        </div>
+        <div class="setrow" id="boardRow">
+          <div class="setlabel" id="orientationLabel">Board orientation</div>
+          <div class="seg">
+            <button data-set="orientation" data-val="auto">Auto</button>
+            <button data-set="orientation" data-val="portrait">Portrait</button>
+            <button data-set="orientation" data-val="landscape">Landscape</button>
+          </div>
+        </div>
+        <div class="setnote hidden" id="orientationNote"></div>
+      </section>
     </div>
+
+    <button class="btn primary settings-done" id="settingsClose">Done</button>
   </div>
 </div>
 
@@ -438,7 +437,7 @@
      window blur; sits above every other overlay (last in DOM) and never
      disturbs the state underneath. Dismissed only by a user gesture, which
      is what the autoplay policy needs to restart the AudioContext. -->
-<div class="overlay hidden" id="focusov" role="dialog" aria-modal="true" aria-labelledby="focusTitle">
+<div class="overlay hidden" id="focusov" data-persistent-overlay role="dialog" aria-modal="true" aria-labelledby="focusTitle">
   <div class="card">
     <div class="kicker">PAUSED</div>
     <h1 id="focusTitle">Paused</h1>

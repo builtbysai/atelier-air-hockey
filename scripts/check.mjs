@@ -34,11 +34,20 @@ assert.doesNotMatch(net, /const \[sendSt/); assert.doesNotMatch(net, /createStub
 assert.match(net, /disconnectTimer/); assert.match(net, /validGoalEvent/); assert.match(net, /opToken/); assert.match(net, /handshakePeerId/);
 assert.match(game, /bestStreak: \[0, 0\]/); assert.match(game, /function togglePause/);
 assert.match(game, /function loadSavedObject\(key\)/);
+assert.match(game, /querySelectorAll\('\.overlay:not\(\[data-persistent-overlay\]\)'\)/,
+  'hideAll must structurally dismiss non-persistent overlays');
+assert.match(game, /querySelectorAll\('\[data-game-chrome\]'\)/,
+  'hideAll must structurally dismiss gameplay chrome');
+assert.doesNotMatch(template, /id="controls"/, 'controls must stay inside the single Preferences dialog');
+assert.match(template, /data-pref-tab="controls"/, 'Preferences must expose the Controls tab');
+assert.match(template, /id="focusov" data-persistent-overlay/, 'focus-loss veil must survive normal overlay cleanup');
 const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
 assert.match(ambience, /Settings\.musicVolume <= 0/, 'room ambience must follow the Music control');
 assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shots must not leak onto the Sound bus');
 assert.match(boards, /Math\.max\(11, target \+ 1\)/); assert.match(boards, /chars\.split/);
-assert.match(ui, /installDialogA11y/); assert.match(ui, /\[role="option"\]/); assert.match(ui, /guestOwnsRight/); assert.match(ui, /'progress'/);
+assert.match(ui, /installDialogA11y/); assert.match(ui, /dialogs\[dialogs\.length - 1\]/,
+  'dialog focus management must follow the topmost visible layer');
+assert.match(ui, /\[role="option"\]/); assert.match(ui, /guestOwnsRight/); assert.match(ui, /'progress'/);
 assert.match(ui, /btnWatch/); assert.match(ui, /btnHouse/); assert.match(ui, /btnOnline/); assert.match(ui, /watchSel/); assert.match(ui, /G\.watch/); assert.match(ui, /selectWatch/);
 assert.match(game, /mode === 'watch'/); assert.match(game, /G\.watch\s*=\s*\{ a:/);
 assert.match(template, />1 \/ 10</); assert.match(template, /id="settingsTitle"/); assert.match(template, /id="rulesTitle"/); assert.match(template, /id="pauseTitle"/);
