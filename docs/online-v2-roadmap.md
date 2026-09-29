@@ -21,6 +21,7 @@ Current staged heads at this refresh:
 
 - PR #88 `feat/online-v2-ice-recovery`: `eab65b414083839762f953a79cb3bce1d69aedd4`
 - PR #89 `test/online-v2-network-lab`: `083bcf3c5b24df193b260ef22f9e2413c21b435c`
+- PR #93 `test/online-v2-forced-turn`: diagnostic-only forced TURN verification mode; safe to merge independently because normal production routing is unchanged
 
 Current merged Online V2 production stack includes PRs #80, #81, #84 and #86.
 
@@ -233,6 +234,24 @@ Staged test-only work:
 - metrics for delivery, drops, reorder count and maximum queue depth
 
 Do not tune prediction/lag-compensation constants against intuition while this lab is pending. Run the lab first after Actions return.
+
+### PR #93 - forced TURN verification mode
+
+Branch: `test/online-v2-forced-turn`
+
+Staged work:
+
+- diagnostic-only `?netRoute=turn` switch
+- Trystero `rtcConfig` override so its default STUN list is not inherited during the forced test
+- TURN/TURNS-only ICE server filtering
+- WebRTC `iceTransportPolicy: 'relay'`
+- fail-closed behavior in diagnostic mode if TURN credentials are missing
+- focused configuration tests
+- real-device direct + forced-TURN checklist in `docs/online-v2-turn-verification.md`
+
+Normal production behavior is unchanged: direct WebRTC remains preferred and Cloudflare TURN remains fallback. This PR does not change authority, packet formats, critical-event reliability, or the 30 Hz compatibility path.
+
+This diagnostic can land independently. Use it for the required real-device relay test after #88 and #89 have been validated, because recovery and Network Lab results still gate the lag-compensation phase.
 
 ## Current known risks / unfinished areas
 
@@ -465,15 +484,15 @@ Do not stack another high-risk production protocol/physics change on top of unve
 Safe work:
 
 1. Review and harden documentation/tests.
-2. Prepare a real-device TURN verification checklist.
+2. The forced TURN diagnostic may be merged independently if statically reviewed; it does not alter normal direct-preferred routing.
 3. Research and design the host lag-compensation packet/history format.
 4. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab can execute.
 
 ### When Actions return
 
 1. Run PR #88 through full CI + Visual QA; fix and merge if green.
-2. Run PR #89 through full CI; fix and merge if green.
-3. Run forced direct + TURN real-device tests.
+2. Run the Network Lab through full CI and confirm it is green.
+3. Run normal direct-preferred + forced TURN real-device tests using `docs/online-v2-turn-verification.md`.
 4. Then implement host tick/history contact compensation as the next production phase.
 
 The lag-compensation design should add a bounded host tick reference to guest input, retain a small host history ring, and validate contact against recent history without allowing the guest to authoritatively declare hits or goals.
