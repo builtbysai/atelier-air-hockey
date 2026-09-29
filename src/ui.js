@@ -361,20 +361,36 @@ function applySettingsToUI() {
 
 
 let settingsReturn = 'menu';
-function openSettings(from = 'menu') {
+let activePreferenceTab = 'feel';
+const PREFERENCE_TABS = ['feel', 'controls', 'audio', 'view'];
+
+function showPreferenceTab(name, focus = false) {
+  if (!PREFERENCE_TABS.includes(name)) name = 'feel';
+  activePreferenceTab = name;
+  document.querySelectorAll('[data-pref-tab]').forEach(btn => {
+    const selected = btn.dataset.prefTab === name;
+    btn.classList.toggle('sel', selected);
+    btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+    btn.tabIndex = selected ? 0 : -1;
+    if (selected && focus) requestAnimationFrame(() => btn.focus({ preventScroll:true }));
+  });
+  document.querySelectorAll('[data-pref-panel]').forEach(panel => {
+    panel.classList.toggle('hidden', panel.dataset.prefPanel !== name);
+  });
+}
+
+function openSettings(from = 'menu', tab = activePreferenceTab) {
   settingsReturn = from;
-  $('topbar').classList.add('hidden');
-  AudioSys.ui(); applySettingsToUI(); hideAll(); $('settings').classList.remove('hidden');
+  AudioSys.ui();
+  applySettingsToUI();
+  showPreferenceTab(tab);
+  hideAll();
+  $('settings').classList.remove('hidden');
 }
 function closeSettings() {
-  AudioSys.ui(); hideAll();
+  AudioSys.ui();
+  hideAll();
   $(settingsReturn === 'pause' ? 'pauseov' : 'menu').classList.remove('hidden');
-}
-function openControls() {
-  AudioSys.ui(); applySettingsToUI(); hideAll(); $('controls').classList.remove('hidden');
-}
-function closeControls() {
-  AudioSys.ui(); applySettingsToUI(); hideAll(); $('settings').classList.remove('hidden');
 }
 
 function openRules() {
@@ -809,8 +825,21 @@ function wireUI() {
   $('btnSettings').addEventListener('click', () => openSettings('menu'));
   $('btnPauseSettings').addEventListener('click', () => openSettings('pause'));
   $('settingsClose').addEventListener('click', closeSettings);
-  $('btnControlSettings').addEventListener('click', openControls);
-  $('controlsClose').addEventListener('click', closeControls);
+  document.querySelectorAll('[data-pref-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      AudioSys.ui();
+      showPreferenceTab(btn.dataset.prefTab);
+    });
+    btn.addEventListener('keydown', e => {
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
+      e.preventDefault();
+      const i = PREFERENCE_TABS.indexOf(btn.dataset.prefTab);
+      const next = e.key === 'Home' ? 0
+        : e.key === 'End' ? PREFERENCE_TABS.length - 1
+        : (i + (e.key === 'ArrowRight' ? 1 : -1) + PREFERENCE_TABS.length) % PREFERENCE_TABS.length;
+      showPreferenceTab(PREFERENCE_TABS[next], true);
+    });
+  });
   $('controlsReset').addEventListener('click', () => {
     AudioSys.init(); AudioSys.ui();
     Settings.touchControl = 'direct';
@@ -907,7 +936,6 @@ function wireUI() {
       if (G.state === 'replay') Replay.finish(true);
       else if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
-      else if (!$('controls').classList.contains('hidden')) $('controlsClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
       else if (!$('rules').classList.contains('hidden')) $('rulesClose').click();
       else if (!$('workshop').classList.contains('hidden')) $('workshopClose').click();
