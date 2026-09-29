@@ -444,21 +444,21 @@ const NET_ICE_RECOVERY_REFRESH_BUDGET_MS = 800;
 const NET_ICE_RECOVERY_RETRY_MS = 2200;
 const NET_ICE_RECOVERY_MAX_ATTEMPTS = 3;
 const NET_RT_CHANNEL_ID = 61000;
-const NET_RT_PROTOCOL = 'atelier-rt-v1';
+const NET_RT_PROTOCOL = 'atelier-rt';
 const NET_RT_VERSION = 1;
 const NET_RT_STATE = 1;
 const NET_RT_INPUT = 2;
 const NET_RT_ACK = 3;
 const NET_RT_MAX_BUFFERED = 32 * 1024;
-const NET_PLAYER_KEY = 'atelier-ah-player-v1';
-const NET_RIVALS_KEY = 'atelier-ah-rivals-v1';
+const NET_PLAYER_KEY = 'atelier-ah-player';
+const NET_RIVALS_KEY = 'atelier-ah-rivals';
 const NET_QUICK_VERSION = 1;
 const NET_QUICK_SLOT_MS = 30000;
 const NET_QUICK_TIMEOUT_MS = 22000;
 const NET_QUICK_RESERVE_MS = 4000;
 const NET_SPECTATOR_LIMIT = 3;
 const NET_SPECTATOR_HZ = 20;
-const NET_SESSION_KEY = 'atelier-ah-session-v1';
+const NET_SESSION_KEY = 'atelier-ah-session';
 const NET_SESSION_VERSION = 2;
 const NET_SESSION_TTL_MS = 45000;
 const NET_SESSION_SAVE_MS = 500;
@@ -709,7 +709,7 @@ Net.quickStart = async function () {
     const slots = Net.quickSlots();
     for (const slot of slots) {
       const room = await Net.makeRoom(joinRoom, slot, {
-        prefix:'atelier-ah-qm-v1-', lockPeer:false,
+        prefix:'atelier-ah-qm-', lockPeer:false,
       });
       if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
       const action = room.makeAction('qm');
@@ -2810,7 +2810,7 @@ Net.pump = function (rdt) {
   Net.conn.paintAcc += rdt;
   if (Net.conn.paintAcc >= 1) { Net.conn.paintAcc = 0; Net.paintConn(); }
   // Inspect the selected ICE path occasionally. This is diagnostics only in
-  // the foundation pass; adaptive netcode will consume it in Online V2.
+  // adaptive netcode consumes this in Online V2.
   Net.rtcAcc += rdt;
   if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; void Net.sampleRtcStats(); }
   if (Net.isAuthority()) {
@@ -2911,7 +2911,7 @@ Net.sendHello = function () {
 };
 // The serve vector rides along so both machines play the identical point -
 // the host's roll is the source of truth, the guest just applies it.
-// gw carries the host's goal-mouth width (v20) so the guest renders and
+// gw carries the host's goal-mouth width so the guest renders and
 // (via the host's snapshots) plays the same table.
 Net.sendCountdown = function (fresh = false) {
   if (!Net.wire || !Net.active) return;
