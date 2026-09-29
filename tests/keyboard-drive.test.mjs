@@ -50,12 +50,12 @@ async function loadWorld() {
   return t;
 }
 
-test('playStep preserves a keyboard-driven target (fresh kbDriveT)', async () => {
+test('playStep preserves a keyboard-driven target (fresh inputDriveT)', async () => {
   const t = await loadWorld();
   // simulate what keyboardGamepadDrive does when KeyD is held: push the
   // target away from the mallet and stamp the drive time
   t.G.m1.tx = 500; t.G.m1.ty = 480;
-  t.G.kbDriveT = 10000; // == performance.now() in this sandbox
+  t.G.inputDriveT = [10000, 0]; // side 0 == performance.now() in this sandbox
   t.playStep(1 / 60);
   assert.equal(t.G.state, 'play', 'world should still be in play');
   // the pin branch must NOT have fired: the driven target survives…
@@ -65,20 +65,20 @@ test('playStep preserves a keyboard-driven target (fresh kbDriveT)', async () =>
   assert.ok(t.G.m1.x > 370, `mallet should advance toward the driven target (x=${t.G.m1.x})`);
 });
 
-test('playStep still pins the target when no input is active (stale kbDriveT)', async () => {
+test('playStep still pins the target when no input is active (stale inputDriveT)', async () => {
   const t = await loadWorld();
   // stale drive timestamp, no pointers: the anti-drift pin must run
   t.G.m1.tx = 500; t.G.m1.ty = 480;
-  t.G.kbDriveT = 0;
+  t.G.inputDriveT = [0, 0];
   assert.equal(t.pointers.size, 0, 'no pointers down in this test');
   t.playStep(1 / 60);
   assert.ok(Math.abs(t.G.m1.tx - t.G.m1.x) < 1e-9 && Math.abs(t.G.m1.ty - t.G.m1.y) < 1e-9,
     `idle target must be pinned to the mallet (tx=${t.G.m1.tx}, ty=${t.G.m1.ty})`);
 });
 
-test('ui.js stamps kbDriveT when keyboard/gamepad drives', async () => {
-  const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
-  assert.match(ui, /G\.kbDriveT = now/, 'keyboard/gamepad drive must stamp G.kbDriveT');
+test('current control drive timestamps are tracked per side', async () => {
   const game = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  assert.match(game, /kbFresh/, 'playStep must consult the keyboard-drive freshness before pinning');
+  assert.match(game, /G\.inputDriveT\[side\] = now/, 'control input must stamp the active side');
+  assert.match(game, /controlInputActive\(0\)/, 'playStep must consult current input activity before pinning');
+  assert.doesNotMatch(game, /G\.kbDriveT/, 'retired single keyboard timestamp must stay removed');
 });
