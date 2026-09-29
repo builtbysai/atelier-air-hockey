@@ -122,6 +122,10 @@ async function runPredictionProfile(name, profile) {
   assert.ok(G.puck.vx < 0, name + ': predicted puck should react before network authority returns');
   assert.equal(hits.length, 1, name + ': local hit feedback should fire immediately');
 
+  const predictionInputSeq = Net.guestPrediction?.inputSeq ?? null;
+  const predictionStateSeq = Net.guestPrediction?.stateSeq ?? null;
+  const predictedVelocity = { vx:G.puck.vx, vy:G.puck.vy };
+
   const dt = 1 / 60;
   const frames = 180; // 3 seconds of virtual play
   for (let frame=0; frame<frames; frame++) {
@@ -150,6 +154,17 @@ async function runPredictionProfile(name, profile) {
     Net.guestApply(dt);
   }
 
+  const authorityVelocity = {
+    vx:Net.rsnap?.pvx ?? NaN,
+    vy:Net.rsnap?.pvy ?? NaN,
+  };
+  const predictedSpeed = Math.hypot(predictedVelocity.vx, predictedVelocity.vy);
+  const authoritySpeed = Math.hypot(authorityVelocity.vx, authorityVelocity.vy);
+  const directionCosine = predictedSpeed > 0 && authoritySpeed > 0
+    ? (predictedVelocity.vx * authorityVelocity.vx + predictedVelocity.vy * authorityVelocity.vy) /
+      (predictedSpeed * authoritySpeed)
+    : null;
+
   return {
     name,
     hostAcceptedInput,
@@ -159,6 +174,15 @@ async function runPredictionProfile(name, profile) {
     finalPrediction:Net.guestPrediction,
     score:[...G.score],
     beforeScore,
+    predictionInputSeq,
+    predictionStateSeq,
+    predictedVelocity,
+    authorityVelocity,
+    directionCosine,
+    directionMatched:directionCosine !== null && directionCosine > 0,
+    ackFenceResolved:Number.isInteger(predictionInputSeq) && Net.inputAcked(predictionInputSeq),
+    stateAdvancedPastPrediction:predictionStateSeq === null ||
+      (Net.rtLastStateSeq !== null && Net.seqNewer(Net.rtLastStateSeq, predictionStateSeq)),
     lastStateSeq:Net.rtLastStateSeq,
     lastAckSeq:Net.rtAckInputSeq,
     transport:net.report(),
@@ -166,23 +190,60 @@ async function runPredictionProfile(name, profile) {
   };
 }
 
-for (const [name, profile] of Object.entries(NETWORK_PROFILES)) {
-  test('guest prediction reconciles safely under ' + name, async () => {
-    const result = await runPredictionProfile(name, profile);
+function roundMetric(value, digits = 2) {
+  if (!Number.isFinite(value)) return value;
+  const scale = 10 ** digits;
+  return Math.round(value * scale) / scale;
+}
 
-    assert.equal(result.hostAcceptedInput, true, name + ': at least one guest target must reach authority');
-    assert.ok(result.predictions >= 1, name + ': prediction metric should record local contact');
-    assert.ok(result.corrections >= 1, name + ': prediction must hand back to authority');
-    assert.equal(result.finalPrediction, null, name + ': prediction cannot remain permanently speculative');
-    assert.ok(Number.isFinite(result.maxError), name + ': correction error metric must stay finite');
-    assert.ok(result.maxError >= 0);
-    assert.ok(result.maxError <= Math.hypot(680, 440) + 1,
-      name + ': correction error cannot exceed the playable table diagonal: ' + JSON.stringify(result));
-    assert.deepEqual(result.score, result.beforeScore,
-      name + ': guest prediction must never create or alter a score');
-    assert.ok(result.lastStateSeq !== null, name + ': authoritative state must keep arriving');
-    assert.ok(result.lastAckSeq !== null, name + ': cumulative ACK progress must eventually arrive');
-    assert.ok(Number.isFinite(result.finalPuck.x) && Number.isFinite(result.finalPuck.y));
-    assert.ok(result.transport.queued === 0);
+function predictionBaseline(result) {
+  const transport = result.transport;
+  return {
+    profile:result.name,
+    estimatedRttMs:roundMetric(transport.averageLatencyMs * 2),
+    averageOneWayMs:roundMetric(transport.averageLatencyMs),
+    averageJitterMs:roundMetric(transport.averageJitterMs),
+    deliveryRate:roundMetric(transport.deliveryRate, 4),
+    dropped:transport.dropped,
+    reordered:transport.reordered,
+    maxQueue:transport.maxQueue,
+    predictions:result.predictions,
+    reconciliations:result.corrections,
+    maxCorrectionDistance:roundMetric(result.maxError),
+    directionCosine:roundMetric(result.directionCosine, 4),
+    directionMatched:result.directionMatched,
+    ackFenceResolved:result.ackFenceResolved,
+    stateAdvancedPastPrediction:result.stateAdvancedPastPrediction,
+  };
+}
+
+function assertPredictionResult(result, name) {
+  assert.equal(result.hostAcceptedInput, true, name + ': at least one guest target must reach authority');
+  assert.ok(result.predictions >= 1, name + ': prediction metric should record local contact');
+  assert.ok(result.corrections >= 1, name + ': prediction must hand back to authority');
+  assert.equal(result.finalPrediction, null, name + ': prediction cannot remain permanently speculative');
+  assert.ok(Number.isFinite(result.maxError), name + ': correction error metric must stay finite');
+  assert.ok(result.maxError >= 0);
+  assert.ok(result.maxError <= Math.hypot(680, 440) + 1,
+    name + ': correction error cannot exceed the playable table diagonal: ' + JSON.stringify(result));
+  assert.deepEqual(result.score, result.beforeScore,
+    name + ': guest prediction must never create or alter a score');
+  assert.equal(result.ackFenceResolved, true,
+    name + ': the predicted contact input must be covered by the cumulative ACK fence');
+  assert.equal(result.stateAdvancedPastPrediction, true,
+    name + ': authority must publish state newer than the snapshot used for prediction');
+  assert.equal(result.directionMatched, true,
+    name + ': reconciled authority should preserve the predicted strike direction in this controlled hit');
+  assert.ok(result.lastStateSeq !== null, name + ': authoritative state must keep arriving');
+  assert.ok(result.lastAckSeq !== null, name + ': cumulative ACK progress must eventually arrive');
+  assert.ok(Number.isFinite(result.finalPuck.x) && Number.isFinite(result.finalPuck.y));
+  assert.ok(result.transport.queued === 0);
+}
+
+for (const [name, profile] of Object.entries(NETWORK_PROFILES)) {
+  test('guest prediction reconciles safely under ' + name, async t => {
+    const result = await runPredictionProfile(name, profile);
+    assertPredictionResult(result, name);
+    t.diagnostic('prediction baseline ' + JSON.stringify(predictionBaseline(result)));
   });
 }
