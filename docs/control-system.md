@@ -12,7 +12,7 @@ Atelier treats every control method as a way to produce the same mallet target. 
 | Touch | Direct drag | Highest positional and flick fidelity. Existing finger offset keeps the mallet visible. |
 | Keyboard | Balanced ramp | Quick taps give small defensive corrections; held input ramps into attack speed. |
 | Gamepad | Balanced analog | Left stick uses a radial dead zone and continuous magnitude. |
-| Touch alternate | Floating stick | Optional comfort / visibility mode. Trades some direct flick precision for less hand occlusion. |
+| Touch alternate | Floating stick | Dynamic-follow relative control with precision near center, full-speed attack at the edge, and optional triangle recovery on release. |
 
 Controls are configured from **Preferences → Controls**. Mouse and trackpad remain direct because OS pointer sensitivity already supplies the appropriate device-level adjustment.
 
@@ -33,10 +33,23 @@ Relative inputs (keyboard, gamepad, floating stick) start as screen-space direct
 - Same-screen two-player assigns each active touch to one side.
 
 ### Floating touch stick
-- The control appears under the thumb where the player touches.
-- Its radius adapts to screen size.
-- The vector is radial, normalized, and fed through the shared relative-input mapping.
-- Releasing the touch removes the stick immediately.
+- The input origin is the exact touch-down point. It is never clamped inward near a screen edge.
+- The radius adapts to screen size and the stick uses a small scaled radial dead zone with a precision-first response curve.
+- At full throw, the base follows thumb drift. This keeps neutral and reversal a short movement away instead of letting the finger run far beyond the stick.
+- Full throw has enough target speed to create a real attacking flick; small deflections remain proportionally slower for defense.
+- The vector is still screen-relative and flows through the shared 2D/2.5D mapping.
+- The outer ring highlights at full throw so maximum input is visible even without physical stick resistance.
+
+### Floating-stick release assist
+**Preferences → Controls → Release assist** offers `Triangle` (default) or `Off`.
+
+Triangle assist is deliberately limited:
+- On release, it snapshots one recovery target based on the current puck lane and the goal-centre-to-puck geometry used by floating-triangle air-hockey defense.
+- The target sits forward of the goal and floats slightly higher when the puck is farther away.
+- Recovery waits briefly, then moves at a controlled speed for at most about 1.25 seconds.
+- Any new touch, keyboard, or gamepad input cancels it immediately.
+- If the puck blocks the recovery path, the mallet holds rather than automatically pushing through the puck.
+- The recovery point does **not** continuously track the puck, predict shots, or choose bank-defense corners. It is control assistance, not an auto-goalie.
 
 ### Mouse / trackpad
 - Moving over the game canvas directly targets the mallet without holding a button.
@@ -72,7 +85,11 @@ Blur, tab/background transitions, pointer cancellation, and focus loss clear hel
 - Direct mouse follows without a held button in Top-down, Elevated, and Surface.
 - Portrait and online-flipped relative controls remain screen-relative.
 - Touch direct can reach rails and center boundary without sticky offset behavior.
-- Floating stick appears under the thumb, stays inside the viewport, and disappears on release/cancel.
+- Floating stick begins exactly under the thumb, including touches near screen edges.
+- Long thumb drags pull the floating base along instead of increasing the neutral-return distance.
+- Full throw reaches attack speed; small throw remains precise; reversing direction does not require crossing an oversized stale origin.
+- Triangle release assist recovers briefly, cancels on manual input, and refuses to push through a blocking puck.
+- Release assist Off leaves the mallet at the released position.
 - Keyboard tap is precise; hold ramps faster; diagonals are not faster than cardinals.
 - Gamepad center is stable; diagonal magnitude is circular; Menu/Start pauses.
 - Same-screen two-player keeps independent touch / keyboard / gamepad ownership.

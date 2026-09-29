@@ -41,6 +41,15 @@ assert.match(game, /querySelectorAll\('\[data-game-chrome\]'\)/,
 assert.doesNotMatch(template, /id="controls"/, 'controls must stay inside the single Preferences dialog');
 assert.match(template, /data-pref-tab="controls"/, 'Preferences must expose the Controls tab');
 assert.match(template, /id="focusov" data-persistent-overlay/, 'focus-loss veil must survive normal overlay cleanup');
+assert.match(template, /data-set="stickReturn" data-val="triangle"/,
+  'floating-stick triangle recovery must remain configurable');
+assert.match(game, /stickReturn: 'triangle'/, 'triangle recovery must remain the floating-stick default');
+assert.match(game, /const ox = e\.clientX, oy = e\.clientY/,
+  'floating-stick input origin must be the real touch-down point');
+assert.match(game, /stick\.ox \+= dx \/ n \* excess/,
+  'floating-stick base must follow thumb drift at full throw');
+assert.match(game, /function touchTriangleHome\(m\)/);
+assert.match(game, /function touchReturnStep\(m, dt, now = performance\.now\(\)\)/);
 const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
 assert.match(ambience, /Settings\.musicVolume <= 0/, 'room ambience must follow the Music control');
 assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shots must not leak onto the Sound bus');
