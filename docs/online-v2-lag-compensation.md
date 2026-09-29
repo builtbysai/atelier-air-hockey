@@ -78,10 +78,21 @@ Advantages:
 
 - no clock synchronization protocol
 - wrap handling already exists
-- naturally ties the claim to a state the host actually published
-- about 16.7 ms resolution at 60 Hz
+- naturally gives a lower bound: the guest cannot have reacted before a state it had not received
+- about 16.7 ms authoritative trajectory samples at 60 Hz
 
-If later testing shows that 60 Hz temporal resolution is insufficient, add a 240 Hz host physics tick as protocol v3.
+The guest predicts from an extrapolated puck, so **do not require the mallet to overlap the raw referenced snapshot**. That snapshot may be tens of milliseconds older than the visible contact.
+
+Instead, the host scans its own authoritative puck trajectory forward from the referenced state through the bounded rewind window and finds the earliest plausible open-table intersection with the claimed mallet pose.
+
+This avoids adding:
+
+- synchronized clocks
+- client timestamps
+- client-declared puck position
+- client-declared puck velocity
+
+If later testing shows that 60 Hz trajectory resolution is insufficient, first interpolate between adjacent host samples. Only consider a separate 240 Hz host physics tick if measured evidence still requires it.
 
 ## Proposed contact hint packet
 
@@ -174,6 +185,16 @@ Maximum compensation window should initially be smaller:
 
 Never validate against arbitrary old history just because it is still in the ring.
 
+For contact validation, the referenced sample is the **start** of a short authoritative trajectory window, not necessarily the contact sample. Scan forward only while:
+
+- age remains inside the hard compensation window
+- point serial stays unchanged
+- touch serial stays unchanged
+- state remains live play
+- samples remain outside the conservative rail/goal ambiguity guard
+
+The host's current authoritative puck state may be used as the final trajectory endpoint if it satisfies the same continuity gates.
+
 ## Authoritative serials
 
 Add two monotonic local host serials.
@@ -256,31 +277,50 @@ Initial contract: reported mallet speed may not exceed `PLAYER_CAP * 1.10`.
 
 Use the production `PLAYER_CAP`; do not copy a numeric cap into network code. The Online test harness now has a contract that fails when production collision constants drift.
 
-### Gate 6: historical contact geometry
+### Gate 6: authoritative trajectory contact geometry
 
-Against the historical puck state:
+The raw guest-referenced state is only the lower bound. Search the host's own authoritative puck samples from that state forward through the allowed window.
+
+For each adjacent open-table sample pair:
+
+1. treat the puck path over that short 60 Hz interval as a line segment
+2. test the claimed guest mallet center against that segment using an expanded radius
+3. choose the **earliest** segment/intersection that is physically plausible
+4. interpolate host puck position/time/velocity at that candidate point
+
+Expanded contact radius:
 
 ```text
-distance(puck, guestMallet) <= PUCK_R + MALLET_R + CONTACT_TOLERANCE
+PUCK_R + MALLET_R + CONTACT_TOLERANCE
 ```
 
 Initial contract:
 
 - `CONTACT_TOLERANCE = 12` rink units
 
-This is deliberately small relative to the 72-unit puck+mallet radius sum. Tune from chaos tests and real devices.
+Use the earliest plausible intersection, not whichever sample gives the most favorable rebound.
+
+This is deliberately conservative and uses only host-authored puck history. The guest does not send a puck position or a contact timestamp.
+
+The executable fixture `valid-contact-after-referenced-state` specifically proves that validating only the raw referenced snapshot would be incorrect.
 
 ### Gate 7: approaching contact
 
-The relative normal velocity must indicate a real closing contact.
+At the selected authoritative trajectory intersection, derive the contact normal from the interpolated **host puck position** and the claimed mallet position.
+
+Interpolate/use the host-authored puck velocity for that candidate. Then require physically closing relative motion.
 
 Do not accept a mallet that was already moving away from the puck.
 
 Use the same physical ideas as `collideMallet`:
 
 - contact normal
-- relative velocity
+- host-authored puck velocity at the candidate
+- claimed mallet velocity after speed/pose plausibility checks
+- relative normal velocity
 - mallet normal velocity
+
+The trajectory search locates a possible contact; this gate decides whether it is a plausible strike rather than a geometric near-pass.
 
 ### Gate 8: no superseding authority
 
@@ -308,7 +348,7 @@ A rejected hint falls back to ordinary host physics. V1 should prefer a false ne
 
 Recommended first version:
 
-1. Use the historical authoritative puck state.
+1. Use the selected/interpolated authoritative trajectory contact state.
 2. Use the validated guest mallet pose/velocity.
 3. Run the same collision impulse math as `collideMallet`.
 4. Compute the compensated outgoing puck velocity.
@@ -410,6 +450,8 @@ The fixture also locks:
 - little-endian integer/float encoding
 - 16-bit input/state sequence wraparound cases
 - acceptance when the matching input packet was lost, proving the hint stays self-contained
+- acceptance when contact occurs **after** the raw referenced snapshot, proving validation must scan forward through authoritative history
+- rejection when no point on that bounded authoritative trajectory reaches contact geometry
 
 Initial reason vocabulary:
 
