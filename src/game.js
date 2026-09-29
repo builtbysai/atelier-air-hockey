@@ -2263,11 +2263,36 @@ function screenToRink(cx, cy) {
   if (G.onlineFlip) x = VW - x; // ONLINE: invert the guest view mirror
   return { x, y };
 }
-// ONLINE: scoreboard / win / ribbon labels by side (0 = left/host, 1 = right/guest)
+// ONLINE compatibility helpers: production net.js exposes explicit side and
+// authority helpers. Small headless/legacy harnesses may still expose only
+// the original host/guest role, so gameplay falls back without changing
+// production semantics.
+function onlinePlayerSide() {
+  if (typeof Net === 'undefined') return null;
+  if (typeof Net.playerSide === 'function') return Net.playerSide();
+  return Net.role === 'guest' ? 1 : Net.role === 'host' ? 0 : null;
+}
+function onlineIsAuthority() {
+  if (typeof Net === 'undefined') return false;
+  if (typeof Net.isAuthority === 'function') return Net.isAuthority();
+  return Net.role === 'host';
+}
+function onlineIsPlayer() {
+  if (typeof Net === 'undefined') return false;
+  if (typeof Net.isPlayer === 'function') return Net.isPlayer();
+  return Net.role === 'host' || Net.role === 'guest';
+}
+function onlineLocalMallet() {
+  if (typeof Net !== 'undefined' && typeof Net.localMallet === 'function') return Net.localMallet();
+  return onlinePlayerSide() === 1 ? G.m2 : onlinePlayerSide() === 0 ? G.m1 : null;
+}
+
+// ONLINE: scoreboard / win / ribbon labels by player side.
 function onlineSideLabel(side) {
-  const amGuest = typeof Net !== 'undefined' && Net.role === 'guest';
-  if (side === 0) return amGuest ? 'RIVAL' : 'YOU';
-  return amGuest ? 'YOU' : 'RIVAL';
+  if (typeof Net !== 'undefined' && Net.role === 'spectator') return side === 0 ? 'P1' : 'P2';
+  const localSide = onlinePlayerSide();
+  if (localSide !== null) return side === localSide ? 'YOU' : 'RIVAL';
+  return side === 0 ? 'P1' : 'P2';
 }
 // Scoreboard + match-point ribbon side labels, by mode. Exhibition (watch)
 // names both AIs - the left board is never "YOU" when no human is playing.
@@ -2400,10 +2425,11 @@ function onPointerDown(e) {
   // Side assignment uses the raw (unshifted) touch point so the vertical
   // offset can never drag a touch across the center line in portrait 2P.
   const raw = screenToRink(e.clientX, e.clientY);
+  if (G.mode === 'online' && Net.role === 'spectator') return;
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
     // ONLINE: exactly one local mallet - host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
-    pointers.set(e.pointerId, Net.role === 'guest' ? 1 : 0);
+    pointers.set(e.pointerId, onlinePlayerSide() === 1 ? 1 : 0);
   } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
     const side = raw.x > CX ? 1 : 0;
     const taken = [...pointers.values()];
@@ -3790,7 +3816,7 @@ function startGame(mode, diff) {
   // the serve flavor once so local and online both use the same point
   rollServe(Math.random() < 0.5 ? 1 : -1);
   // ONLINE: the host's countdown mirrors to the guest so both start even
-  if (mode === 'online' && Net.role === 'host') Net.sendCountdown(true);
+  if (mode === 'online' && onlineIsAuthority()) Net.sendCountdown(true);
 }
 function startWorkshop(id) {
   const d = WORKSHOP_DRILLS[id];
@@ -3898,7 +3924,7 @@ function onGoal(scorer) {
   }
   if (G.state !== 'play') return;
   // ONLINE: the host owns the simulation; a guest never scores locally.
-  if (G.mode === 'online' && Net.role !== 'host') return;
+  if (G.mode === 'online' && !onlineIsAuthority()) return;
   if (G.mode === 'workshop') {
     const kmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
     Practice.onGoal(scorer, kmh);
@@ -3941,7 +3967,10 @@ function onGoal(scorer) {
 function goalIsYours(scorer) {
   if (G.mode === '2p') return true; // both ends are players - both celebrate
   if (G.mode === 'watch') return false; // exhibition has no human side
-  if (G.mode === 'online') return (Net.role === 'host') === (scorer === 0);
+  if (G.mode === 'online') {
+    if (Net.role === 'spectator') return false;
+    return onlinePlayerSide() === scorer;
+  }
   return scorer === 0;
 }
 function confettiColors() {
@@ -4080,7 +4109,7 @@ function advanceAfterGoal() {
   if (keepOffer) Replay.keepOfferDuringCount(1.0);
   else Replay.discardPending();
   // ONLINE: the host's countdown mirrors to the guest so both start even
-  if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
+  if (G.mode === 'online' && onlineIsAuthority()) Net.sendCountdown();
 }
 function matchPersistsProgress(mode = G.mode) {
   // Exhibition is observational only. Keep this as the single contract used
@@ -4135,14 +4164,19 @@ function showWin() {
 
   let winnerName;
   if (G.mode === '2p') winnerName = you ? 'Player One' : 'Player Two';
-  else if (G.mode === 'online') winnerName = onlineSideLabel(G.winSide) === 'YOU' ? 'You' : 'Rival';
+  else if (G.mode === 'online') {
+    const label = onlineSideLabel(G.winSide);
+    winnerName = Net.role === 'spectator' ? (label === 'P1' ? 'Player One' : 'Player Two')
+      : label === 'YOU' ? 'You' : 'Rival';
+  }
   else if (G.mode === 'watch') winnerName = DIFFS[G.watch[G.winSide === 0 ? 'a' : 'b']].name;
   else winnerName = you ? 'You' : DIFFS[G.difficulty].name;
 
   const card = $('winov').querySelector('.win-card');
   if (card) {
     card.classList.remove('win-win', 'win-loss', 'win-neutral');
-    card.classList.add(humanWin ? 'win-win' : (G.mode === 'watch' ? 'win-neutral' : 'win-loss'));
+    card.classList.add(humanWin ? 'win-win'
+      : ((G.mode === 'watch' || (G.mode === 'online' && Net.role === 'spectator')) ? 'win-neutral' : 'win-loss'));
   }
 
   $('winTitle').textContent = winnerName + (winnerName === 'You' ? ' took the table.' : ' takes the table.');
@@ -4209,6 +4243,7 @@ function showWin() {
   const kicker = $('winKicker');
   if (kicker) {
     if (G.mode === 'watch') kicker.textContent = 'EXHIBITION · FULL TIME';
+    else if (G.mode === 'online' && Net.role === 'spectator') kicker.textContent = 'WATCHING · FULL TIME';
     else if (humanWin && firstTableWin) kicker.textContent = 'TABLE CONQUERED';
     else if (humanWin) kicker.textContent = 'FULL TIME · VICTORY';
     else kicker.textContent = 'FULL TIME';
@@ -4220,6 +4255,8 @@ function showWin() {
   const reelBtn = $('btnMatchReel');
   if (reelBtn) reelBtn.classList.toggle('hidden', !hasReel);
   const winReplay = $('btnWinReplay');
+  const rematch = $('btnRematch');
+  if (rematch) rematch.classList.toggle('hidden', G.mode === 'online' && Net.role === 'spectator');
   const hasReplay = Replay.hasPending();
   if (winReplay) winReplay.classList.toggle('hidden', hasReel || !hasReplay);
   const momentActions = $('winMomentActions');
@@ -4234,7 +4271,7 @@ function showWin() {
   const chord = (THEME.goalChord || [392, 523.25, 659.25, 783.99]).slice();
   if (humanWin && chord.length) chord.push(chord[0] * 2);
   AudioSys.goalChord(chord);
-  Haptics.fire(humanWin ? 'win' : 'loss');
+  if (!(G.mode === 'online' && Net.role === 'spectator')) Haptics.fire(humanWin ? 'win' : 'loss');
 }
 function togglePause(force, silent) {
   // ONLINE: silent=true applies a pause that arrived over the wire - it must
@@ -4309,8 +4346,8 @@ function resumeFromFocusLoss() { // the veil's tap handler - a user gesture
 function restartMatch() {
   AudioSys.ui();
   if (G.mode === 'online') {
-    if (Net.role === 'host') Net.restartMatchAsHost();
-    else if (Net.wire) Net.wire.sendEv({ t: 'restart-req' });
+    if (onlineIsAuthority()) Net.restartMatchAsAuthority();
+    else if (Net.wire) Net.wire.sendEv({ t:'restart-req' });
     return;
   }
   if (G.mode === 'workshop' && Practice.id) startWorkshop(Practice.id);
@@ -4368,11 +4405,11 @@ function playStep(rdt) {
       driveMallet(G.m1, sdt, PLAYER_CAP);
       driveMallet(G.m2, sdt, PLAYER_CAP);
     } else if (G.mode === 'online') {
-      // ONLINE: host-only branch - the guest never reaches playStep (see
-      // frame). The host drives m1; m2 follows the guest's input target over
-      // the wire - without this the remote mallet is a statue on the
-      // authoritative sim and the guest can never touch the puck.
-      driveMallet(G.m1, sdt, PLAYER_CAP);
+      // ONLINE: authority-only branch. The authority drives its own mallet;
+      // the rival mallet follows the latest remote target regardless of which
+      // player currently owns simulation authority.
+      const local = onlineLocalMallet();
+      if (local) driveMallet(local, sdt, PLAYER_CAP);
       Net.driveRemoteMallet(sdt);
     } else if (G.mode === 'workshop' && Practice.id === 'free') {
       const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
@@ -4446,8 +4483,14 @@ function frame(t) {
       // the host also folds the guest's input target into m2 so it never
       // snaps when the serve goes live
       else if (G.mode === 'online') {
-        if (Net.role === 'host') { driveMallet(G.m1, rdt, PLAYER_CAP); Net.driveRemoteMallet(rdt); }
-        else driveMallet(G.m2, rdt, PLAYER_CAP);
+        if (onlineIsAuthority()) {
+          const local = onlineLocalMallet();
+          if (local) driveMallet(local, rdt, PLAYER_CAP);
+          Net.driveRemoteMallet(rdt);
+        } else if (onlineIsPlayer()) {
+          const local = onlineLocalMallet();
+          if (local) driveMallet(local, rdt, PLAYER_CAP);
+        }
       }
       // EXHIBITION / SINGLE-PLAYER: AI mallets hold their reset spots during
       // the countdown - no perceiving, no thinking, no skating. (v24.2: the
@@ -4467,7 +4510,11 @@ function frame(t) {
       // SMASH-tier mallet hits - are smaller beats that share this channel
       // (Math.max, never stacking). Never overlaps the ceremony (state
       // leaves 'play' first).
-      if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
+      if (G.mode === 'online' && onlineIsPlayer() && !onlineIsAuthority()) {
+        const local = onlineLocalMallet();
+        if (local) driveMallet(local, rdt, PLAYER_CAP);
+      }
+      else if (G.mode === 'online' && Net.role === 'spectator') { /* snapshots drive the gallery view */ }
       else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
       updateParts(rdt);
       break;
