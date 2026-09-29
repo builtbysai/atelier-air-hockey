@@ -210,8 +210,12 @@ Net.isPlayer = function () {
   return Net.playerSide() !== null;
 };
 
+Net.ownsAuthority = function () {
+  return Net.isPlayer() && Net.playerSide() === Net.authoritySide;
+};
+
 Net.isAuthority = function () {
-  return Net.active && Net.isPlayer() && Net.playerSide() === Net.authoritySide;
+  return Net.active && Net.ownsAuthority();
 };
 
 Net.localMallet = function () {
@@ -1162,8 +1166,8 @@ Net.uiShow = function (mode, data) {
     setBtn(Q, null);
   } else if (mode === 'guestwait') {
     T.textContent = 'You\u2019re in';
-    S.textContent = 'The host is setting the table.';
-    B.innerHTML = '<p class="online-note pulse">Waiting for the host to start&hellip;</p>';
+    S.textContent = 'Your rival is setting the table.';
+    B.innerHTML = '<p class="online-note pulse">Waiting for the table to start&hellip;</p>';
     setBtn(P, 'Cancel', () => Net.cancelLobby());
     setBtn(Q, null);
   } else if (mode === 'rematchoffer') {
@@ -2033,7 +2037,17 @@ Net.onPeerJoin = function (id) {
   Net.paintConn();
   if (!Net.active && Net.resumingSession && Net.wire && Net.isPlayer()) Net.knockBurst();
   else if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
-  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.knockBurst();
+  else if (!Net.active && Net.wire && Net.isPlayer()) {
+    // A dead-match reconnect is owned by the current authority side, not the
+    // historical host/guest role. Only the non-authority side knocks; the
+    // authority answers with a fresh match. Initial Join still uses the
+    // original guest role before any match has existed.
+    if (Net.dropOpen()) {
+      if (!Net.ownsAuthority()) Net.knockBurst();
+    } else if (Net.role === 'guest') {
+      Net.knockBurst();
+    }
+  }
 };
 // The "rival left" overlay is up and the room is still alive - a peer that
 // (re)joins now is knocking for a fresh match. DOM-guarded for headless.
@@ -2119,10 +2133,11 @@ Net.onEvent = function (ev, peerId) {
       Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
       Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
       if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
-      // late rejoin after the match was declared dead: the guest re-knocks
-      // on join (see onPeerJoin) - answer with a fresh match instead of
-      // silence, so a long blip ends in a rematch, not a dead table
-      else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
+      // Late rejoin after a dead match: whichever side currently owns
+      // authority answers the non-authority knock with a genuinely fresh
+      // session. This still behaves exactly like Host/Join before migration.
+      else if (!Net.active && !Net.waitingForRival && Net.dropOpen() && Net.ownsAuthority())
+        Net.restartMatchAfterDrop();
       break;
     case 'authority': {
       const validClaim = Net.onAuthorityClaim(ev);
@@ -2145,7 +2160,10 @@ Net.onEvent = function (ev, peerId) {
       if (Net.isPlayer() && !Net.isAuthority()) Net.applySessionSync(ev);
       break;
     case 'hello':
-      if (Net.role === 'guest') Net.onHello(ev);
+      // Fresh-match hello is for whichever player is currently non-authority.
+      // After migration that can be the original host, so do not gate on the
+      // historical guest role.
+      if (Net.isPlayer() && !Net.active) Net.onHello(ev);
       break;
     case 'countdown':
       if (Net.isPlayer() && !Net.isAuthority()) Net.onCountdown(ev);
@@ -2525,7 +2543,9 @@ Net.onHello = function (ev) {
   clearTimeout(Net.joinTimer);
   if (ev && ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
   if (ev && Net.validSessionId(ev.sid)) Net.sessionId = ev.sid;
-  Net.side = 1;
+  const side = Net.playerSide();
+  if (side === null) return;
+  Net.side = side;
   Net.peerAuthorityVersion = ev && Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
   Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.authoritySide = ev && ev.authoritySide === 1 ? 1 : 0;
@@ -2546,7 +2566,8 @@ Net.onHello = function (ev) {
     Net.musicSeed = (+ev.mseed) >>> 0;
     try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   }
-  Net.role = 'guest';
+  // Origin role is intentionally stable across authority migration. A former
+  // host can now be the non-authority player receiving this fresh-match hello.
   Net.active = true;
   Net.waitingForRival = false;
   G.mode = 'online';
@@ -3026,21 +3047,33 @@ Net.restartMatchAsAuthority = function () {
   Net.saveSessionCheckpoint();
 };
 
-Net.restartMatchAsHost = function () {
+Net.restartMatchAfterDrop = function () {
+  if (Net.active || !Net.ownsAuthority()) return false;
+  const role = Net.role === 'guest' ? 'guest' : 'host';
+  const side = Net.playerSide();
   Net.sessionId = Net.newSessionId();
-  Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
+  Net.authoritySide = side;
+  Net.authorityEpoch = 1;
   Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // fresh match, fresh music sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
-  Net.beginMatch('host');
-  Net.resetConn(); // the old match's RTT died with it
+  Net.beginMatch(role);
+  Net.side = side; Net.authoritySide = side; Net.authorityEpoch = 1;
+  Net.resetConn(); // the dead match's RTT died with it
   Net.sendHello();
   startCount();
-  rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
+  rollServe(Math.random() < 0.5 ? 1 : -1);
   Net.sendCountdown(true);
-  // onRivalLeft closes the watcher room. A late rival re-knock starts a new
-  // authoritative match, so publish a fresh watcher room with it.
+  // onRivalLeft closed the watcher room. The new current-authority session
+  // publishes a fresh one regardless of which side originally hosted.
   void Net.openSpectatorHost();
+  return true;
+};
+
+// Compatibility wrapper for older tests/callers; dead-match restart ownership
+// is now authority-based rather than permanently tied to the original host.
+Net.restartMatchAsHost = function () {
+  return Net.restartMatchAfterDrop();
 };
 
 /* ---------------- leave / disconnect ---------------- */
