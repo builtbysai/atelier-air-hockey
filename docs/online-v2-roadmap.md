@@ -196,101 +196,33 @@ Already present before the above work:
 
 ## Work staged during the GitHub Actions outage
 
-High-risk production behavior remains staged until the full test/visual suite can run again.
+### Integrated Online V2 resilience work
 
-### Draft Online V2.5 resilience stack: PRs #115-#119
+PR #88 and the former #115-#119 resilience stack have now been integrated through PR #121 at the user's explicit request after static review.
 
-A second, intentionally stacked draft chain now explores the requested experience/resilience features without changing the core direct-WebRTC + TURN-fallback architecture:
+Integrated behavior:
 
-```text
-main
-  -> #115 Quick Match + local identity/recent rivals
-      -> #116 capped view-only spectators
-          -> #117 reload/tab-kill session resurrection
-              -> #118 authority migration after long disconnects
-                  -> #119 Quick Match contention hardening
-```
+- ICE/network migration recovery with bounded `restartIce()`, short-lived credential refresh, stale-peer fencing, relay-policy preservation, and fallback to the existing gameplay reconnect path.
+- Account-free local identity, recent-rival history, and Nostr/Trystero Quick Match discovery.
+- Quick Match contention hardening for 3+ simultaneous players: one active reservation, busy rejection, bounded reservation timeout, retry, disconnect recovery, and stale-callback protection.
+- Separate passive spectator room with a cap of 3 viewers, authoritative snapshots/events only, and no gameplay/authority path.
+- Spectator matches do not pollute recent-rival history.
+- 45-second local session resurrection lease with authority-only state restoration.
+- Player side is independent from simulation authority.
+- Authority migration uses monotonic epochs, preserves the normal 15-second reconnect grace first, promotes only from authoritative state, and requires a valid peer authority claim before unfreezing after a long disconnect.
+- Newer remote authority epochs must carry a valid authoritative snapshot; unresolved authority handshakes fail closed instead of risking split brain.
+- Resurrection and authority migration compose: a promoted guest reloads as authority, while a demoted original host reloads as non-authority and resyncs from the migrated authority.
+- Focused regression coverage exists for ICE recovery, matchmaking, spectators, resurrection, and authority migration.
 
-Current staged behavior:
+### Validation status
 
-- #115 adds account-free local identity and short-lived Nostr/Trystero Quick Match rendezvous while preserving private Host / Join Code.
-- #116 keeps spectators in a separate passive watcher room, caps fanout at 3, streams authoritative state only, and gives watchers no gameplay/authority path.
-- #117 persists a short 45-second local resurrection lease. Guests must resync from authority; only the current authority restores authoritative state from its own checkpoint.
-- #118 separates player side from simulation authority and adds monotonic authority epochs. Ordinary reconnect still gets the existing 15-second grace first. After long loss, promotion starts from the latest authoritative snapshot, never speculative guest state.
-- Static review of #118 removed a fixed 120 ms epoch-settle assumption: a recovered match now stays frozen until a valid peer authority claim is observed. A newer remote epoch must include a valid authoritative snapshot, and unresolved handshakes fail closed instead of risking split brain.
-- #119 fixes 3+ player Quick Match contention by allowing only one active reservation per client, rejecting competing reservations as busy, bounding reservation stalls, and retrying other visible peers.
+This integration was merged during the GitHub Actions outage at the user's explicit request. It has completed static integration review, but the full executable suite and real-device matrix still need to run when Actions or a development machine are available.
 
-These PRs are **not validated or merge-ready yet**. Keep the chain draft/frozen apart from correctness fixes and tests until Actions return.
+Do not treat the absence of a failing CI run as proof that the integration is green.
 
-Important integration note: #88 and this stack both modify `src/net.js`. Validate and merge #88 first. Then refresh #115 against the new `main`, resolve any recovery-lifecycle overlap there, and validate/merge #115 -> #116 -> #117 -> #118 -> #119 in order. Do not merge the top of the stack directly into `main`.
+### Already merged supporting work
 
-### Draft PR #88 - ICE recovery / network migration
-
-Branch: `feat/online-v2-ice-recovery`
-
-Staged work:
-
-- monitor `connectionstatechange` and `iceconnectionstatechange`
-- brief debounce for transient disconnects
-- bounded recovery attempt budget
-- refresh short-lived Cloudflare ICE credentials within an 800 ms recovery budget
-- preserve the peer's existing ICE configuration if refresh fails or times out
-- preserve relay-only policy when the forced TURN diagnostic is active
-- preserve the rest of the current RTCConfiguration while rotating ICE servers
-- call `RTCPeerConnection.restartIce()`
-- let Trystero's existing `negotiationneeded` signaling carry the restart
-- fence async refresh/recovery completion to the peer that started it
-- skip late restart if the browser naturally recovers during credential refresh
-- respect Trystero/browser `connecting` and ICE `checking` as recovery-in-progress
-- treat either WebRTC closed state as terminal
-- keep match/RTT UI resets independent from peer recovery lifecycle
-- cleanly remove listeners/timers when the peer/room is dropped
-- preserve the existing 15-second gameplay reconnect fallback
-- focused recovery tests included
-
-Do not duplicate this work. The branch is frozen as one reviewable commit on the Online V2 mainline. Static review found nine lifecycle/configuration races and hardened them with focused tests. Exact Trystero 0.25.4 source confirms a continuously `disconnected` peer gets a 5-second close timer; `connecting`/`checking` clear that timer; `failed`/`closed` emit close immediately; and `onnegotiationneeded` creates/signals a new offer. #88 is intentionally early disconnected-state recovery, with Atelier's existing reconnect grace path as fallback. Do not add more production behavior before CI + real-device validation unless a clear correctness defect is discovered.
-
-### PR #89 - deterministic Network Lab
-
-Merged into `main` as test-only infrastructure.
-
-Implemented:
-
-- seeded virtual clock/network
-- configurable latency and jitter
-- random loss and burst loss
-- packet reordering
-- clean / broadband / mobile / hotel Wi-Fi / brutal profiles
-- real binary realtime state traffic through the simulator
-- real guest input + cumulative ACK traffic through the simulator
-- exact fixed one-way delay matrix at 0 / 30 / 60 / 100 / 150 / 250 ms
-- 1 / 5 / 15 second total packet blackouts with fresh-state convergence
-- lost first guest-input recovery through the existing 500 ms stationary heartbeat
-- bounded in-flight queue assertions at high fixed latency
-- metrics for delivery, drops, reorder count, maximum queue depth, bytes, observed latency and delay variation
-- sequence tracing for realtime packet gaps plus stale/duplicate arrivals
-- score-convergence coverage for stale realtime state and repeated absolute goal delivery
-- focused `npm run unit:online` command for every `tests/net-*.test.mjs` suite
-- prediction/reconciliation chaos coverage across clean / broadband / mobile / hotel Wi-Fi / brutal profiles
-- concise per-profile prediction baselines for estimated RTT, jitter, delivery, reordering, ACK/state fencing, correction distance, and predicted-vs-authoritative strike direction
-
-The merge does **not** mean the lab has been declared green. Run the full suite when Actions return before using its results to tune or enable lag compensation.
-
-### PR #93 - forced TURN verification mode
-
-Merged into `main`.
-
-Implemented:
-
-- diagnostic-only `?netRoute=turn` switch
-- Trystero `rtcConfig` override so its default STUN list is not inherited during the forced test
-- TURN/TURNS-only ICE server filtering
-- WebRTC `iceTransportPolicy: 'relay'`
-- fail-closed behavior in diagnostic mode if TURN credentials are missing
-- focused configuration tests
-- real-device direct + forced-TURN checklist in `docs/online-v2-turn-verification.md`
-
-Normal production behavior remains direct WebRTC preferred with Cloudflare TURN fallback. This does not change authority, packet formats, critical-event reliability, or the 30 Hz compatibility path.
+PR #89 provides the deterministic Network Lab. PR #93 provides forced-TURN verification mode. Direct WebRTC remains preferred; Cloudflare TURN remains fallback. Host/current-authority scoring remains authoritative, critical events remain reliable, and the 30 Hz compatibility path remains.
 
 ## Current known risks / unfinished areas
 
@@ -479,16 +411,17 @@ First measure host-authority + guest prediction + lag compensation. If that feel
 
 ## Recommended implementation order from here
 
-1. Verify production `POST /ice` and the merged forced TURN path on real devices.
-2. Run full CI + Visual QA for PR #88, then merge only if green.
-3. Run the merged Network Lab through the full suite and inspect/tune from measured results.
-4. Run real direct, forced-TURN and Wi-Fi/cellular migration tests.
-5. Refresh #115 against the post-#88 `main`, then validate and merge the staged Online V2.5 chain sequentially: #115 -> #116 -> #117 -> #118 -> #119. Each step gets `npm run unit:online`, full CI/Visual QA, plus its feature-specific real-browser test before the next base is advanced.
-6. After the Network Lab is green, implement bounded host-side contact lag compensation. Keep this isolated from the V2.5 stack until both sides are validated.
-7. Vendor/pin Trystero and harden mobile leave/rejoin cleanup without changing the P2P architecture.
-8. Improve Nostr relay resilience based on measured failures.
-9. Finish the recent-rival challenge UX only after Quick Match reliability is measured in production.
-10. Evaluate whether rollback is still worth the complexity.
+1. Run `npm run unit:online` and the full test/build suite on the integrated `main`.
+2. Run Visual QA.
+3. Run the deterministic Network Lab and inspect/tune from measured results.
+4. Run real direct, forced-TURN, Wi-Fi/cellular migration, and reconnect tests.
+5. Run the feature-specific browser matrix: 3+ player Quick Match contention, three-device spectator join/leave, guest reload, authority reload, long host loss/promotion, former-host return/adoption, and reload before/after promotion.
+6. Fix any integration defects before adding more high-risk protocol behavior.
+7. After the Network Lab is green, implement bounded host-side contact lag compensation.
+8. Vendor/pin Trystero and continue hardening mobile leave/rejoin cleanup without changing the P2P architecture.
+9. Improve Nostr relay resilience based on measured failures.
+10. Finish the recent-rival challenge UX only after Quick Match reliability is measured in production.
+11. Evaluate whether rollback is still worth the complexity.
 
 ## Experience targets
 
@@ -532,26 +465,23 @@ Before changing Online code:
 
 ## Immediate next task
 
-### While Actions remain unavailable
+### First priority
 
-Do not stack another high-risk production protocol/physics change on top of the current draft chain. #115-#119 now cover the requested matchmaking, spectators, resurrection, and authority-migration work far enough for this outage window.
+Validate the integrated Online V2 resilience stack on `main`.
 
-Safe work:
+Required gates:
 
-1. Keep adding focused tests or static correctness fixes to the draft that owns the behavior; do not broaden scope.
-2. Keep PR #88 frozen as a draft; its static lifecycle/configuration review is complete enough to defer further production edits until the full suite and real-device migration run.
-3. Keep #115-#119 draft and preserve their stack order. #119 is the current top of the Online V2.5 chain.
-4. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
-5. Use the merged forced TURN diagnostic for real-device relay validation when practical.
+1. `npm run unit:online`
+2. full `npm test`
+3. Visual QA
+4. direct WebRTC test
+5. forced Cloudflare TURN test
+6. Wi-Fi/cellular migration test
+7. 3+ client Quick Match contention test
+8. spectator join/leave and authority-handoff test
+9. guest and authority reload/session-resurrection tests
+10. long-disconnect authority migration and former-host-return test
 
-### When Actions return
+### After validation
 
-1. Run PR #88 through full CI + Visual QA; fix and merge if green.
-2. Run the merged Network Lab through full CI and confirm it is green.
-3. Run normal direct-preferred + forced TURN real-device tests using `docs/online-v2-turn-verification.md`, including Wi-Fi/cellular migration.
-4. Refresh #115 against the new `main` and resolve any overlap with #88.
-5. Validate/merge #115, then retarget/validate #116, #117, #118, and #119 one at a time.
-6. Real-browser gates: 3+ player Quick Match contention, three-device spectator join/leave, guest reload, authority reload, long host loss/promotion, former-host return/adoption, and reload before/after promotion.
-7. Only after the Network Lab is green should bounded host-side contact lag compensation move into production code.
-
-The lag-compensation design uses the existing host realtime state sequence as a lower-bound reference, a bounded host-authored history ring, and a separate additive type-4 contact hint. The host alone validates the trajectory and computes any future outcome.
+Only then continue with bounded host-side contact lag compensation. The lag-compensation design uses the existing host realtime state sequence as a lower-bound reference, a bounded host-authored history ring, and a separate additive type-4 contact hint. The current authority alone validates the trajectory and computes any future outcome.
