@@ -115,3 +115,18 @@ test('manual pause remains a manual pause in the saved authority state', async (
   assert.equal(authority.state, 'pause');
   assert.equal(authority.pausedFrom, 'play');
 });
+
+test('focus-loss pause persists the underlying live state for reload recovery', async () => {
+  const {Net, G} = await loadNet();
+  Net.active = true; Net.role = 'host'; Net.code = 'XYZ678';
+  Net.sessionId = 'hostsessionabcdefghijkl';
+  Net._localPlayer = {id:'hostplayer123456',name:'HOST'};
+  Net.reconnecting = false;
+  G.focusLost = true;
+  G.state = 'pause';
+  G.pausedFrom = 'play';
+
+  const authority = Net.authorityCheckpoint();
+  assert.equal(authority.state, 'play');
+  assert.equal(authority.pausedFrom, 'play');
+});
