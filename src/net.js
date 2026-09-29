@@ -1249,8 +1249,9 @@ Net.knockBurst = function () {
     if (Net.active || !Net.wire || !Net.isPlayer()) return;
     if (tries++ >= Net.KNOCK_RETRIES) return;
     const ev = Net.resumingSession && Net.validSessionId(Net.sessionId)
-      ? { t:'resume-knock', v:NET_SESSION_VERSION, sid:Net.sessionId, player:Net.localPlayer() }
-      : { t:'knock', player:Net.localPlayer() };
+      ? { t:'resume-knock', v:NET_SESSION_VERSION, authorityV:NET_AUTHORITY_VERSION,
+          sid:Net.sessionId, player:Net.localPlayer() }
+      : { t:'knock', authorityV:NET_AUTHORITY_VERSION, player:Net.localPlayer() };
     try { Net.wire.sendEv(ev); } catch (e) {}
     Net.knockTimer = setTimeout(burst, Net.KNOCK_RETRY_MS);
   };
@@ -1465,6 +1466,8 @@ Net.restoreAuthorityCheckpoint = function (checkpoint) {
   Net.side = checkpoint.side === 1 ? 1 : 0;
   Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
   Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
+  Net.authorityMigrationReady = checkpoint.authorityReady === true;
+  Net.peerAuthorityVersion = Net.authorityMigrationReady ? NET_AUTHORITY_VERSION : 0;
   Net.beginMatch(resumeRole);
   const snap = Net.decodeSnapshot(saved.snapshot);
   G.score = [snap.s0 | 0, snap.s1 | 0];
@@ -1543,6 +1546,7 @@ Net.sessionSyncPayload = function () {
     t:'session-sync',
     v:NET_SESSION_VERSION,
     sid:Net.sessionId,
+    authorityV:NET_AUTHORITY_VERSION,
     authoritySide:Net.authoritySide,
     authorityEpoch:Net.authorityEpoch,
     firstTo:Settings.firstTo,
@@ -1578,6 +1582,8 @@ Net.applySessionSync = function (ev) {
   Net.musicSeed = Number.isFinite(+ev.mseed) ? (+ev.mseed >>> 0) : 0;
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.rivalIdentity = Net.cleanPlayer(ev.player);
+  Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
 
   Net.authoritySide = ev.authoritySide === 1 ? 1 : 0;
   Net.authorityEpoch = Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
@@ -1643,6 +1649,8 @@ Net.resumeGuestSession = async function (checkpoint) {
     Net.side = checkpoint.side === 0 ? 0 : 1;
     Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
     Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
+    Net.authorityMigrationReady = checkpoint.authorityReady === true;
+    Net.peerAuthorityVersion = Net.authorityMigrationReady ? NET_AUTHORITY_VERSION : 0;
     Net.sessionId = checkpoint.sid;
     Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
     Net.resumingSession = true;
@@ -2012,6 +2020,8 @@ Net.onEvent = function (ev, peerId) {
   switch (ev.t) {
     case 'knock':
       if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+      Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+      Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
       if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
       // late rejoin after the match was declared dead: the guest re-knocks
       // on join (see onPeerJoin) - answer with a fresh match instead of
@@ -2026,6 +2036,8 @@ Net.onEvent = function (ev, peerId) {
       if (Net.isAuthority() && ev.v === NET_SESSION_VERSION &&
           ev.sid === Net.sessionId && Net.validSessionId(ev.sid)) {
         if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+        Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+        Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
         Net.sendSessionSync();
       }
       break;
@@ -2742,6 +2754,7 @@ Net.restartMatchAsAuthority = function () {
 Net.restartMatchAsHost = function () {
   Net.sessionId = Net.newSessionId();
   Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // fresh match, fresh music sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
