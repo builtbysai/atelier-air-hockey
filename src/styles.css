@@ -407,7 +407,7 @@
 
   /* Preferences are one dialog with internal tabs. This keeps the hierarchy
      clear and avoids nested-overlay state entirely. */
-  .settings-card{ max-width:560px !important; text-align:left; }
+  .settings-card{ text-align:left; }
   .pref-tabs{
     display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px;
     margin:11px 0 9px; padding:4px; border:1px solid color-mix(in srgb,var(--pline) 68%,transparent);
@@ -597,7 +597,8 @@
   }
   .foot a{ color:var(--title); }
   .foot b{ color:var(--title); }
-  #settings .card, #rules .card{ max-width:500px; text-align:left; }
+  #settings .card{ max-width:560px; text-align:left; }
+  #rules .card{ max-width:500px; text-align:left; }
   #workshop .card, #workshopDone .card{ max-width:560px; }
   .workshop-drills{
     display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;
