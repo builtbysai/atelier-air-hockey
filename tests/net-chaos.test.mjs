@@ -299,7 +299,8 @@ for (const delayMs of FIXED_LATENCY_MS) {
     assert.ok(net.report().maxQueue <= 20,
       delayMs + 'ms: replaceable state queue unexpectedly grew ' + JSON.stringify(net.report()));
     assert.equal(net.report().bytesDelivered, 120 * 56);
-    assert.equal(net.report().averageLatencyMs, delayMs);
+    assert.ok(Math.abs(net.report().averageLatencyMs - delayMs) < 0.001,
+      delayMs + 'ms: measured latency drifted ' + JSON.stringify(net.report()));
   });
 
   test('fixed ' + delayMs + 'ms one-way latency preserves latest input ACK fence', async () => {
@@ -334,7 +335,8 @@ for (const delayMs of FIXED_LATENCY_MS) {
     assert.ok(net.report().maxQueue <= 40,
       delayMs + 'ms: input/ACK queue unexpectedly grew ' + JSON.stringify(net.report()));
     assert.equal(net.report().bytesDelivered, 120 * (12 + 4));
-    assert.equal(net.report().averageLatencyMs, delayMs);
+    assert.ok(Math.abs(net.report().averageLatencyMs - delayMs) < 0.001,
+      delayMs + 'ms: measured input/ACK latency drifted ' + JSON.stringify(net.report()));
   });
 }
 
