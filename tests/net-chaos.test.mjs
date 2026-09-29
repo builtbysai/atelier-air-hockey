@@ -21,7 +21,7 @@ async function loadNetWorld() {
     G,
     Settings:{ firstTo:7, pace:'classic' },
     clamp:(v,a,b)=>Math.min(b,Math.max(a,v)),
-    PX:60, PW:680, PY:80, PH:440, CY:300,
+    PX:60, PW:680, PY:80, PH:440, CX:400, CY:300,
     PUCK_R:26, MALLET_R:46, PUCK_MAX:2000, SMACK_BONUS:0.34,
     goalW:()=>200,
     $:()=>null,
@@ -150,4 +150,91 @@ test('hotel Wi-Fi profile actually exercises loss and reordering', () => {
   assert.ok(report.dropped > 0, JSON.stringify(report));
   assert.ok(report.reordered > 0, JSON.stringify(report));
   assert.equal(delivered, report.delivered);
+});
+
+
+for (const seconds of [1, 5, 15]) {
+  test('realtime state reconverges after ' + seconds + 's packet blackout without stale burst', async () => {
+    const host = await loadNetWorld();
+    const guest = await loadNetWorld();
+    const net = connectRealtime(host, guest, NETWORK_PROFILES.clean);
+
+    // Establish a known-good state, then fully drain it so any queue observed
+    // during the blackout can only come from blackout traffic.
+    for (let i=0;i<12;i++) {
+      host.G.puck.x = 240 + i;
+      host.Net.sendRealtime(host.Net.encodeRealtimeState());
+      net.advance(1000 / 60);
+    }
+    assert.equal(net.drain(), true);
+    const beforeSeq = guest.Net.rtLastStateSeq;
+    const before = net.report();
+
+    // A real disconnect does not preserve replaceable realtime physics.
+    // Model that by dropping every packet for the outage duration.
+    net.loss = 1;
+    const frames = seconds * 60;
+    for (let i=0;i<frames;i++) {
+      host.G.puck.x = 260 + (i % 240);
+      host.G.puck.y = 260 + Math.sin(i / 9) * 60;
+      host.Net.sendRealtime(host.Net.encodeRealtimeState());
+      net.advance(1000 / 60);
+    }
+
+    const during = net.report();
+    assert.equal(during.queued, 0, 'blackout must not accumulate stale realtime state');
+    assert.equal(during.maxQueue, before.maxQueue, 'blackout must not grow the realtime queue');
+    assert.ok(during.dropped - before.dropped >= frames, 'blackout should drop every realtime state');
+
+    // Once transport returns, a handful of fresh states must supersede the
+    // entire missing window. No replay of blackout traffic is required.
+    net.loss = 0;
+    for (let i=0;i<12;i++) {
+      host.G.puck.x = 500 + i;
+      host.G.puck.y = 320;
+      host.Net.sendRealtime(host.Net.encodeRealtimeState());
+      net.advance(1000 / 60);
+    }
+    assert.equal(net.drain(), true);
+
+    assert.notEqual(guest.Net.rtLastStateSeq, beforeSeq);
+    assert.equal(guest.Net.rtLastStateSeq, host.Net.rtStateSeq,
+      'guest should converge to the newest authoritative state after blackout');
+    assert.ok(Number.isFinite(guest.Net.rsnap?.px));
+    assert.equal(net.report().queued, 0);
+  });
+}
+
+test('latest guest input and cumulative ACK recover after packet blackout', async () => {
+  const host = await loadNetWorld();
+  const guest = await loadNetWorld();
+  const net = connectRealtime(host, guest, NETWORK_PROFILES.clean);
+
+  for (let i=0;i<6;i++) {
+    guest.Net.sendRealtime(guest.Net.encodeRealtimeInput(520 + i, 260 + i));
+    net.advance(1000 / 60);
+  }
+  assert.equal(net.drain(), true);
+  const acceptedBefore = host.Net.rtLastInputSeq;
+
+  net.loss = 1;
+  for (let i=0;i<120;i++) {
+    guest.Net.sendRealtime(guest.Net.encodeRealtimeInput(560 + (i % 40), 280));
+    net.advance(1000 / 60);
+  }
+  assert.equal(net.report().queued, 0);
+
+  net.loss = 0;
+  const latest = guest.Net.encodeRealtimeInput(610, 300);
+  const latestSeq = guest.Net.rtInputSeq;
+  guest.Net.sendRealtime(latest);
+  net.advance(1000 / 60);
+  assert.equal(net.drain(), true);
+
+  assert.ok(host.Net.seqNewer(host.Net.rtLastInputSeq, acceptedBefore));
+  assert.equal(host.Net.remote.tx, 610);
+  assert.equal(host.Net.remote.ty, 300);
+  assert.equal(guest.Net.inputAcked(latestSeq), true,
+    'new cumulative ACK should fence all lost inputs before the recovered target');
+  assert.equal(net.report().queued, 0);
 });
