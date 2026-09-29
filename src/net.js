@@ -262,7 +262,7 @@ Net.copyStatsState = function (stats) {
 };
 
 Net.authorityCheckpoint = function () {
-  if (Net.role !== 'host' || !Net.active || !G.puck || !G.m1 || !G.m2) return null;
+  if (!Net.isAuthority() || !G.puck || !G.m1 || !G.m2) return null;
   return {
     snapshot:Net.encodeSnapshot(),
     puck:{
@@ -300,6 +300,9 @@ Net.buildSessionCheckpoint = function () {
     expiresAt:now + NET_SESSION_TTL_MS,
     code:Net.code,
     role:Net.role,
+    side:Net.side,
+    authoritySide:Net.authoritySide,
+    authorityEpoch:Net.authorityEpoch,
     sid:Net.sessionId,
     player:Net.localPlayer(),
     rival:Net.cleanPlayer(Net.rivalIdentity),
@@ -309,7 +312,7 @@ Net.buildSessionCheckpoint = function () {
     goalW:Settings.goalW,
     theme:THEME.id,
     musicSeed:Net.musicSeed >>> 0,
-    authority:Net.role === 'host' ? Net.authorityCheckpoint() : null,
+    authority:Net.isAuthority() ? Net.authorityCheckpoint() : null,
   };
 };
 
@@ -1435,7 +1438,11 @@ Net.restoreAuthorityCheckpoint = function (checkpoint) {
   Net.musicSeed = Number.isFinite(+checkpoint.musicSeed) ? (+checkpoint.musicSeed >>> 0) : 0;
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
 
-  Net.beginMatch('host');
+  const resumeRole = checkpoint.role === 'guest' ? 'guest' : 'host';
+  Net.side = checkpoint.side === 1 ? 1 : 0;
+  Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
+  Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
+  Net.beginMatch(resumeRole);
   const snap = Net.decodeSnapshot(saved.snapshot);
   G.score = [snap.s0 | 0, snap.s1 | 0];
   G.winSide = saved.winSide === 1 ? 1 : 0;
@@ -1501,13 +1508,15 @@ Net.restoreAuthorityCheckpoint = function (checkpoint) {
 };
 
 Net.sessionSyncPayload = function () {
-  if (Net.role !== 'host' || !Net.active || !Net.validSessionId(Net.sessionId)) return null;
+  if (!Net.isAuthority() || !Net.validSessionId(Net.sessionId)) return null;
   const authority = Net.authorityCheckpoint();
   if (!authority) return null;
   return {
     t:'session-sync',
     v:NET_SESSION_VERSION,
     sid:Net.sessionId,
+    authoritySide:Net.authoritySide,
+    authorityEpoch:Net.authorityEpoch,
     firstTo:Settings.firstTo,
     pace:Settings.pace,
     goalW:Math.round(goalW()),
@@ -1542,7 +1551,9 @@ Net.applySessionSync = function (ev) {
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.rivalIdentity = Net.cleanPlayer(ev.player);
 
-  Net.beginMatch('guest');
+  Net.authoritySide = ev.authoritySide === 1 ? 1 : 0;
+  Net.authorityEpoch = Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
+  Net.beginMatch(Net.role === 'host' ? 'host' : 'guest');
   Net.sessionId = ev.sid;
   const saved = ev.authority;
   const snap = Net.decodeSnapshot(saved.snapshot);
@@ -1626,7 +1637,7 @@ Net.resumeGuestSession = async function (checkpoint) {
   }
 };
 
-Net.resumeHostSession = async function (checkpoint) {
+Net.resumeAuthoritySession = async function (checkpoint) {
   const token = ++Net.opToken;
   Net.openLobby();
   Net.uiShow('resuming');
@@ -1635,7 +1646,8 @@ Net.resumeHostSession = async function (checkpoint) {
     if (token !== Net.opToken) return false;
     const room = await Net.makeRoom(joinRoom, checkpoint.code);
     if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return false; }
-    Net.initRoom(room, 'host');
+    const resumeRole = checkpoint.role === 'guest' ? 'guest' : 'host';
+    Net.initRoom(room, resumeRole);
     Net.code = checkpoint.code;
     Net.sessionId = checkpoint.sid;
     Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
@@ -1666,8 +1678,8 @@ Net.resumeHostSession = async function (checkpoint) {
 Net.tryResumeSession = async function () {
   const checkpoint = Net.readSessionCheckpoint();
   if (!checkpoint || Net.active || Net.room) return false;
-  return checkpoint.role === 'host'
-    ? Net.resumeHostSession(checkpoint)
+  return checkpoint.authority
+    ? Net.resumeAuthoritySession(checkpoint)
     : Net.resumeGuestSession(checkpoint);
 };
 
