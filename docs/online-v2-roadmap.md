@@ -11,10 +11,10 @@ If you are taking over this work:
 2. Read this roadmap, then read `docs/online-v2-lag-compensation.md`.
 3. Read `src/net.js` before modifying transport or authority logic.
 4. Do **not** duplicate draft PR #88. It already contains ICE recovery / network migration.
-5. The deterministic Network Lab and its hardening are merged on `main`, including exact latency, blackout, input recovery, score convergence, transport metrics, sequence tracing, prediction-chaos coverage, production-physics drift guards, additive-message compatibility, and executable lag-compensation contracts.
+5. The deterministic Network Lab and its hardening are merged on `main`, including exact latency, blackout, input recovery, score convergence, transport metrics, sequence tracing, prediction-chaos coverage, production-physics drift guards, additive-message robustness, and executable lag-compensation contracts.
 6. When GitHub Actions return on October 2, validate #88 first, then run the merged Network Lab through the full suite.
 7. Only after the Network Lab is green should host-side lag compensation move from design into production code.
-8. Preserve host-authoritative score/goals, the reliable compatibility path, and short-lived server-issued TURN credentials.
+8. Preserve host-authoritative score/goals, the reliable fallback lane, and short-lived server-issued TURN credentials.
 9. If CI reports only a PWA cache identity mismatch after a code change, update `sw.js` to the exact fingerprint CI prints, then rerun the suite.
 10. Update this roadmap whenever a phase lands so it remains the single source of truth.
 
@@ -23,6 +23,12 @@ Current staged head at this refresh:
 - PR #88 `feat/online-v2-ice-recovery`: `abf9cbf37d46784b3f8b54c0cd96c303ac89352a`
 
 Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102, #103, #107, #108, #109, #110, #111 and #113.
+
+## Version-zero compatibility policy
+
+Atelier is still version zero and currently has one active tester. Current builds are expected to use the same current protocol. Do **not** add settings migrations, old-client message fallbacks, compatibility aliases, or capability shims unless a real external compatibility requirement appears.
+
+This does not remove resilience. The 30 Hz reliable lane, direct-WebRTC-to-TURN fallback, reconnect/session resurrection, and browser/PWA fallbacks are current runtime behavior and should remain.
 
 ## Goal
 
@@ -36,7 +42,7 @@ Non-negotiables:
 - No required player accounts, database, dedicated game-server fleet, Redis, or paid always-on backend for v1.
 - Goals, scores, win state, pause/rematch and other critical state stay reliable/authoritative.
 - Realtime position/input traffic may be lossy because newer state replaces older state.
-- Every Online V2 enhancement must preserve the reliable legacy/fallback path when the optional fast lane is unavailable.
+- Every Online V2 enhancement must preserve the reliable fallback lane when the optional fast lane is unavailable.
 - Never ship Cloudflare's long-lived TURN key/token to the browser.
 
 ## Production infrastructure
@@ -133,7 +139,7 @@ Implemented:
 - 16-bit packet sequence numbers.
 - Stale/out-of-order packet rejection.
 - 60 Hz state/input cadence when the fast lane is open.
-- Existing reliable 30 Hz Trystero path remains the compatibility fallback.
+- Existing reliable 30 Hz Trystero path remains the transport fallback.
 - Replaceable realtime packets are dropped under backpressure rather than queued.
 - Critical control events remain on the reliable ordered channel.
 
@@ -231,7 +237,7 @@ Do not treat the absence of a failing CI run as proof that the integration is gr
 
 ### Already merged supporting work
 
-PR #89 provides the deterministic Network Lab. PR #93 provides forced-TURN verification mode. Direct WebRTC remains preferred; Cloudflare TURN remains fallback. Host/current-authority scoring remains authoritative, critical events remain reliable, and the 30 Hz compatibility path remains.
+PR #89 provides the deterministic Network Lab. PR #93 provides forced-TURN verification mode. Direct WebRTC remains preferred; Cloudflare TURN remains fallback. Host/current-authority scoring remains authoritative, critical events remain reliable, and the 30 Hz reliable fallback lane remains.
 
 ## Current known risks / unfinished areas
 
@@ -261,7 +267,7 @@ Known upstream concerns observed during research:
 - Trystero 0.25.4 has had an open mobile leave/rejoin issue involving sends on a closed data channel.
 - Recent Nostr discovery behavior has changed to reduce relay load and may affect room discovery timing.
 
-Do not blindly fork Trystero. Prefer a pinned vendored dependency plus the smallest compatibility patch necessary.
+Do not blindly fork Trystero. Prefer a pinned vendored dependency plus the smallest integration patch necessary.
 
 ### 3. Mobile network migration/recovery
 
@@ -466,7 +472,7 @@ Before changing Online code:
 3. Inspect the latest Online PRs (#80, #81, #84, #86).
 4. Do not replace the architecture with a central server without evidence that the P2P approach cannot satisfy the requirement.
 5. Keep score/goals authoritative.
-6. Keep the reliable compatibility path.
+6. Keep the reliable fallback lane.
 7. Keep TURN credentials short-lived and server-issued.
 8. Add a protocol version when making incompatible binary packet changes.
 9. Measure before adding complexity.
