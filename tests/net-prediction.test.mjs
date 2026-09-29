@@ -69,6 +69,57 @@ test('guest contact prediction reacts immediately and fences on an input sequenc
   assert.equal(sent.length, 1, 'prediction forces the current guest target onto the realtime lane');
 });
 
+test('guest prediction preserves production fast-smack impulse', async () => {
+  const { Net, G } = await loadWorld();
+  armRealtime(Net);
+  Net.gview = { px:550, py:300, pvx:0, pvy:0 };
+  Net.rtLastStateSeq = 10;
+
+  assert.equal(Net.tryPredictGuestHit(), true);
+  assert.ok(Math.abs(Net.gview.pvx - (-2094.75)) < 1e-6,
+    '900 u/s driven mallet impulse changed unexpectedly');
+  assert.equal(Net.gview.px, 538);
+  assert.equal(G.puck.vx, Net.gview.pvx);
+});
+
+test('guest prediction preserves slow-mallet smother response', async () => {
+  const { Net, G } = await loadWorld();
+  armRealtime(Net);
+  G.m2.vx = 0; G.m2.vy = 0;
+  Net.gview = { px:550, py:300, pvx:900, pvy:0 };
+  Net.rtLastStateSeq = 10;
+
+  assert.equal(Net.tryPredictGuestHit(), true);
+  assert.ok(Math.abs(Net.gview.pvx - (-315)) < 1e-6,
+    'stationary mallet restitution/smother response changed unexpectedly');
+});
+
+test('guest prediction caps extreme compensated speed at production PUCK_MAX', async () => {
+  const { Net, G } = await loadWorld();
+  armRealtime(Net);
+  G.m2.vx = -4200; G.m2.vy = 0;
+  Net.gview = { px:550, py:300, pvx:1000, pvy:0 };
+  Net.rtLastStateSeq = 10;
+
+  assert.equal(Net.tryPredictGuestHit(), true);
+  assert.ok(Math.abs(Net.gview.pvx - (-NET_TEST_PHYSICS.PUCK_MAX)) < 1e-6);
+  assert.equal(Math.hypot(Net.gview.pvx, Net.gview.pvy), NET_TEST_PHYSICS.PUCK_MAX);
+});
+
+test('guest prediction rejects a separating overlap without side effects', async () => {
+  const { Net, G, hits } = await loadWorld();
+  const sent = armRealtime(Net);
+  G.m2.vx = 0; G.m2.vy = 0;
+  Net.gview = { px:550, py:300, pvx:-1000, pvy:0 };
+  Net.rtLastStateSeq = 10;
+
+  assert.equal(Net.tryPredictGuestHit(), false);
+  assert.equal(Net.guestPrediction, null);
+  assert.equal(Net.gview.pvx, -1000);
+  assert.equal(sent.length, 0);
+  assert.equal(hits.length, 0);
+});
+
 test('prediction stays local until the host ACKs and publishes a newer state', async () => {
   const { Net } = await loadWorld();
   armRealtime(Net);
