@@ -2673,8 +2673,8 @@ Net.acceptRematch = function () {
   if (!Net.active || !Net.wire) return;
   Net.wire.sendEv({ t: 'rematch', phase: 'accept' });
   AudioSys.ui();
-  if (Net.role === 'host') Net.restartMatchAsHost();
-  // guest: the host restarts and the countdown event resets us
+  if (Net.isAuthority()) Net.restartMatchAsAuthority();
+  // non-authority: the authority restarts and the countdown event resets us
 };
 Net.declineRematch = function () {
   if (Net.wire) Net.wire.sendEv({ t: 'rematch', phase: 'decline' });
@@ -2683,6 +2683,20 @@ Net.declineRematch = function () {
 };
 /* Host: a rival re-knocked after a dead match - start a genuinely fresh match:
  * new hello (settings), new countdown, new serve roll, fresh RTT chip. */
+Net.restartMatchAsAuthority = function () {
+  if (!Net.isAuthority()) return;
+  const role = Net.role === 'host' ? 'host' : 'guest';
+  Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0;
+  try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  const side = Net.side, authoritySide = Net.authoritySide, epoch = Net.authorityEpoch;
+  Net.beginMatch(role);
+  Net.side = side; Net.authoritySide = authoritySide; Net.authorityEpoch = epoch;
+  startCount();
+  rollServe(Math.random() < 0.5 ? 1 : -1);
+  Net.sendCountdown(true);
+  Net.saveSessionCheckpoint();
+};
+
 Net.restartMatchAsHost = function () {
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // fresh match, fresh music sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
