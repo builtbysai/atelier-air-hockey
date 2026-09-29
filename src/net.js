@@ -88,8 +88,6 @@ const Net = {
   authorityRecovery: false,
   authoritySettleTimer: 0,
   authorityPeerClaimSeen: false,
-  peerAuthorityVersion: 0,
-  authorityMigrationReady: false,
   active: false,       // true while a match owns the room
   matchStarted: false, // distinguishes a new match from the next point
   code: null,          // 6-character room code
@@ -329,7 +327,6 @@ Net.buildSessionCheckpoint = function () {
     side:Net.playerSide(),
     authoritySide:Net.authoritySide,
     authorityEpoch:Net.authorityEpoch,
-    authorityReady:!!Net.authorityMigrationReady,
     sid:Net.sessionId,
     player:Net.localPlayer(),
     rival:Net.cleanPlayer(Net.rivalIdentity),
@@ -1482,7 +1479,7 @@ Net.onRealtimeMessage = function (data) {
     if (a) {
       Net.onInput(a, Net.peerId);
       // ACKs are cumulative and replaceable: if one is lost, the next input
-      // produces a newer ACK. Old clients ignore this unknown message type.
+      // produces a newer ACK.
       Net.sendRealtime(Net.encodeRealtimeAck(Net.rtLastInputSeq));
     }
   } else if (type === NET_RT_ACK && Net.isPlayer() && !Net.isAuthority()) {
@@ -1545,8 +1542,6 @@ Net.restoreAuthorityCheckpoint = function (checkpoint) {
   Net.side = checkpoint.side === 1 ? 1 : 0;
   Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
   Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
-  Net.authorityMigrationReady = checkpoint.authorityReady === true;
-  Net.peerAuthorityVersion = Net.authorityMigrationReady ? NET_AUTHORITY_VERSION : 0;
   Net.beginMatch(resumeRole);
   const snap = Net.decodeSnapshot(saved.snapshot);
   G.score = [snap.s0 | 0, snap.s1 | 0];
@@ -1647,8 +1642,8 @@ Net.sendSessionSync = function () {
 };
 
 Net.applySessionSync = function (ev) {
-  if (!ev || ev.v !== NET_SESSION_VERSION || ev.sid !== Net.sessionId ||
-      !Net.resumingSession || !ev.authority ||
+  if (!ev || ev.v !== NET_SESSION_VERSION || ev.authorityV !== NET_AUTHORITY_VERSION ||
+      ev.sid !== Net.sessionId || !Net.resumingSession || !ev.authority ||
       !Array.isArray(ev.authority.snapshot) || ev.authority.snapshot.length < 15 ||
       !ev.authority.snapshot.every(Number.isFinite)) return false;
 
@@ -1661,8 +1656,6 @@ Net.applySessionSync = function (ev) {
   Net.musicSeed = Number.isFinite(+ev.mseed) ? (+ev.mseed >>> 0) : 0;
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.rivalIdentity = Net.cleanPlayer(ev.player);
-  Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
-  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
 
   Net.authoritySide = ev.authoritySide === 1 ? 1 : 0;
   Net.authorityEpoch = Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
@@ -1728,8 +1721,6 @@ Net.resumeGuestSession = async function (checkpoint) {
     Net.side = checkpoint.side === 0 ? 0 : 1;
     Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
     Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
-    Net.authorityMigrationReady = checkpoint.authorityReady === true;
-    Net.peerAuthorityVersion = Net.authorityMigrationReady ? NET_AUTHORITY_VERSION : 0;
     Net.sessionId = checkpoint.sid;
     Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
     Net.resumingSession = true;
@@ -1825,8 +1816,7 @@ Net.adoptAuthoritySnapshot = function (saved) {
 };
 
 Net.sendAuthorityClaim = function () {
-  if (!Net.authorityMigrationReady || !Net.wire || !Net.active || !Net.isPlayer() ||
-      !Net.validSessionId(Net.sessionId)) return;
+  if (!Net.wire || !Net.active || !Net.isPlayer() || !Net.validSessionId(Net.sessionId)) return;
   const ev = {
     t:'authority',
     v:NET_AUTHORITY_VERSION,
@@ -1839,8 +1829,7 @@ Net.sendAuthorityClaim = function () {
 };
 
 Net.onAuthorityClaim = function (ev) {
-  if (!Net.authorityMigrationReady || !ev || ev.v !== NET_AUTHORITY_VERSION ||
-      ev.sid !== Net.sessionId || !Net.isPlayer() ||
+  if (!ev || ev.v !== NET_AUTHORITY_VERSION || ev.sid !== Net.sessionId || !Net.isPlayer() ||
       (ev.side !== 0 && ev.side !== 1) || ev.side === Net.playerSide() ||
       !Number.isInteger(ev.epoch) || ev.epoch < 1) return false;
 
@@ -1897,11 +1886,6 @@ Net.promoteAuthority = function () {
 
 Net.beginAuthorityRecovery = function () {
   if (!Net.active || !Net.isPlayer() || Net.peerId) return;
-  if (!Net.authorityMigrationReady) {
-    Net.reconnecting = false;
-    Net.onRivalLeft();
-    return;
-  }
   Net.authorityRecovery = true;
   Net.authorityPeerClaimSeen = false;
   if (!Net.isAuthority()) Net.promoteAuthority();
@@ -1982,7 +1966,6 @@ Net.dropRoom = function () {
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.side = null; Net.authoritySide = 0; Net.authorityEpoch = 0;
   Net.authorityRecovery = false; Net.authorityPeerClaimSeen = false;
-  Net.peerAuthorityVersion = 0; Net.authorityMigrationReady = false;
   clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
   Net.rivalIdentity = null;
   Net.sessionId = null; Net.resumingSession = false;
@@ -2129,9 +2112,8 @@ Net.onEvent = function (ev, peerId) {
   if (!Net.acceptPeer(peerId) || !ev || typeof ev !== 'object' || typeof ev.t !== 'string') return;
   switch (ev.t) {
     case 'knock':
+      if (ev.authorityV !== NET_AUTHORITY_VERSION) break;
       if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
-      Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
-      Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
       if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
       // Late rejoin after a dead match: whichever side currently owns
       // authority answers the non-authority knock with a genuinely fresh
@@ -2149,10 +2131,9 @@ Net.onEvent = function (ev, peerId) {
     }
     case 'resume-knock':
       if (Net.isAuthority() && ev.v === NET_SESSION_VERSION &&
+          ev.authorityV === NET_AUTHORITY_VERSION &&
           ev.sid === Net.sessionId && Net.validSessionId(ev.sid)) {
         if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
-        Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
-        Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
         Net.sendSessionSync();
       }
       break;
@@ -2523,7 +2504,6 @@ Net.startHostMatch = function () {
   if (Net.active || !Net.waitingForRival) return;
   Net.sessionId = Net.newSessionId();
   Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
-  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // the host deals the music seed: both peers play the same generative sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
@@ -2540,18 +2520,19 @@ Net.startHostMatch = function () {
 
 /* Guest: the host's settings win. Stash our own, apply theirs, wait. */
 Net.onHello = function (ev) {
+  if (!ev || ev.authorityV !== NET_AUTHORITY_VERSION || !Net.validSessionId(ev.sid) ||
+      (ev.authoritySide !== 0 && ev.authoritySide !== 1) ||
+      !Number.isInteger(ev.authorityEpoch) || !Number.isFinite(+ev.mseed)) return;
   clearTimeout(Net.joinTimer);
-  if (ev && ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
-  if (ev && Net.validSessionId(ev.sid)) Net.sessionId = ev.sid;
+  if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+  Net.sessionId = ev.sid;
   const side = Net.playerSide();
   if (side === null) return;
   Net.side = side;
-  Net.peerAuthorityVersion = ev && Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
-  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
-  Net.authoritySide = ev && ev.authoritySide === 1 ? 1 : 0;
-  Net.authorityEpoch = ev && Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
+  Net.authoritySide = ev.authoritySide;
+  Net.authorityEpoch = Math.max(1, ev.authorityEpoch);
   clearTimeout(Net.knockTimer); Net.knockTimer = 0; // the knock landed
-  Net.matchStarted = false; // the next countdown begins a new match, including older hosts
+  Net.matchStarted = false; // the next countdown begins a new match
   // A rematch hello may update the host's settings, but the guest's original
   // preferences must still be restored when they leave the room.
   if (!Net.savedSettings) Net.savedSettings = { firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id };
@@ -2559,13 +2540,9 @@ Net.onHello = function (ev) {
   if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
   try { applySettingsToUI(); } catch (e) {}
   if (ev.theme && THEMES[ev.theme]) setTheme(ev.theme, true);
-  // the host's music seed: reseed the generative sequence so the guest's
-  // room plays the same notes in the same order. Missing on old hosts -
-  // then the guest keeps its own seed instead of throwing.
-  if (Number.isFinite(+ev.mseed)) {
-    Net.musicSeed = (+ev.mseed) >>> 0;
-    try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
-  }
+  // The authority deals the music seed so both peers derive the same sequence.
+  Net.musicSeed = (+ev.mseed) >>> 0;
+  try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   // Origin role is intentionally stable across authority migration. A former
   // host can now be the non-authority player receiving this fresh-match hello.
   Net.active = true;
@@ -2582,7 +2559,10 @@ Net.onHello = function (ev) {
  * starts only the next point, preserving the score and cumulative stats. */
 Net.onCountdown = function (ev) {
   if (!Net.active || !Net.isPlayer() || Net.isAuthority()) return;
-  const fresh = ev?.fresh === true || !Net.matchStarted || G.state === 'win';
+  if (!ev || !Number.isFinite(+ev.mseed) || !Number.isFinite(ev.gw) ||
+      (ev.serveDir !== 1 && ev.serveDir !== -1) ||
+      !Number.isFinite(ev.svx) || !Number.isFinite(ev.svy)) return;
+  const fresh = ev.fresh === true || !Net.matchStarted || G.state === 'win';
   if (ev && (ev.authoritySide === 0 || ev.authoritySide === 1)) Net.authoritySide = ev.authoritySide;
   if (ev && Number.isInteger(ev.authorityEpoch)) Net.authorityEpoch = Math.max(Net.authorityEpoch, ev.authorityEpoch);
   if (ev && Number.isFinite(+ev.mseed)) {
@@ -2602,15 +2582,10 @@ Net.onCountdown = function (ev) {
   if (ev && Number.isInteger(ev.s0) && Number.isInteger(ev.s1) &&
       ev.s0 >= 0 && ev.s1 >= 0 && ev.s0 <= Settings.firstTo && ev.s1 <= Settings.firstTo)
     G.score = [ev.s0, ev.s1];
-  // the host's goal-mouth width for this match (v20); 0/missing = old host,
-  // fall back to the guest's own setting
-  G.gwNet = (ev && Number.isFinite(ev.gw)) ? clamp(ev.gw, 150, 260) : 0;
-  if (ev && (ev.serveDir === 1 || ev.serveDir === -1)) G.serveDir = ev.serveDir;
-  if (ev && Number.isFinite(ev.svx) && Number.isFinite(ev.svy)) {
-    G.serveVX = clamp(ev.svx, -PUCK_MAX, PUCK_MAX); G.serveVY = clamp(ev.svy, -PUCK_MAX, PUCK_MAX); // host's rolled serve
-  } else if (G.serveDir) {
-    rollServe(G.serveDir); // old-host fallback: roll locally
-  }
+  G.gwNet = clamp(ev.gw, 150, 260);
+  G.serveDir = ev.serveDir;
+  G.serveVX = clamp(ev.svx, -PUCK_MAX, PUCK_MAX);
+  G.serveVY = clamp(ev.svy, -PUCK_MAX, PUCK_MAX);
   startCount();
 };
 
@@ -3054,7 +3029,6 @@ Net.restartMatchAfterDrop = function () {
   Net.sessionId = Net.newSessionId();
   Net.authoritySide = side;
   Net.authorityEpoch = 1;
-  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // fresh match, fresh music sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch(role);
@@ -3068,12 +3042,6 @@ Net.restartMatchAfterDrop = function () {
   // publishes a fresh one regardless of which side originally hosted.
   void Net.openSpectatorHost();
   return true;
-};
-
-// Compatibility wrapper for older tests/callers; dead-match restart ownership
-// is now authority-based rather than permanently tied to the original host.
-Net.restartMatchAsHost = function () {
-  return Net.restartMatchAfterDrop();
 };
 
 /* ---------------- leave / disconnect ---------------- */
