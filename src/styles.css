@@ -404,19 +404,30 @@
   .setrow{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:13px 0; text-align:left; }
   .setlabel{ font-size:14px; letter-spacing:1px; flex:0 0 auto; }
   .setrow .seg{ flex:1 1 auto; max-width:310px; }
-  .setting-link{
-    width:100%; display:flex; align-items:center; justify-content:space-between; gap:14px;
-    margin:13px 0; padding:10px 11px; border:1px solid var(--pline); border-radius:9px;
-    background:transparent; color:var(--title); font-family:var(--body); text-align:left; cursor:pointer;
+
+  /* Preferences are one dialog with internal tabs. This keeps the hierarchy
+     clear and avoids nested-overlay state entirely. */
+  .settings-card{ max-width:560px !important; text-align:left; }
+  .pref-tabs{
+    display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px;
+    margin:11px 0 9px; padding:4px; border:1px solid color-mix(in srgb,var(--pline) 68%,transparent);
+    border-radius:11px; background:color-mix(in srgb,var(--ghost) 34%,transparent);
   }
-  .setting-link span{ min-width:0; }
-  .setting-link strong{ display:block; font-size:14px; letter-spacing:1px; }
-  .setting-link small{ display:block; margin-top:2px; color:var(--sub); font-size:10px; letter-spacing:.7px; }
-  .setting-link em{ flex:0 0 auto; color:var(--sub); font-size:12px; font-style:normal; }
-  .setting-link:active{ transform:scale(.985); background:var(--ghost); }
-  .controls-card{ max-width:590px; }
-  .controls-actions{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:14px; }
-  .controls-actions .btn{ margin:0; }
+  .pref-tab{
+    min-width:0; min-height:38px; padding:8px 5px; border:0; border-radius:8px;
+    background:transparent; color:var(--sub); font:600 12px var(--body); cursor:pointer;
+  }
+  .pref-tab.sel{ background:var(--btnbg); color:var(--btnink); font-weight:700; }
+  .pref-tab:active{ transform:scale(.97); }
+  .pref-pages{ min-height:184px; }
+  .pref-panel{ padding:1px 1px 0; }
+  .pref-panel .setrow:first-child{ margin-top:8px; }
+  .pref-reset{
+    display:block; margin:6px 0 0 auto; padding:7px 10px; border:0; background:transparent;
+    color:var(--sub); font:600 11px var(--body); text-decoration:underline; cursor:pointer;
+  }
+  .pref-reset:active{ color:var(--title); }
+  .settings-done{ margin:12px 0 0; }
   /* audio volume sliders: use the current room's palette, not a parallel control style */
   .seg.volrange{ align-items:center; gap:10px; }
   .seg.volrange input[type=range]{ flex:1 1 auto; min-width:0; height:34px; accent-color:var(--btnbg); cursor:pointer; }
@@ -721,23 +732,12 @@
     #settings .seg.volrange input[type=range]{ height:28px; }
     #settings .seg.volrange output{ min-width:2.5em; font-size:11px; }
     #settings .setnote{ margin:-1px 0 4px 71px; font-size:9px; line-height:1.25; }
-    #settings .setting-link{ margin:5px 0; padding:5px 7px; min-height:31px; }
-    #settings .setting-link strong{ font-size:10px; }
-    #settings .setting-link small{ display:none; }
-    #settings .setting-link em{ font-size:9px; }
+    #settings .pref-tabs{ margin:5px 0 4px; gap:3px; padding:3px; }
+    #settings .pref-tab{ min-height:30px; padding:5px 2px; font-size:9px; }
+    #settings .pref-pages{ min-height:126px; }
+    #settings .pref-panel .setrow:first-child{ margin-top:4px; }
+    #settings .pref-reset{ margin-top:2px; padding:4px 6px; font-size:9px; }
     #settingsClose{ margin-top:6px !important; padding:8px 10px; }
-
-    #controls .card{ padding:7px 10px; }
-    #controls .kicker{ margin-bottom:0; font-size:8px; }
-    #controls h1{ margin-bottom:1px; font-size:18px; }
-    #controls .tagline{ margin-bottom:5px; font-size:10px; }
-    #controls .setrow{ flex-direction:row; align-items:center; gap:7px; margin:6px 0; }
-    #controls .setlabel{ flex:0 0 78px; font-size:10px; letter-spacing:.35px; }
-    #controls .setrow .seg{ min-width:0; max-width:none; }
-    #controls .setrow .seg button{ min-height:31px; padding:5px 2px; font-size:9px; }
-    #controls .setnote{ margin:-1px 0 5px 85px; font-size:8px; line-height:1.2; }
-    #controls .controls-actions{ margin-top:6px; }
-    #controls .controls-actions .btn{ padding:7px 6px; font-size:10px; }
 
     #winov .win-card{ padding:7px 9px 6px; }
     #winov .kicker{ margin-bottom:1px; font-size:8px; }
