@@ -120,6 +120,12 @@ const Net = {
   watchHostPeerId: null,
   watchJoinTimer: 0,
 
+  // ---- short-lived session resurrection ----
+  sessionId: null,
+  resumingSession: false,
+  resumeCheckpoint: null,
+  sessionAcc: 0,
+
   // ---- host-side ----
   remote: { tx: 0, ty: 0 },  // guest mallet target, from `in`
   snapAcc: 0,
@@ -175,6 +181,127 @@ function netGenCode() {
   for (let i = 0; i < 6; i++) c += NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0];
   return c;
 }
+
+Net.newSessionId = function () {
+  let id = '';
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(12);
+      crypto.getRandomValues(bytes);
+      id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {}
+  if (!id) {
+    for (let i = 0; i < 24; i++) id += NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0];
+  }
+  return id;
+};
+
+Net.validSessionId = function (id) {
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{12,40}$/.test(id);
+};
+
+Net.copyBodyState = function (body) {
+  if (!body) return null;
+  const keys = ['x','y','tx','ty','vx','vy'];
+  const out = {};
+  for (const key of keys) out[key] = Number.isFinite(body[key]) ? body[key] : 0;
+  return out;
+};
+
+Net.copyStatsState = function (stats) {
+  if (!stats || typeof stats !== 'object') return null;
+  const pair = value => Array.isArray(value) && value.length >= 2 ? [value[0] | 0, value[1] | 0] : [0,0];
+  return {
+    topSpeed:Number.isFinite(stats.topSpeed) ? stats.topSpeed : 0,
+    rally:stats.rally | 0,
+    bestRally:stats.bestRally | 0,
+    bestGoalRally:stats.bestGoalRally | 0,
+    bankGoals:pair(stats.bankGoals),
+    rallyLastSide:Number.isInteger(stats.rallyLastSide) ? stats.rallyLastSide : -1,
+    saves:pair(stats.saves),
+    elapsedMs:Number.isFinite(stats.t0) ? Math.max(0, performance.now() - stats.t0) : 0,
+    streak:pair(stats.streak),
+    bestStreak:pair(stats.bestStreak),
+    worstDef:pair(stats.worstDef),
+  };
+};
+
+Net.authorityCheckpoint = function () {
+  if (Net.role !== 'host' || !Net.active || !G.puck || !G.m1 || !G.m2) return null;
+  return {
+    snapshot:Net.encodeSnapshot(),
+    puck:{
+      w:Number.isFinite(G.puck.w) ? G.puck.w : 0,
+      ang:Number.isFinite(G.puck.ang) ? G.puck.ang : 0,
+    },
+    m1:Net.copyBodyState(G.m1),
+    m2:Net.copyBodyState(G.m2),
+    stats:Net.copyStatsState(G.stats),
+    state:G.state,
+    pausedFrom:G.pausedFrom || 'play',
+    winSide:G.winSide | 0,
+    gwNet:Number.isFinite(G.gwNet) ? G.gwNet : 0,
+    countT:Number.isFinite(G.countT) ? G.countT : 0,
+    countN:Number.isInteger(G.countN) ? G.countN : 3,
+    goPlayed:!!G.goPlayed,
+    goalT:Number.isFinite(G.goalT) ? G.goalT : 0,
+    goalSlowT:Number.isFinite(G.goalSlowT) ? G.goalSlowT : 0,
+    goalSide:G.goalSide === 1 ? 1 : 0,
+    timeScale:Number.isFinite(G.timeScale) ? G.timeScale : 1,
+  };
+};
+
+Net.buildSessionCheckpoint = function () {
+  if (!Net.active || !Net.code || !Net.validSessionId(Net.sessionId) ||
+      !['host','guest'].includes(Net.role)) return null;
+  const now = Date.now();
+  return {
+    v:NET_SESSION_VERSION,
+    savedAt:now,
+    expiresAt:now + NET_SESSION_TTL_MS,
+    code:Net.code,
+    role:Net.role,
+    sid:Net.sessionId,
+    player:Net.localPlayer(),
+    rival:Net.cleanPlayer(Net.rivalIdentity),
+    matchStarted:!!Net.matchStarted,
+    firstTo:Settings.firstTo,
+    pace:Settings.pace,
+    theme:THEME.id,
+    musicSeed:Net.musicSeed >>> 0,
+    authority:Net.role === 'host' ? Net.authorityCheckpoint() : null,
+  };
+};
+
+Net.saveSessionCheckpoint = function () {
+  const checkpoint = Net.buildSessionCheckpoint();
+  if (!checkpoint) return false;
+  try {
+    localStorage.setItem(NET_SESSION_KEY, JSON.stringify(checkpoint));
+    Net.resumeCheckpoint = checkpoint;
+    return true;
+  } catch (e) { return false; }
+};
+
+Net.clearSessionCheckpoint = function () {
+  Net.resumeCheckpoint = null;
+  Net.sessionAcc = 0;
+  try { localStorage.removeItem(NET_SESSION_KEY); } catch (e) {}
+};
+
+Net.readSessionCheckpoint = function (now = Date.now()) {
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(NET_SESSION_KEY) || 'null'); } catch (e) {}
+  if (!raw || raw.v !== NET_SESSION_VERSION || raw.expiresAt <= now ||
+      !/^[A-Z2-9]{6}$/.test(raw.code || '') ||
+      !['host','guest'].includes(raw.role) || !Net.validSessionId(raw.sid)) {
+    if (raw) Net.clearSessionCheckpoint();
+    return null;
+  }
+  return raw;
+};
+
 
 
 Net.cleanPlayer = function (player) {
@@ -260,6 +387,10 @@ const NET_QUICK_SLOT_MS = 30000;
 const NET_QUICK_TIMEOUT_MS = 22000;
 const NET_SPECTATOR_LIMIT = 3;
 const NET_SPECTATOR_HZ = 20;
+const NET_SESSION_KEY = 'atelier-ah-session-v1';
+const NET_SESSION_VERSION = 1;
+const NET_SESSION_TTL_MS = 45000;
+const NET_SESSION_SAVE_MS = 500;
 
 Net.validIceServers = function (servers) {
   if (!Array.isArray(servers)) return [];
