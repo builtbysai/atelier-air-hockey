@@ -1513,6 +1513,9 @@ Net.restoreAuthorityCheckpoint = function (checkpoint) {
   Net.matchStarted = true;
   Net.waitingForRival = false;
   Net.resumingSession = true;
+  // A resurrected authority always performs the short epoch handshake before
+  // resuming, even if the rival reconnects immediately.
+  Net.authorityRecovery = true;
   Net.resetConn();
   return true;
 };
@@ -2698,7 +2701,7 @@ Net.restartMatchAsAuthority = function () {
   const role = Net.role === 'host' ? 'host' : 'guest';
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0;
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
-  const side = Net.side, authoritySide = Net.authoritySide, epoch = Net.authorityEpoch;
+  const side = Net.playerSide(), authoritySide = Net.authoritySide, epoch = Net.authorityEpoch;
   Net.beginMatch(role);
   Net.side = side; Net.authoritySide = authoritySide; Net.authorityEpoch = epoch;
   startCount();
@@ -2708,6 +2711,8 @@ Net.restartMatchAsAuthority = function () {
 };
 
 Net.restartMatchAsHost = function () {
+  Net.sessionId = Net.newSessionId();
+  Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // fresh match, fresh music sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
@@ -2744,6 +2749,9 @@ Net.leave = function () {
  * Idempotent - safe if the room already dropped. */
 Net.onRivalLeft = function () {
   if (!Net.active && !Net.waitingForRival) return;
+  Net.closeSpectatorRoom();
+  Net.authorityRecovery = false;
+  clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
   Net.active = false;
   Net.matchStarted = false;
   Net.waitingForRival = false;
