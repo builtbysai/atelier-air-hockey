@@ -29,7 +29,7 @@ async function loadNet() {
     clamp:(v,a,b)=>Math.min(b,Math.max(a,v)),
     $,
     localStorage:{getItem:()=>null,setItem(){}},
-    hideAll(){}, clearCeremony(){}, resetPositions(){}, startCount(){ G.state='count'; },
+    hideAll(){}, clearCeremony(){}, beginGoalCeremony(){}, resetPositions(){}, startCount(){ G.state='count'; },
     freshBoard:()=>({}), freshStats:()=>({topSpeed:0,bestRally:0,saves:[0,0]}),
     pointers:{clear(){}}, goalW:()=>200, setTheme(){}, applySettingsToUI(){},
     MusicSys:{setSessionSeed(){}}, fitCamera(){}, paintTableWarp(){},
@@ -84,6 +84,20 @@ test('spectator snapshot publisher is optional and targetable', async () => {
   assert.equal(sent[0].target, 'watcher-1');
   assert.ok(Array.isArray(sent[0].data));
   assert.ok(sent[0].data.length >= 15);
+});
+
+test('watching a completed match never records the authority as a recent rival', async () => {
+  const {Net} = await loadNet();
+  Net.role='spectator';
+  let remembered=0;
+  Net.rememberRival=()=>{ remembered++; };
+  Net.clearGuestPrediction=()=>{};
+  Net.guestGoal({s0:7,s1:5,scorer:0,matchEnd:true});
+  assert.equal(remembered,0);
+
+  Net.role='guest';
+  Net.guestGoal({s0:7,s1:5,scorer:0,matchEnd:true});
+  assert.equal(remembered,1, 'played matches still update recent-rival history');
 });
 
 test('game loop never gives a spectator physics or input authority', async () => {
