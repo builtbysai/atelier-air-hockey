@@ -1,5 +1,5 @@
 const ALLOWED_ORIGINS = new Set(['https://builtbysai.com']);
-const LOCAL_ORIGIN = /^https?:\\/\\/(?:localhost|127\\.0\\.0\\.1)(?::\\d+)?$/;
+const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/;
 const TURN_TTL_SECONDS = 4 * 60 * 60;
 
 function allowedOrigin(origin) {
