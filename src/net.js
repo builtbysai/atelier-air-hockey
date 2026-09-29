@@ -776,9 +776,12 @@ Net.uiShow = function (mode, data) {
     S.textContent = 'Find someone now, or open a private table.';
     B.innerHTML = '<button id="onlineQuick" class="btn primary online-quick" type="button">' +
       '<span>Find a rival</span><small>QUICK MATCH</small></button>' +
+      '<button id="onlineWatch" class="btn online-watch" type="button">' +
+      '<span>Watch a table</span><small>SPECTATE</small></button>' +
       '<p class="online-note online-divider">Private table</p>';
-    const quick = $('onlineQuick');
+    const quick = $('onlineQuick'), watch = $('onlineWatch');
     if (quick) quick.onclick = () => Net.quickStart();
+    if (watch) watch.onclick = () => Net.uiShow('watchjoin');
     setBtn(P, 'Host a table', () => Net.create());
     setBtn(Q, 'Join with a code', () => Net.uiShow('join'));
   } else if (mode === 'matching') {
@@ -789,6 +792,28 @@ Net.uiShow = function (mode, data) {
       '<p class="online-note">' + player.name + ' · Direct connection preferred</p>';
     setBtn(P, null);
     setBtn(Q, 'Cancel', () => { Net.opToken++; Net.stopQuick(); Net.uiShow('choose'); });
+  } else if (mode === 'watchjoin') {
+    T.textContent = 'Watch a table';
+    S.textContent = 'Enter the host\u2019s 6-character table code.';
+    B.innerHTML = '<input id="onlineWatchInput" class="online-input" maxlength="6" ' +
+      'autocomplete="off" autocapitalize="characters" spellcheck="false" ' +
+      'placeholder="······" aria-label="Table code">';
+    setBtn(P, 'Watch', () => Net.watch(($('onlineWatchInput') || {}).value || ''));
+    setBtn(Q, 'Back', () => Net.uiShow('choose'));
+    setTimeout(() => {
+      try {
+        const input = $('onlineWatchInput');
+        input.focus({ preventScroll:true });
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); P.click(); } });
+      } catch (e) {}
+    }, 60);
+  } else if (mode === 'watching') {
+    T.textContent = 'Opening the gallery';
+    S.textContent = 'Connecting to table ' + (data.code || '') + '.';
+    B.innerHTML = '<div class="online-matchpulse pulse">WAITING FOR THE TABLE</div>' +
+      '<p class="online-note">Spectators can watch, never affect play.</p>';
+    setBtn(P, null);
+    setBtn(Q, 'Cancel', () => { Net.opToken++; Net.leaveWatch(); Net.uiShow('choose'); });
   } else if (mode === 'join') {
     T.textContent = 'Join a table';
     S.textContent = 'Enter the 6-character code from your rival.';
@@ -948,6 +973,7 @@ Net.create = async function (forcedCode) {
     Net.code = code;
     Net.waitingForRival = true;
     Net.uiShow('waiting', { code });
+    void Net.openSpectatorHost();
   } catch (e) {
     Net.uiShow('choose');
     Net.uiError(Net.connectionError(e, "Couldn't reach the lobby. Check your connection and try again."));
@@ -1180,6 +1206,10 @@ Net.initRoom = function (room, role) {
 /* Drop the room object without ceremony (cancel paths). */
 Net.dropRoom = function () {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
+  if (Net.role === 'host') {
+    void Net.spectatorSendEvent({ t:'end' });
+    Net.closeSpectatorRoom();
+  }
   Net.closeRealtime();
   clearTimeout(Net.knockTimer); Net.knockTimer = 0;
   Net.reconnecting = false; Net.reconnectState = null;
@@ -1276,23 +1306,7 @@ Net.onPeerLeave = function (id) {
 
 Net.onSnapshot = function (a, peerId) {
   if (Net.role !== 'guest' || !Net.active || !Net.acceptPeer(peerId)) return;
-  // 15 slots from older hosts still decode (serve slots are optional);
-  // anything shorter or non-numeric is junk
-  if (!Array.isArray(a) || a.length < 15 || !a.every(Number.isFinite)) return;
-  const s = Net.decodeSnapshot(a);
-  if (!Net.gview) {
-    Net.gview = { px: s.px, py: s.py, pvx: s.pvx, pvy: s.pvy };
-  } else {
-    // teleport guard: a snapshot from across the table means our model is
-    // stale (missed packets) - seed hard instead of rubber-banding.
-    const d = Math.hypot(s.px - Net.gview.px, s.py - Net.gview.py);
-    // During local contact prediction, reconciliation owns large corrections.
-    // The generic stale-model teleport guard would otherwise erase the
-    // predicted hit before the authoritative post-input state can arrive.
-    if (!Net.guestPrediction && d > 420) { Net.gview.px = s.px; Net.gview.py = s.py; }
-  }
-  Net.rsnap = s;
-  Net.snapT = performance.now();
+  Net.applyRemoteSnapshot(a);
 };
 
 Net.onInput = function (a, peerId) {
@@ -1500,6 +1514,8 @@ Net.beginMatch = function (role) {
   pointers.clear();
   hideAll();
   $('topbar').classList.remove('hidden');
+  const pauseButton = $('btnPause');
+  if (pauseButton) pauseButton.classList.toggle('hidden', role === 'spectator');
   // reset rematch UI
   const rb = $('btnRematch'); rb.textContent = 'Rematch'; rb.disabled = false;
   // net state
@@ -1790,7 +1806,12 @@ Net.advanceGuestPrediction = function (rdt) {
  * compatibility lane. Guest input uses the same adaptive cadence; visual
  * dead reckoning still runs every frame. No-op unless a match is live. */
 Net.pump = function (rdt) {
-  if (!Net.active || !Net.wire) return;
+  if (!Net.active) return;
+  if (Net.role === 'spectator') {
+    if (G.state !== 'pause') Net.guestApply(rdt);
+    return;
+  }
+  if (!Net.wire) return;
   // RTT probe: cheap, on the event channel, display-only
   Net.conn.pingAcc += rdt;
   if (Net.conn.pingAcc >= 2.5) { Net.conn.pingAcc = 0; Net.sendPing(); }
@@ -1808,6 +1829,13 @@ Net.pump = function (rdt) {
       Net.snapAcc = 0;
       if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeState()))) Net.wire.sendSt(Net.encodeSnapshot());
     }
+    if (Net.spectatorWire && Net.spectatorIds.size > 0) {
+      Net.spectatorAcc += rdt;
+      if (Net.spectatorAcc >= 1 / NET_SPECTATOR_HZ) {
+        Net.spectatorAcc = 0;
+        void Net.spectatorSendState();
+      }
+    }
   } else {
     Net.inAcc += rdt;
     const inputStep = Net.rtReady ? 1 / 60 : 1 / 30;
@@ -1823,6 +1851,15 @@ Net.easeHostMallet = function (rdt) {
   const k = Math.min(1, rdt * 18);
   G.m1.x += (Net.rsnap.m1x - G.m1.x) * k;
   G.m1.y += (Net.rsnap.m1y - G.m1.y) * k;
+};
+
+Net.easeSpectatorMallets = function (rdt) {
+  if (!Net.rsnap) return;
+  const k = Math.min(1, rdt * 18);
+  G.m1.x += (Net.rsnap.m1x - G.m1.x) * k;
+  G.m1.y += (Net.rsnap.m1y - G.m1.y) * k;
+  G.m2.x += (Net.rsnap.m2x - G.m2.x) * k;
+  G.m2.y += (Net.rsnap.m2y - G.m2.y) * k;
 };
 
 /* Guest per-frame: predict from the freshest snapshot (bounded age), ease the
@@ -1854,7 +1891,8 @@ Net.guestApply = function (rdt) {
   if (!Net.guestPrediction && G.state === 'play') Net.tryPredictGuestHit();
   G.trail.push({ x: gv.px, y: gv.py });
   if (G.trail.length > 16) G.trail.shift();
-  Net.easeHostMallet(rdt);
+  if (Net.role === 'spectator') Net.easeSpectatorMallets(rdt);
+  else Net.easeHostMallet(rdt);
   G.score[0] = s.s0; G.score[1] = s.s1;
   if (G.stats) {
     if (s.top > G.stats.topSpeed) G.stats.topSpeed = s.top;
@@ -1870,8 +1908,10 @@ Net.guestApply = function (rdt) {
  * they no-op instead of throwing. */
 Net.sendHello = function () {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({ t: 'hello', firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id,
-    player:Net.localPlayer(), mseed: Net.musicSeed >>> 0 }); // the generative sequence seed, so guest music matches the host's
+  const ev = { t:'hello', firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id,
+    player:Net.localPlayer(), mseed:Net.musicSeed >>> 0 };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev); // the generative sequence seed, so guest music matches the host's
 };
 // The serve vector rides along so both machines play the identical point -
 // the host's roll is the source of truth, the guest just applies it.
@@ -1879,23 +1919,29 @@ Net.sendHello = function () {
 // (via the host's snapshots) plays the same table.
 Net.sendCountdown = function (fresh = false) {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({ t: 'countdown', fresh, s0:G.score[0], s1:G.score[1], serveDir: G.serveDir,
-    svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10,
-    gw: Math.round(goalW()) });
+  const ev = { t:'countdown', fresh, s0:G.score[0], s1:G.score[1], serveDir:G.serveDir,
+    svx:Math.round(G.serveVX * 10) / 10, svy:Math.round(G.serveVY * 10) / 10,
+    gw:Math.round(goalW()) };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev);
 };
 Net.sendGoal = function (scorer) {
   if (!Net.wire || !Net.active) return;
   const matchEnd = G.score[scorer] >= Settings.firstTo;
-  Net.wire.sendEv({
-    t: 'goal', scorer,
-    s0: G.score[0], s1: G.score[1],
+  const ev = {
+    t:'goal', scorer,
+    s0:G.score[0], s1:G.score[1],
     matchEnd,
-  });
+  };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev);
   if (matchEnd) Net.rememberRival(G.score);
 };
 Net.sendPause = function (paused) {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({ t: paused ? 'pause' : 'resume' });
+  const ev = { t:paused ? 'pause' : 'resume' };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev);
 };
 Net.sendInput = function (force = false) {
   if (!Net.wire || !Net.active) return null;
@@ -1976,6 +2022,7 @@ Net.restartMatchAsHost = function () {
 
 /* ---------------- leave / disconnect ---------------- */
 Net.leave = function () {
+  if (Net.role === 'spectator') { Net.leaveWatch(); return; }
   if (Net.wire && Net.active) { try { Net.wire.sendEv({ t: 'leave' }); } catch (e) {} }
   Net.dropRoom();
   Net.code = null;
