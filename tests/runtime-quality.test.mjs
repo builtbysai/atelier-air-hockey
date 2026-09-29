@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
 
 const [game, ui, template] = await Promise.all([
   readFile(new URL('../src/game.js', import.meta.url), 'utf8'),
@@ -24,6 +25,55 @@ test('Wake Lock releases on hidden/pagehide and can reacquire on return', () => 
   assert.match(ui, /if \(document\.hidden\) \{[\s\S]*?WakeSys\.release\(\);[\s\S]*?pauseForFocusLoss\(\)/);
   assert.match(ui, /else \{[\s\S]*?WakeSys\.sync\(\)/);
   assert.match(ui, /pagehide[^\n]*WakeSys\.release/);
+});
+
+test('a delayed Wake Lock grant is released after pagehide or visibility loss', async () => {
+  for (const mode of ['pagehide', 'hidden']) {
+    let grant;
+    let releases = 0;
+    const document = { hidden:false };
+    const context = vm.createContext({
+      document,
+      navigator:{ wakeLock:{ request:() => new Promise(resolve => { grant = resolve; }) } },
+      G:{ focusLost:false, demo:false, state:'play' },
+      performance:{ now:() => 1000 },
+    });
+    vm.runInContext(ui.slice(0, ui.indexOf('const UpdateSys =')) + '\nthis.WakeSys = WakeSys;', context);
+    const wake = context.WakeSys;
+    const pending = wake.sync();
+    if (mode === 'pagehide') wake.release();
+    else document.hidden = true;
+    grant({ release:() => { releases++; return Promise.resolve(); }, addEventListener() {} });
+    await pending;
+    assert.equal(releases, 1, mode);
+    assert.equal(wake.sentinel, null, mode);
+  }
+});
+
+test('a stale Wake Lock request cannot block or replace a new grant', async () => {
+  const grants = [];
+  let staleReleases = 0;
+  const context = vm.createContext({
+    document:{ hidden:false },
+    navigator:{ wakeLock:{ request:() => new Promise(resolve => grants.push(resolve)) } },
+    G:{ focusLost:false, demo:false, state:'play' },
+    performance:{ now:() => 1000 },
+  });
+  vm.runInContext(ui.slice(0, ui.indexOf('const UpdateSys =')) + '\nthis.WakeSys = WakeSys;', context);
+  const wake = context.WakeSys;
+  const oldRequest = wake.sync();
+  wake.release();
+  const newRequest = wake.sync();
+  assert.equal(grants.length, 2);
+  grants[0]({ release:() => { staleReleases++; return Promise.resolve(); }, addEventListener() {} });
+  await oldRequest;
+  assert.equal(staleReleases, 1);
+  assert.equal(wake.requesting, true);
+  const current = { release:() => Promise.resolve(), addEventListener() {} };
+  grants[1](current);
+  await newRequest;
+  assert.equal(wake.sentinel, current);
+  assert.equal(wake.requesting, false);
 });
 
 test('haptics have a named event vocabulary', () => {

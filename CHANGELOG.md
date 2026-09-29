@@ -3,6 +3,7 @@
 ## 2026-09-28: gameplay and reliability pass
 
 - Saved settings and progress now recover safely from malformed local data instead of stopping startup or a later write.
+- Wake Lock requests that finish after the page is hidden or closed are released immediately.
 - Free Hit now uses a continuous target wall. Workshop Power, Control, and Keeper drills have three stages with saved progress.
 - Fixed mallet contact wrapping into own goals, AI recovery during live goal threats, black canvas recovery after backgrounding, and Exhibition matches changing saved progression.
 - Improved GIF export fidelity, speed-scaled mallet impact light, rival tactics, goal celebrations, and rally feedback.
