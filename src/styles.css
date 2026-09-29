@@ -410,8 +410,12 @@
   .online-input:focus{ outline:none; border-color:var(--btnbg); }
   .online-note{ color:var(--sub); font-size:13px; line-height:1.55; margin:8px 0; }
   .online-quick{ width:100%; margin:6px 0 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-  .online-quick span{ font-weight:700; }
-  .online-quick small{ opacity:.72; font-size:9px; letter-spacing:1.7px; }
+  .online-quick span,.online-watch span{ font-weight:700; }
+  .online-quick small,.online-watch small{ opacity:.72; font-size:9px; letter-spacing:1.7px; }
+  .online-watch{
+    width:100%; margin:-4px 0 12px; display:flex; align-items:center;
+    justify-content:space-between; gap:12px; padding:9px 11px;
+  }
   .online-divider{
     display:flex; align-items:center; gap:10px; margin:2px 0 8px;
     font-size:9px; letter-spacing:2px; text-transform:uppercase;
