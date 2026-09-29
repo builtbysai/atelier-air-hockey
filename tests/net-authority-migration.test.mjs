@@ -20,9 +20,11 @@ async function loadNet() {
     console, Math, Date, Promise, URL, TextEncoder, Uint8Array, ArrayBuffer, DataView, Set,
     setTimeout, clearTimeout, performance, localStorage, G,
     Settings:{firstTo:7,pace:'classic',goalW:'standard'},
-    THEME:{id:'deco'},
+    THEME:{id:'deco'}, THEMES:{deco:{}}, PACES:{classic:{}},
     PX:200,PY:200,PW:1040,PH:640,CX:720,CY:520,PUCK_R:26,MALLET_R:46,PLAYER_CAP:4200,
     clamp:(v,a,b)=>Math.min(b,Math.max(a,v)),
+    applySettingsToUI(){}, setTheme(){}, fitCamera(){}, paintTableWarp(){},
+    MusicSys:{setSessionSeed(){}}, startCount(){ G.state='count'; }, rollServe(){},
   };
   vm.createContext(context);
   vm.runInContext(source + '\nthis.__Net = Net;', context, {filename:'src/net.js'});
@@ -217,6 +219,90 @@ test('demoted original host checkpoint reloads as non-authority and must resync 
   assert.equal(await Net.tryResumeSession(),true);
   assert.equal(authorityResume,0);
   assert.equal(guestResume,1);
+});
+
+
+test('demoted original host knocks when a dead migrated match peer returns', async () => {
+  const {Net} = await loadNet();
+  Net.role='host'; Net.side=0;
+  Net.authoritySide=1; Net.authorityEpoch=2;
+  Net.active=false; Net.waitingForRival=false; Net.resumingSession=false;
+  Net.wire={};
+  Net.dropOpen=()=>true;
+  Net.ensureRealtimeChannel=()=>null;
+  Net.attachIceRecovery=()=>false;
+  Net.peerConnection=()=>null;
+  Net.paintConn=()=>{};
+  let knocks=0;
+  Net.knockBurst=()=>{ knocks++; };
+
+  Net.onPeerJoin('peer-side-one');
+
+  assert.equal(Net.ownsAuthority(),false);
+  assert.equal(knocks,1, 'late-rejoin initiation follows authority ownership, not the old guest role');
+});
+
+test('migrated authority answers a late knock even when it is the original guest', async () => {
+  const {Net} = await loadNet();
+  Net.role='guest'; Net.side=1;
+  Net.authoritySide=1; Net.authorityEpoch=2;
+  Net.active=false; Net.waitingForRival=false;
+  Net.peerId='peer-side-zero';
+  Net.dropOpen=()=>true;
+  let restarts=0;
+  Net.restartMatchAfterDrop=()=>{ restarts++; return true; };
+
+  Net.onEvent({t:'knock',authorityV:1,player:{id:'side-zero',name:'P0'}},'peer-side-zero');
+
+  assert.equal(Net.ownsAuthority(),true);
+  assert.equal(restarts,1);
+});
+
+test('fresh hello from migrated authority preserves original host identity and side', async () => {
+  const {Net,G} = await loadNet();
+  Net.role='host'; Net.side=0;
+  Net.authoritySide=1; Net.authorityEpoch=2;
+  Net.active=false;
+  Net.uiShow=()=>{};
+  Net.resetConn=()=>{};
+
+  Net.onHello({
+    sid:'abcdefghijklmnopqrstuvwx',
+    authorityV:1, authoritySide:1, authorityEpoch:1,
+    firstTo:7, pace:'classic', theme:'deco', mseed:42,
+    player:{id:'side-one',name:'P1'},
+  });
+
+  assert.equal(Net.role,'host', 'origin role remains stable after authority migration');
+  assert.equal(Net.playerSide(),0);
+  assert.equal(Net.authoritySide,1);
+  assert.equal(Net.active,true);
+  assert.equal(G.onlineFlip,false);
+});
+
+test('dead-match restart keeps the migrated guest as fresh-session authority', async () => {
+  const {Net} = await loadNet();
+  Net.role='guest'; Net.side=1;
+  Net.authoritySide=1; Net.authorityEpoch=4;
+  Net.active=false;
+  Net.peerAuthorityVersion=1;
+  Net.beginMatch=role=>{ Net.role=role; Net.side=role==='guest'?1:0; Net.active=true; };
+  Net.resetConn=()=>{};
+  let hellos=0, countdowns=0, watcherOpens=0;
+  Net.sendHello=()=>{ hellos++; };
+  Net.sendCountdown=()=>{ countdowns++; };
+  Net.openSpectatorHost=async()=>{ watcherOpens++; };
+
+  assert.equal(Net.restartMatchAfterDrop(),true);
+
+  assert.equal(Net.role,'guest');
+  assert.equal(Net.playerSide(),1);
+  assert.equal(Net.authoritySide,1);
+  assert.equal(Net.authorityEpoch,1, 'fresh session resets the authority epoch');
+  assert.equal(Net.validSessionId(Net.sessionId),true);
+  assert.equal(hellos,1);
+  assert.equal(countdowns,1);
+  assert.equal(watcherOpens,1);
 });
 
 test('migrated authority clamps incoming target to the remote player half', async () => {
