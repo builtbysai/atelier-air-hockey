@@ -18,10 +18,10 @@ function checkPNG(buf, name, w, h) {
 }
 const [icon180, icon192, icon512] = await Promise.all([readFile('assets/icon-180.png'), readFile('assets/icon-192.png'), readFile('assets/icon-512.png')]);
 checkPNG(icon180, 'icon-180.png', 180, 180); checkPNG(icon192, 'icon-192.png', 192, 192); checkPNG(icon512, 'icon-512.png', 512, 512);
-const [index, template, net, game, ui, boards, themes, css] = await Promise.all([
+const [index, template, net, game, ui, share, boards, themes, css] = await Promise.all([
   readFile('index.html','utf8'), readFile('src/template.html','utf8'), readFile('src/net.js','utf8'),
-  readFile('src/game.js','utf8'), readFile('src/ui.js','utf8'), readFile('src/scoreboards.js','utf8'),
-  readFile('src/themes.js','utf8'), readFile('src/styles.css','utf8')
+  readFile('src/game.js','utf8'), readFile('src/ui.js','utf8'), readFile('src/share.js','utf8'),
+  readFile('src/scoreboards.js','utf8'), readFile('src/themes.js','utf8'), readFile('src/styles.css','utf8')
 ]);
 assert.equal(index, template, 'index.html must be generated from src/template.html');
 const sw = await readFile('sw.js', 'utf8');
@@ -34,6 +34,17 @@ assert.doesNotMatch(net, /const \[sendSt/); assert.doesNotMatch(net, /createStub
 assert.match(net, /disconnectTimer/); assert.match(net, /validGoalEvent/); assert.match(net, /opToken/); assert.match(net, /handshakePeerId/);
 assert.match(game, /bestStreak: \[0, 0\]/); assert.match(game, /function togglePause/);
 assert.match(game, /function loadSavedObject\(key\)/);
+assert.doesNotMatch(game, /stored\.touchControl|stored\.sound|stored\.music|stored\.masterMuted/,
+  'settings loader must not migrate test-build schemas');
+assert.doesNotMatch(game, /\bSettings\.(?:sound|music|masterMuted)\b|soundBeforeMute|musicBeforeMute/,
+  'audio must use current volume settings only');
+assert.match(game, /setAllMuted\(muted\)/);
+assert.match(game, /allMuted\(\)/);
+assert.doesNotMatch(net, /peerAuthorityVersion|authorityMigrationReady|restartMatchAsHost/,
+  'online mode must use the current authority protocol directly');
+assert.match(net, /ev\.authorityV !== NET_AUTHORITY_VERSION/);
+assert.doesNotMatch(share, /function encodeGif332\(/,
+  'GIF export must expose only the current adaptive encoder path');
 assert.match(game, /querySelectorAll\('\.overlay:not\(\[data-persistent-overlay\]\)'\)/,
   'hideAll must structurally dismiss non-persistent overlays');
 assert.match(game, /querySelectorAll\('\[data-game-chrome\]'\)/,
@@ -50,9 +61,9 @@ assert.match(game, /high:\s+\{ finger:94, mallet:3\.3 \}/);
 assert.match(game, /roomRatio \/ 2/,
   'touch offset must continue fading near playable boundaries');
 assert.doesNotMatch(template, /touchStick|Floating stick|stickReturn/,
-  'retired floating-stick UI must not return');
+  'touch UI must keep one direct-manipulation path');
 assert.doesNotMatch(ui, /touchStick|touchReturn|stickReturn/,
-  'retired floating-stick runtime must not return');
+  'touch runtime must keep one direct-manipulation path');
 const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
 assert.match(ambience, /Settings\.musicVolume <= 0/, 'room ambience must follow the Music control');
 assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shots must not leak onto the Sound bus');
