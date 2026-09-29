@@ -1681,7 +1681,6 @@ Net.resumeAuthoritySession = async function (checkpoint) {
     Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
     Net.resumeCheckpoint = checkpoint;
     if (!Net.restoreAuthorityCheckpoint(checkpoint)) throw new Error('Saved authority state is invalid');
-    void Net.openSpectatorHost();
     const peers = Object.keys(room.getPeers());
     if (peers.length > 0) Net.onPeerJoin(peers[0]);
     clearTimeout(Net.disconnectTimer);
@@ -1791,7 +1790,8 @@ Net.promoteAuthority = function () {
     G.stats.saves = [snap.sv0 | 0, snap.sv1 | 0];
   }
   Net.gview = null;
-  void Net.openSpectatorHost();
+  // Do not publish a replacement watcher authority while the peer epoch is
+  // unresolved. finishAuthorityReconnect opens the watcher room after settle.
   Net.saveSessionCheckpoint();
   return true;
 };
