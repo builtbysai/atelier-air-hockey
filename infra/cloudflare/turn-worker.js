@@ -1,9 +1,15 @@
 const ALLOWED_ORIGINS = new Set(['https://builtbysai.com']);
-const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/;
 const TURN_TTL_SECONDS = 4 * 60 * 60;
 
 function allowedOrigin(origin) {
-  return ALLOWED_ORIGINS.has(origin) || LOCAL_ORIGIN.test(origin);
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    return (url.protocol === 'http:' || url.protocol === 'https:') &&
+      (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+  } catch {
+    return false;
+  }
 }
 
 function cors(origin) {
