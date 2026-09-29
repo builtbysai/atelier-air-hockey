@@ -1,7 +1,7 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was refreshed: `ad32f0a5b987`
+Current reference main commit when this roadmap was refreshed: `851d748dc14e`
 
 ## New-agent quick start
 
@@ -39,7 +39,7 @@ Non-negotiables:
 - Host-authoritative score and match state.
 - Direct WebRTC is the preferred path.
 - TURN is fallback only.
-- No required player accounts, database, dedicated game-server fleet, Redis, or paid always-on backend for v1.
+- No required player accounts, database, dedicated game-server fleet, Redis, or paid always-on backend for the current architecture.
 - Goals, scores, win state, pause/rematch and other critical state stay reliable/authoritative.
 - Realtime position/input traffic may be lossy because newer state replaces older state.
 - Every Online V2 enhancement must preserve the reliable fallback lane when the optional fast lane is unavailable.
@@ -386,7 +386,7 @@ Optional social layer with no account server:
 - recent rivals stored locally
 - challenge a known rival when both are online
 
-Do not add chat/moderation burden for v1.
+Do not add chat/moderation burden to the current scope.
 
 ### 9. Session resurrection
 
