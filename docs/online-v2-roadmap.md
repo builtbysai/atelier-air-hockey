@@ -198,6 +198,32 @@ Already present before the above work:
 
 High-risk production behavior remains staged until the full test/visual suite can run again.
 
+### Draft Online V2.5 resilience stack: PRs #115-#119
+
+A second, intentionally stacked draft chain now explores the requested experience/resilience features without changing the core direct-WebRTC + TURN-fallback architecture:
+
+```text
+main
+  -> #115 Quick Match + local identity/recent rivals
+      -> #116 capped view-only spectators
+          -> #117 reload/tab-kill session resurrection
+              -> #118 authority migration after long disconnects
+                  -> #119 Quick Match contention hardening
+```
+
+Current staged behavior:
+
+- #115 adds account-free local identity and short-lived Nostr/Trystero Quick Match rendezvous while preserving private Host / Join Code.
+- #116 keeps spectators in a separate passive watcher room, caps fanout at 3, streams authoritative state only, and gives watchers no gameplay/authority path.
+- #117 persists a short 45-second local resurrection lease. Guests must resync from authority; only the current authority restores authoritative state from its own checkpoint.
+- #118 separates player side from simulation authority and adds monotonic authority epochs. Ordinary reconnect still gets the existing 15-second grace first. After long loss, promotion starts from the latest authoritative snapshot, never speculative guest state.
+- Static review of #118 removed a fixed 120 ms epoch-settle assumption: a recovered match now stays frozen until a valid peer authority claim is observed. A newer remote epoch must include a valid authoritative snapshot, and unresolved handshakes fail closed instead of risking split brain.
+- #119 fixes 3+ player Quick Match contention by allowing only one active reservation per client, rejecting competing reservations as busy, bounding reservation stalls, and retrying other visible peers.
+
+These PRs are **not validated or merge-ready yet**. Keep the chain draft/frozen apart from correctness fixes and tests until Actions return.
+
+Important integration note: #88 and this stack both modify `src/net.js`. Validate and merge #88 first. Then refresh #115 against the new `main`, resolve any recovery-lifecycle overlap there, and validate/merge #115 -> #116 -> #117 -> #118 -> #119 in order. Do not merge the top of the stack directly into `main`.
+
 ### Draft PR #88 - ICE recovery / network migration
 
 Branch: `feat/online-v2-ice-recovery`
@@ -457,14 +483,12 @@ First measure host-authority + guest prediction + lag compensation. If that feel
 2. Run full CI + Visual QA for PR #88, then merge only if green.
 3. Run the merged Network Lab through the full suite and inspect/tune from measured results.
 4. Run real direct, forced-TURN and Wi-Fi/cellular migration tests.
-5. After the Network Lab is green, implement bounded host-side contact lag compensation.
-6. Vendor/pin Trystero and harden mobile leave/rejoin cleanup without changing the P2P architecture.
-7. Improve Nostr relay resilience based on measured failures.
-8. Add Quick Match.
-9. Add local identity / recent rivals / challenge flow.
-10. Add session resurrection.
-11. Add authority migration.
-12. Evaluate whether rollback is still worth the complexity.
+5. Refresh #115 against the post-#88 `main`, then validate and merge the staged Online V2.5 chain sequentially: #115 -> #116 -> #117 -> #118 -> #119. Each step gets `npm run unit:online`, full CI/Visual QA, plus its feature-specific real-browser test before the next base is advanced.
+6. After the Network Lab is green, implement bounded host-side contact lag compensation. Keep this isolated from the V2.5 stack until both sides are validated.
+7. Vendor/pin Trystero and harden mobile leave/rejoin cleanup without changing the P2P architecture.
+8. Improve Nostr relay resilience based on measured failures.
+9. Finish the recent-rival challenge UX only after Quick Match reliability is measured in production.
+10. Evaluate whether rollback is still worth the complexity.
 
 ## Experience targets
 
@@ -510,20 +534,24 @@ Before changing Online code:
 
 ### While Actions remain unavailable
 
-Do not stack another high-risk production protocol/physics change on top of unverified PR #88 or before the merged Network Lab has actually executed.
+Do not stack another high-risk production protocol/physics change on top of the current draft chain. #115-#119 now cover the requested matchmaking, spectators, resurrection, and authority-migration work far enough for this outage window.
 
 Safe work:
 
-1. Use `npm run unit:online` for the focused Online V2 suite; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics, sequence tracing, prediction/reconciliation chaos coverage, per-profile prediction baseline diagnostics, production-physics drift guards and lag-compensation contract tests are already merged.
+1. Keep adding focused tests or static correctness fixes to the draft that owns the behavior; do not broaden scope.
 2. Keep PR #88 frozen as a draft; its static lifecycle/configuration review is complete enough to defer further production edits until the full suite and real-device migration run.
-3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
-4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
+3. Keep #115-#119 draft and preserve their stack order. #119 is the current top of the Online V2.5 chain.
+4. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
+5. Use the merged forced TURN diagnostic for real-device relay validation when practical.
 
 ### When Actions return
 
 1. Run PR #88 through full CI + Visual QA; fix and merge if green.
 2. Run the merged Network Lab through full CI and confirm it is green.
-3. Run normal direct-preferred + forced TURN real-device tests using `docs/online-v2-turn-verification.md`.
-4. Then implement the bounded state-sequence/history contact compensation plan as the next production phase.
+3. Run normal direct-preferred + forced TURN real-device tests using `docs/online-v2-turn-verification.md`, including Wi-Fi/cellular migration.
+4. Refresh #115 against the new `main` and resolve any overlap with #88.
+5. Validate/merge #115, then retarget/validate #116, #117, #118, and #119 one at a time.
+6. Real-browser gates: 3+ player Quick Match contention, three-device spectator join/leave, guest reload, authority reload, long host loss/promotion, former-host return/adoption, and reload before/after promotion.
+7. Only after the Network Lab is green should bounded host-side contact lag compensation move into production code.
 
 The lag-compensation design uses the existing host realtime state sequence as a lower-bound reference, a bounded host-authored history ring, and a separate additive type-4 contact hint. The host alone validates the trajectory and computes any future outcome.
