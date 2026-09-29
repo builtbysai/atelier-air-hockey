@@ -343,3 +343,32 @@ test('stationary input heartbeat recovers a target after its first realtime pack
   assert.equal(guest.Net.inputAcked(heartbeatSeq), true);
   assert.equal(net.report().queued, 0);
 });
+
+
+test('stale realtime state cannot regress the guest authoritative score snapshot', async () => {
+  const guest = await loadNetWorld();
+  guest.Net.role = 'guest';
+
+  const statePacket = (seq, s0, s1) => {
+    const buffer = new ArrayBuffer(56);
+    const v = new DataView(buffer);
+    v.setUint8(0, 1);
+    v.setUint8(1, 1);
+    v.setUint16(2, seq, true);
+    v.setUint8(36, s0);
+    v.setUint8(37, s1);
+    v.setUint8(38, 2); // live play
+    return buffer;
+  };
+
+  guest.Net.onRealtimeMessage(statePacket(40, 4, 3));
+  assert.equal(guest.Net.rsnap.s0, 4);
+  assert.equal(guest.Net.rsnap.s1, 3);
+
+  guest.Net.onRealtimeMessage(statePacket(39, 2, 3));
+  guest.Net.onRealtimeMessage(statePacket(40, 1, 1));
+
+  assert.equal(guest.Net.rtLastStateSeq, 40);
+  assert.equal(guest.Net.rsnap.s0, 4, 'stale/duplicate state must not regress host score');
+  assert.equal(guest.Net.rsnap.s1, 3);
+});
