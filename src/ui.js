@@ -255,7 +255,9 @@ function setSetting(key, val) {
     // central mute snapshots the exact current mix separately in AudioSys.
     if (val > 0) Settings[key === 'soundVolume' ? 'soundBeforeMute' : 'musicBeforeMute'] = val;
   }
-  saveSettings(); applySettingsToUI();
+  saveSettings();
+  if (key === 'touchControl' || key === 'stickReturn') resetTransientControls();
+  applySettingsToUI();
   // the menu's table thumbnails draw the goal mouth - repaint so the
   // preview always matches the chosen width
   if (key === 'goalW') { try { paintThumbnails(); } catch (e) {} }
@@ -340,22 +342,35 @@ function applySettingsToUI() {
   const touchCapable = (navigator.maxTouchPoints || 0) > 0 ||
     (window.matchMedia && matchMedia('(pointer:coarse)').matches);
   const touchRow = $('touchControlRow'), touchNote = $('touchControlNote');
+  const stickReturnRow = $('stickReturnRow'), stickReturnNote = $('stickReturnNote');
+  const usingStick = Settings.touchControl === 'stick';
   if (touchRow) touchRow.classList.toggle('hidden', !touchCapable);
   if (touchNote) {
     touchNote.classList.toggle('hidden', !touchCapable);
-    touchNote.textContent = Settings.touchControl === 'stick'
-      ? 'Floating stick appears under your thumb. Better visibility, slightly less direct than dragging the mallet.'
+    touchNote.textContent = usingStick
+      ? 'Floating stick starts exactly under your thumb, follows long drags, and gives fine control near center with full-speed attack at the edge.'
       : 'Direct keeps the mallet attached to your gesture and preserves the strongest flick control.';
   }
+  if (stickReturnRow) stickReturnRow.classList.toggle('hidden', !touchCapable || !usingStick);
+  if (stickReturnNote) {
+    stickReturnNote.classList.toggle('hidden', !touchCapable || !usingStick);
+    stickReturnNote.textContent = Settings.stickReturn === 'triangle'
+      ? 'On release, the mallet briefly returns toward a safe triangle-defense position based on the current puck lane. Any new input cancels it.'
+      : 'Release leaves the mallet where you stopped it.';
+  }
+  const stickHint = Settings.stickReturn === 'triangle'
+    ? 'Use the floating stick · release to recover'
+    : 'Use the floating stick to move';
   const hint = $('hint');
-  if (hint) hint.textContent = Settings.touchControl === 'stick' ? 'Use the floating stick to move' : 'Drag to move your mallet';
+  if (hint) hint.textContent = usingStick ? stickHint : 'Drag to move your mallet';
   const touchFoot = $('touchControlHint');
-  if (touchFoot) touchFoot.textContent = Settings.touchControl === 'stick'
-    ? 'Floating stick · Tap pause for match controls'
+  if (touchFoot) touchFoot.textContent = usingStick
+    ? (Settings.stickReturn === 'triangle' ? 'Floating stick · release to recover · Tap pause for match controls' : 'Floating stick · Tap pause for match controls')
     : 'Drag to move your mallet · Tap pause for match controls';
   const helpTouch = $('helpTouchMove');
-  if (helpTouch) helpTouch.innerHTML = Settings.touchControl === 'stick'
-    ? '<b>Move your mallet</b> with the floating stick that appears under your thumb. Push farther for speed; release to stop.'
+  if (helpTouch) helpTouch.innerHTML = usingStick
+    ? '<b>Move your mallet</b> with the floating stick under your thumb. The base follows long drags, so you never run out of room. Push farther for speed.' +
+      (Settings.stickReturn === 'triangle' ? ' Release and the mallet briefly recovers toward the defensive triangle; touch again to take over instantly.' : '')
     : '<b>Drag your mallet</b> directly across your half of the table. Flick quickly to <b>smash</b> the puck; ease it to deaden and control.';
 }
 
@@ -521,10 +536,13 @@ function keyboardGamepadDrive(now) {
 
     const driveTouchStick = m => {
       if (!m || !touchStickActive(m.side)) return false;
+      cancelTouchReturn(m.side);
       const [sx, sy] = touchStickVector(m.side);
       if (!sx && !sy) { markControlDrive(m.side); return true; }
-      const speed = 2360 * controlFeelScale('balanced');
-      nudgeMalletTarget(m, sx, sy, speed, dt);
+      // A virtual stick needs enough authority to attack, not just steer.
+      // Small deflections remain slow because the analog magnitude scales this
+      // speed; full throw can build a proper air-hockey strike.
+      nudgeMalletTarget(m, sx, sy, 3320, dt);
       return true;
     };
 
@@ -532,6 +550,7 @@ function keyboardGamepadDrive(now) {
       if (!m || touchStickActive(m.side)) return false;
       const [sx, sy, speed] = digitalControlVector(m, left, right, up, down, dt);
       if (!speed) return false;
+      cancelTouchReturn(m.side);
       return nudgeMalletTarget(m, sx, sy, speed, dt);
     };
 
@@ -539,22 +558,26 @@ function keyboardGamepadDrive(now) {
       if (!pad || !m || touchStickActive(m.side)) return false;
       const [sx, sy] = shapeAnalogInput(pad.axes[0] || 0, pad.axes[1] || 0, 0.16, 1.16);
       if (!sx && !sy) return false;
+      cancelTouchReturn(m.side);
       return nudgeMalletTarget(m, sx, sy, 2260 * controlFeelScale(Settings.gamepadFeel), dt);
     };
+    const driveReturn = m => !!m && touchReturnStep(m, dt, now);
 
-    // Floating touch has priority while a thumb is down. Keyboard and gamepad
-    // can otherwise coexist; both resolve through the same screen-vector map.
+    // Manual input always wins. The short triangle return runs only after the
+    // stick is released and only while no keyboard/gamepad input takes over.
     const p1Touch = driveTouchStick(p1);
     if (!p1Touch) {
-      driveKeys(p1, 'KeyA', 'KeyD', 'KeyW', 'KeyS');
-      drivePad(pads[0], p1);
+      const p1Keys = driveKeys(p1, 'KeyA', 'KeyD', 'KeyW', 'KeyS');
+      const p1Pad = !p1Keys && drivePad(pads[0], p1);
+      if (!p1Keys && !p1Pad) driveReturn(p1);
     }
 
     if (p2) {
       const p2Touch = driveTouchStick(p2);
       if (!p2Touch) {
-        driveKeys(p2, 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown');
-        drivePad(pads[1], p2);
+        const p2Keys = driveKeys(p2, 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown');
+        const p2Pad = !p2Keys && drivePad(pads[1], p2);
+        if (!p2Keys && !p2Pad) driveReturn(p2);
       }
     }
   } else {
@@ -845,6 +868,7 @@ function wireUI() {
   $('controlsReset').addEventListener('click', () => {
     AudioSys.init(); AudioSys.ui();
     Settings.touchControl = 'direct';
+    Settings.stickReturn = 'triangle';
     Settings.keyboardFeel = 'balanced';
     Settings.gamepadFeel = 'balanced';
     saveSettings(); applySettingsToUI();
