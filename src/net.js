@@ -81,7 +81,12 @@ const Net = {
   // ---- lifecycle state ----
   room: null,          // Room (Trystero or stub)
   wire: null,          // {sendSt, sendIn, sendEv} from wireRoom()
-  role: null,          // 'host' | 'guest' once a match is live
+  role: null,          // origin role: 'host' | 'guest' | 'spectator'
+  side: null,          // player side 0/1, independent from simulation authority
+  authoritySide: 0,    // side currently allowed to simulate/score/send state
+  authorityEpoch: 0,   // monotonic authority generation; higher epoch wins
+  authorityRecovery: false,
+  authoritySettleTimer: 0,
   active: false,       // true while a match owns the room
   matchStarted: false, // distinguishes a new match from the next point
   code: null,          // 6-character room code
@@ -181,6 +186,35 @@ function netGenCode() {
   for (let i = 0; i < 6; i++) c += NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0];
   return c;
 }
+
+Net.isPlayer = function () {
+  return Net.side === 0 || Net.side === 1;
+};
+
+Net.isAuthority = function () {
+  return Net.active && Net.isPlayer() && Net.side === Net.authoritySide;
+};
+
+Net.localMallet = function () {
+  return Net.side === 1 ? G.m2 : G.m1;
+};
+
+Net.remoteMallet = function () {
+  return Net.side === 1 ? G.m1 : G.m2;
+};
+
+Net.remoteSide = function () {
+  return Net.side === 0 ? 1 : Net.side === 1 ? 0 : null;
+};
+
+Net.authorityTupleWins = function (epoch, side) {
+  if (!Number.isInteger(epoch) || epoch < 0 || (side !== 0 && side !== 1)) return false;
+  if (epoch !== Net.authorityEpoch) return epoch > Net.authorityEpoch;
+  if (side === Net.authoritySide) return false;
+  // Deterministic split-brain tie breaker. Equal epochs should be rare; side
+  // zero wins only to make the rule total and repeatable.
+  return side < Net.authoritySide;
+};
 
 Net.newSessionId = function () {
   let id = '';
@@ -396,6 +430,8 @@ const NET_SESSION_KEY = 'atelier-ah-session-v1';
 const NET_SESSION_VERSION = 1;
 const NET_SESSION_TTL_MS = 45000;
 const NET_SESSION_SAVE_MS = 500;
+const NET_AUTHORITY_SETTLE_MS = 120;
+const NET_AUTHORITY_RECOVERY_MS = 30000;
 
 Net.validIceServers = function (servers) {
   if (!Array.isArray(servers)) return [];
