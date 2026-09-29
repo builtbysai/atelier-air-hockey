@@ -1150,8 +1150,9 @@ Net.guestSyncState = function (s) {
 };
 
 /* ---------------- per-frame ---------------- */
-/* Host: snapshots @30Hz. Guest: input @30Hz + dead reckoning every frame.
- * No-op unless a match is live. */
+/* Host: snapshots at 60 Hz on the realtime lane, 30 Hz on the reliable
+ * compatibility lane. Guest input uses the same adaptive cadence; visual
+ * dead reckoning still runs every frame. No-op unless a match is live. */
 Net.pump = function (rdt) {
   if (!Net.active || !Net.wire) return;
   // RTT probe: cheap, on the event channel, display-only
@@ -1169,7 +1170,7 @@ Net.pump = function (rdt) {
     const stateStep = Net.rtReady ? 1 / 60 : 1 / 30;
     if (Net.snapAcc >= stateStep && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
       Net.snapAcc = 0;
-      if (!Net.sendRealtime(Net.encodeRealtimeState())) Net.wire.sendSt(Net.encodeSnapshot());
+      if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeState()))) Net.wire.sendSt(Net.encodeSnapshot());
     }
   } else {
     Net.inAcc += rdt;
@@ -1259,7 +1260,7 @@ Net.sendInput = function () {
   if (Net.lastIn && Math.abs(tx - Net.lastIn[0]) < 0.5 && Math.abs(ty - Net.lastIn[1]) < 0.5 &&
       now - Net.lastInT < 500) return;
   Net.lastIn = [tx, ty]; Net.lastInT = now;
-  if (!Net.sendRealtime(Net.encodeRealtimeInput(tx, ty))) Net.wire.sendIn([tx, ty]);
+  if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeInput(tx, ty)))) Net.wire.sendIn([tx, ty]);
 };
 
 /* ---------------- rematch ---------------- */
