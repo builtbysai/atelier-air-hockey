@@ -141,7 +141,13 @@ const Net = {
   rtLastStateSeq: null,
   rtLastInputSeq: null,
   rtAckInputSeq: null,
-  rtDropped: 0
+  rtDropped: 0,
+
+  // ---- guest-side speculative contact ----
+  guestPrediction: null,
+  guestContactLatch: false,
+  predictionCorrections: 0,
+  predictionMaxError: 0
 };
 
 /* Unambiguous code alphabet: no 0/O, 1/I/L. */
@@ -567,6 +573,7 @@ Net.closeRealtime = function () {
   const ch = Net.rtChannel;
   Net.rtChannel = null; Net.rtPc = null; Net.rtReady = false;
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null;
+  Net.guestPrediction = null; Net.guestContactLatch = false;
   try { if (ch && ch.readyState !== 'closed') ch.close(); } catch (e) {}
 };
 
@@ -826,7 +833,10 @@ Net.onSnapshot = function (a, peerId) {
     // teleport guard: a snapshot from across the table means our model is
     // stale (missed packets) - seed hard instead of rubber-banding.
     const d = Math.hypot(s.px - Net.gview.px, s.py - Net.gview.py);
-    if (d > 420) { Net.gview.px = s.px; Net.gview.py = s.py; }
+    // During local contact prediction, reconciliation owns large corrections.
+    // The generic stale-model teleport guard would otherwise erase the
+    // predicted hit before the authoritative post-input state can arrive.
+    if (!Net.guestPrediction && d > 420) { Net.gview.px = s.px; Net.gview.py = s.py; }
   }
   Net.rsnap = s;
   Net.snapT = performance.now();
@@ -1044,6 +1054,8 @@ Net.beginMatch = function (role) {
   Net.snapAcc = 0; Net.inAcc = 0;
   Net.rtStateSeq = 0; Net.rtInputSeq = 0;
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null; Net.rtDropped = 0;
+  Net.guestPrediction = null; Net.guestContactLatch = false;
+  Net.predictionCorrections = 0; Net.predictionMaxError = 0;
   Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
 };
 
@@ -1125,6 +1137,7 @@ Net.onCountdown = function (ev) {
  * are also stamped into the snapshot cache so the per-frame apply can't
  * regress them with a stale pre-goal snapshot. */
 Net.guestGoal = function (ev) {
+  Net.clearGuestPrediction();
   G.score = [ev.s0, ev.s1];
   if (Net.rsnap) { Net.rsnap.s0 = ev.s0; Net.rsnap.s1 = ev.s1; }
   beginGoalCeremony(ev.scorer); // visuals only - no scoring, no send
@@ -1181,6 +1194,141 @@ Net.guestSyncState = function (s) {
   else if (!(flags & 8) && G.state === 'pause') Net.applyRemotePause(false);
 };
 
+/* ---------------- guest contact prediction ---------------- */
+Net.realtimeWritable = function () {
+  const ch = Net.rtChannel;
+  return !!(Net.rtReady && ch && ch.readyState === 'open' && ch.bufferedAmount <= NET_RT_MAX_BUFFERED);
+};
+
+Net.clearGuestPrediction = function () {
+  Net.guestPrediction = null;
+  Net.guestContactLatch = false;
+};
+
+Net.predictionTarget = function () {
+  const s = Net.rsnap;
+  if (!s) return null;
+  const age = Math.min(0.35, Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000));
+  return {
+    x: Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * age)),
+    y: Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * age)),
+    vx: s.pvx, vy: s.pvy,
+  };
+};
+
+/* Predict only the guest's own mallet contact. The host remains authoritative
+ * for physics, goals, score, stats and the rival mallet. This is deliberately
+ * conservative: no prediction without the V2 realtime/ACK lane, while
+ * reconnecting, or when the outgoing queue is already backed up. */
+Net.tryPredictGuestHit = function () {
+  if (Net.role !== 'guest' || G.state !== 'play' || Net.reconnecting || !Net.realtimeWritable()) return false;
+  const gv = Net.gview, m = G.m2;
+  if (!gv || !m) return false;
+
+  const dx = gv.px - m.x, dy = gv.py - m.y;
+  const minD = (m.r || MALLET_R) + PUCK_R;
+  const d2 = dx * dx + dy * dy;
+  const releaseD = minD + 10;
+  if (d2 >= releaseD * releaseD) Net.guestContactLatch = false;
+  if (Net.guestContactLatch || d2 >= minD * minD || d2 < 1e-6) return false;
+
+  const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+  const rvx = gv.pvx - m.vx, rvy = gv.pvy - m.vy;
+  const vn = rvx * nx + rvy * ny;
+  const mvn = m.vx * nx + m.vy * ny;
+  // A tiny visual overlap while already separating is not a new strike.
+  if (vn >= -35 && mvn <= 80) return false;
+
+  // Force the current target onto the wire so the authoritative host sees
+  // the same local action that caused this speculative contact.
+  const inputSeq = Net.sendInput(true);
+  if (inputSeq === null || inputSeq === undefined) return false;
+
+  const msp = Math.hypot(m.vx, m.vy);
+  const e = 0.35 + (0.92 - 0.35) * Math.min(1, Math.max(0, msp / 1200));
+  let j = -(1 + e) * vn;
+  if (mvn > 0) j += mvn * SMACK_BONUS;
+  let pvx = gv.pvx + nx * j, pvy = gv.pvy + ny * j;
+  const sp = Math.hypot(pvx, pvy);
+  if (sp < 250 && msp > 800) { pvx = nx * 250; pvy = ny * 250; }
+  const capped = Math.hypot(pvx, pvy);
+  if (capped > PUCK_MAX) { pvx *= PUCK_MAX / capped; pvy *= PUCK_MAX / capped; }
+
+  gv.px = m.x + nx * minD; gv.py = m.y + ny * minD;
+  gv.pvx = pvx; gv.pvy = pvy;
+  G.puck.x = gv.px; G.puck.y = gv.py; G.puck.vx = pvx; G.puck.vy = pvy;
+
+  const impact = Math.max(0, -vn + Math.max(0, mvn));
+  m.hitSq = 1 - Math.min(0.34, impact / 2600);
+  m.hitSqA = Math.atan2(ny, nx);
+  if (typeof onMalletHit === 'function') onMalletHit(gv.px, gv.py, impact, nx, ny, false);
+
+  Net.guestContactLatch = true;
+  Net.guestPrediction = {
+    inputSeq,
+    stateSeq: Net.rtLastStateSeq,
+    age: 0,
+    reconciling: false,
+    reconcileT: 0,
+  };
+  return true;
+};
+
+Net.advanceGuestPrediction = function (rdt) {
+  const pred = Net.guestPrediction, gv = Net.gview;
+  if (!pred || !gv) return false;
+  pred.age += rdt;
+
+  // Lightweight copy of free-flight behavior. We intentionally do not
+  // predict goals, scoring, rail juice or stats; those remain host-owned.
+  const damp = typeof paceDamp === 'function' ? Math.exp(-paceDamp() * rdt) : Math.exp(-0.08 * rdt);
+  gv.pvx *= damp; gv.pvy *= damp;
+  gv.px += gv.pvx * rdt; gv.py += gv.pvy * rdt;
+
+  const wall = typeof paceWall === 'function' ? paceWall() : 0.92;
+  if (gv.py < PY + PUCK_R) { gv.py = PY + PUCK_R; if (gv.pvy < 0) gv.pvy = -gv.pvy * wall; }
+  else if (gv.py > PY + PH - PUCK_R) { gv.py = PY + PH - PUCK_R; if (gv.pvy > 0) gv.pvy = -gv.pvy * wall; }
+
+  const inMouth = Math.abs(gv.py - CY) < goalW() / 2;
+  if (!inMouth) {
+    if (gv.px < PX + PUCK_R) { gv.px = PX + PUCK_R; if (gv.pvx < 0) gv.pvx = -gv.pvx * wall; }
+    else if (gv.px > PX + PW - PUCK_R) { gv.px = PX + PW - PUCK_R; if (gv.pvx > 0) gv.pvx = -gv.pvx * wall; }
+  } else if (gv.px < PX + PUCK_R * 0.15 || gv.px > PX + PW - PUCK_R * 0.15) {
+    // Never visually invent a goal. Hand back to host state near the line.
+    pred.reconciling = true;
+  }
+
+  const newerState = pred.stateSeq === null || pred.stateSeq === undefined ||
+    (Net.rtLastStateSeq !== null && Net.seqNewer(Net.rtLastStateSeq, pred.stateSeq));
+  if ((Net.inputAcked(pred.inputSeq) && newerState) || pred.age > 0.32) pred.reconciling = true;
+
+  if (pred.reconciling) {
+    const target = Net.predictionTarget();
+    if (target) {
+      pred.reconcileT += rdt;
+      const err = Math.hypot(target.x - gv.px, target.y - gv.py);
+      Net.predictionMaxError = Math.max(Net.predictionMaxError, err);
+      const hard = err > 180 || pred.age > 0.5;
+      if (hard) {
+        gv.px = target.x; gv.py = target.y; gv.pvx = target.vx; gv.pvy = target.vy;
+        Net.predictionCorrections++;
+        Net.guestPrediction = null;
+      } else {
+        const k = 1 - Math.exp(-rdt * 24);
+        gv.px += (target.x - gv.px) * k; gv.py += (target.y - gv.py) * k;
+        gv.pvx += (target.vx - gv.pvx) * k; gv.pvy += (target.vy - gv.pvy) * k;
+        if ((err < 4 && Math.hypot(target.vx - gv.pvx, target.vy - gv.pvy) < 35) || pred.reconcileT > 0.16) {
+          Net.predictionCorrections++;
+          Net.guestPrediction = null;
+        }
+      }
+    }
+  }
+
+  G.puck.x = gv.px; G.puck.y = gv.py; G.puck.vx = gv.pvx; G.puck.vy = gv.pvy;
+  return true;
+};
+
 /* ---------------- per-frame ---------------- */
 /* Host: snapshots at 60 Hz on the realtime lane, 30 Hz on the reliable
  * compatibility lane. Guest input uses the same adaptive cadence; visual
@@ -1232,14 +1380,22 @@ Net.guestApply = function (rdt) {
   const s = Net.rsnap, gv = Net.gview;
   if (!s || !gv) return;
   Net.guestSyncState(s); // flags backstop first - may change G.state/scores
-  const age = Math.min(0.5, Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000));
-  // predicted target: where the snapshot's puck is NOW, clamped to the table
-  const tx = Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * age));
-  const ty = Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * age));
-  const k = 1 - Math.exp(-rdt * 14); // exponential ease: the same feel at any frame rate
-  gv.px += (tx - gv.px) * k; gv.py += (ty - gv.py) * k;
-  gv.pvx = s.pvx; gv.pvy = s.pvy;
+  if (G.state !== 'play' && Net.guestPrediction) Net.clearGuestPrediction();
+
+  if (!Net.guestPrediction) {
+    const age = Math.min(0.5, Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000));
+    // predicted target: where the snapshot's puck is NOW, clamped to the table
+    const tx = Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * age));
+    const ty = Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * age));
+    const k = 1 - Math.exp(-rdt * 14); // exponential ease: the same feel at any frame rate
+    gv.px += (tx - gv.px) * k; gv.py += (ty - gv.py) * k;
+    gv.pvx = s.pvx; gv.pvy = s.pvy;
+  } else {
+    Net.advanceGuestPrediction(rdt);
+  }
+
   G.puck.x = gv.px; G.puck.y = gv.py; G.puck.vx = gv.pvx; G.puck.vy = gv.pvy;
+  if (!Net.guestPrediction && G.state === 'play') Net.tryPredictGuestHit();
   G.trail.push({ x: gv.px, y: gv.py });
   if (G.trail.length > 16) G.trail.shift();
   Net.easeHostMallet(rdt);
@@ -1283,16 +1439,23 @@ Net.sendPause = function (paused) {
   if (!Net.wire || !Net.active) return;
   Net.wire.sendEv({ t: paused ? 'pause' : 'resume' });
 };
-Net.sendInput = function () {
-  if (!Net.wire || !Net.active) return;
+Net.sendInput = function (force = false) {
+  if (!Net.wire || !Net.active) return null;
   const tx = _r1(G.m2.tx), ty = _r1(G.m2.ty), now = performance.now();
   // delta suppression: a stationary mallet re-sends nothing. But packets do
   // drop, so heartbeat at least every 500ms - the host must never stick on
-  // a target the guest abandoned three drops ago.
-  if (Net.lastIn && Math.abs(tx - Net.lastIn[0]) < 0.5 && Math.abs(ty - Net.lastIn[1]) < 0.5 &&
-      now - Net.lastInT < 500) return;
+  // a target the guest abandoned three drops ago. Predicted contact forces
+  // one fresh target packet so its ACK can become the reconciliation fence.
+  if (!force && Net.lastIn && Math.abs(tx - Net.lastIn[0]) < 0.5 && Math.abs(ty - Net.lastIn[1]) < 0.5 &&
+      now - Net.lastInT < 500) return null;
   Net.lastIn = [tx, ty]; Net.lastInT = now;
-  if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeInput(tx, ty)))) Net.wire.sendIn([tx, ty]);
+  if (Net.rtReady) {
+    const packet = Net.encodeRealtimeInput(tx, ty);
+    const seq = Net.rtInputSeq;
+    if (Net.sendRealtime(packet)) return seq;
+  }
+  Net.wire.sendIn([tx, ty]);
+  return null;
 };
 
 /* ---------------- rematch ---------------- */
