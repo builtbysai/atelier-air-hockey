@@ -114,7 +114,7 @@ function applyScreenOrientationPreference() {
 
 // ---------- runtime quality ----------
 const WakeSys = {
-  sentinel: null, requesting: false, retryAt: 0,
+  sentinel: null, requesting: false, retryAt: 0, requestId: 0,
   wanted() {
     return !!(navigator.wakeLock && !document.hidden && !G.focusLost && !G.demo &&
       (G.state === 'count' || G.state === 'play' || G.state === 'goal' || G.state === 'replay'));
@@ -124,20 +124,29 @@ const WakeSys = {
     if (!want) { this.release(); return; }
     if (this.sentinel || this.requesting || performance.now() < this.retryAt) return;
     this.requesting = true;
+    const requestId = ++this.requestId;
     try {
       const sentinel = await navigator.wakeLock.request('screen');
+      // A pending request can resolve after visibilitychange or pagehide.
+      // Release that late sentinel instead of retaining a lock off-screen.
+      if (requestId !== this.requestId || !this.wanted()) {
+        try { await sentinel.release(); } catch (e) {}
+        return;
+      }
       this.sentinel = sentinel;
       sentinel.addEventListener('release', () => {
         if (this.sentinel === sentinel) this.sentinel = null;
         this.retryAt = performance.now() + 1800;
       }, { once:true });
     } catch (e) {
-      this.retryAt = performance.now() + 5000;
+      if (requestId === this.requestId) this.retryAt = performance.now() + 5000;
     } finally {
-      this.requesting = false;
+      if (requestId === this.requestId) this.requesting = false;
     }
   },
   release() {
+    this.requestId++;
+    this.requesting = false;
     const s = this.sentinel;
     this.sentinel = null;
     if (s) { try { const p = s.release(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
