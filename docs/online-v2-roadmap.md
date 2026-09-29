@@ -214,6 +214,15 @@ Integrated behavior:
 - Resurrection and authority migration compose: a promoted guest reloads as authority, while a demoted original host reloads as non-authority and resyncs from the migrated authority.
 - Focused regression coverage exists for ICE recovery, matchmaking, spectators, resurrection, and authority migration.
 
+### Post-integration correctness fixes
+
+Static cross-feature review after the resilience merge found and fixed three real lifecycle defects:
+
+- **#122 spectator startup:** normal hosting tried to open the watcher room before the match had an active authority, so fresh matches could publish no spectator room. Watcher publishing now starts after match activation and reopens after a late host-side restart.
+- **#123 spectator reconnect idempotency:** a winning authority could reopen watcher publishing after long-disconnect settlement while its existing watcher room was still alive. Watcher-room creation is now idempotent.
+- **#124 migrated-authority late rejoin:** dead-match recovery still assumed the original guest knocks and original host restarts. Rejoin initiation/restart now follows current authority ownership, and a former host can receive a fresh hello without losing its stable player side/origin role.
+- **#125 lag-compensation design:** updated to reset and warm current-authority history after migration/resurrection before any future contact hint can validate.
+
 ### Validation status
 
 This integration was merged during the GitHub Actions outage at the user's explicit request. It has completed static integration review, but the full executable suite and real-device matrix still need to run when Actions or a development machine are available.
