@@ -34,6 +34,13 @@ assert.doesNotMatch(net, /const \[sendSt/); assert.doesNotMatch(net, /createStub
 assert.match(net, /disconnectTimer/); assert.match(net, /validGoalEvent/); assert.match(net, /opToken/); assert.match(net, /handshakePeerId/);
 assert.match(game, /bestStreak: \[0, 0\]/); assert.match(game, /function togglePause/);
 assert.match(game, /function loadSavedObject\(key\)/);
+assert.match(game, /querySelectorAll\('\.overlay:not\(\[data-persistent-overlay\]\)'\)/,
+  'hideAll must structurally dismiss non-persistent overlays');
+assert.match(game, /querySelectorAll\('\[data-game-chrome\]'\)/,
+  'hideAll must structurally dismiss gameplay chrome');
+assert.doesNotMatch(template, /id="controls"/, 'controls must stay inside the single Preferences dialog');
+assert.match(template, /data-pref-tab="controls"/, 'Preferences must expose the Controls tab');
+assert.match(template, /id="focusov" data-persistent-overlay/, 'focus-loss veil must survive normal overlay cleanup');
 const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
 assert.match(ambience, /Settings\.musicVolume <= 0/, 'room ambience must follow the Music control');
 assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shots must not leak onto the Sound bus');
