@@ -192,6 +192,30 @@ Net.validIceServers = function (servers) {
   });
 };
 
+Net.turnOnlyIceServers = function (servers) {
+  return Net.validIceServers(servers).flatMap(server => {
+    const urls = server.urls.filter(url => /^turns?:/i.test(url));
+    if (!urls.length) return [];
+    const clean = { urls };
+    if (typeof server.username === 'string') clean.username = server.username;
+    if (typeof server.credential === 'string') clean.credential = server.credential;
+    return [clean];
+  });
+};
+
+/* Diagnostic-only transport override for real-device verification.
+ * Normal players never enter this path: direct WebRTC remains preferred and
+ * TURN remains fallback. Add ?netRoute=turn to both peers to prove the relay
+ * path using Trystero's rtcConfig override + WebRTC relay-only policy. */
+Net.forceTurnEnabled = function () {
+  try {
+    if (typeof location === 'undefined' || !location.href) return false;
+    return new URL(location.href).searchParams.get('netRoute') === 'turn';
+  } catch (e) {
+    return false;
+  }
+};
+
 /* TURN credentials are short-lived and minted by our Cloudflare Worker.
  * The long-lived Cloudflare TURN key never ships to the browser. If the
  * credential service is unavailable, keep direct P2P alive with Cloudflare
@@ -231,15 +255,27 @@ Net.trystero = async function () {
 
 Net.makeRoom = async function (joinRoom, code) {
   const iceServers = await Net.fetchIceServers();
+  const config = {
+    appId: 'atelier-air-hockey',
+    relayConfig: { urls: NET_RELAYS, redundancy: 5 },
+  };
+
+  if (Net.forceTurnEnabled()) {
+    // Trystero documents rtcConfig as the way to override its default STUN
+    // list. Relay-only policy makes this a real TURN verification rather than
+    // a connection that merely had TURN credentials available.
+    const turnOnly = Net.turnOnlyIceServers(iceServers);
+    if (!turnOnly.length) throw new Error('TURN-only diagnostic requested but no TURN credentials are available.');
+    config.rtcConfig = { iceServers: turnOnly, iceTransportPolicy: 'relay' };
+  } else {
+    // Default production behavior: Trystero keeps its STUN candidates and
+    // uses our short-lived Cloudflare TURN credentials only when direct P2P
+    // cannot connect.
+    config.turnConfig = iceServers;
+  }
+
   return joinRoom(
-    {
-      appId: 'atelier-air-hockey',
-      relayConfig: { urls: NET_RELAYS, redundancy: 5 },
-      // Trystero concatenates turnConfig onto its default STUN list. The
-      // Cloudflare response includes both STUN and TURN entries, which is
-      // valid RTCIceServer input despite this historical option name.
-      turnConfig: iceServers,
-    },
+    config,
     'atelier-ah-' + code,
     {
       onPeerHandshake: async (peerId) => {
