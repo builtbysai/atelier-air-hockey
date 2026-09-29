@@ -643,7 +643,7 @@ Net.quickHandleMessage = function (action, data, peerId) {
   if (data.t === 'hello') {
     if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0) return;
     const player = Net.cleanPlayer(data.player);
-    if (Net.quickPeer && Net.quickPeer !== peerId) return;
+    if (Net.quickPeer) return;
     // Lower nonce proposes. Lock the candidate before sending so one client
     // can never reserve several rivals at once when a lobby wakes up in a burst.
     if (Net.quickNonce < remoteNonce) {
