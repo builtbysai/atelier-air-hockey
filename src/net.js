@@ -638,7 +638,8 @@ Net.quickBecomeHost = async function (action, peerId) {
 };
 
 Net.quickHandleMessage = function (action, data, peerId) {
-  if (!data || typeof data !== 'object' || !peerId || data.v !== NET_QUICK_VERSION || Net.quickTransition) return;
+  if (!Net.quickNonce || !data || typeof data !== 'object' || !peerId ||
+      data.v !== NET_QUICK_VERSION || Net.quickTransition) return;
   const remoteNonce = Number(data.nonce);
   if (data.t === 'hello') {
     if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0) return;
