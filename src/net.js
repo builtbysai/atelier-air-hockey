@@ -787,7 +787,7 @@ Net.spectatorHello = function (target) {
 };
 
 Net.openSpectatorHost = async function () {
-  if (!Net.isAuthority() || !Net.code) return;
+  if (!Net.isAuthority() || !Net.code || Net.spectatorRoom) return;
   const token = ++Net.spectatorToken;
   try {
     const { joinRoom } = await Net.trystero();
