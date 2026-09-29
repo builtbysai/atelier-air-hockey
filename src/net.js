@@ -2069,7 +2069,7 @@ Net.onCountdown = function (ev) {
 Net.guestGoal = function (ev) {
   Net.clearGuestPrediction();
   G.score = [ev.s0, ev.s1];
-  if (ev.matchEnd) Net.rememberRival(G.score);
+  if (ev.matchEnd && Net.role !== 'spectator') Net.rememberRival(G.score);
   if (Net.rsnap) { Net.rsnap.s0 = ev.s0; Net.rsnap.s1 = ev.s1; }
   beginGoalCeremony(ev.scorer); // visuals only - no scoring, no send
 };
