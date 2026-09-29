@@ -101,6 +101,25 @@ test('watching a completed match never records the authority as a recent rival',
 });
 
 
+
+test('authority watcher publishing is idempotent across reconnect settlement', async () => {
+  const {Net} = await loadNet();
+  Net.active = true;
+  Net.role = 'host';
+  Net.side = 0;
+  Net.authoritySide = 0;
+  Net.code = 'ABC234';
+  Net.spectatorRoom = { existing:true };
+  Net.spectatorWire = { existing:true };
+  let trysteroCalls = 0;
+  Net.trystero = async () => { trysteroCalls++; throw new Error('must not reopen an existing watcher room'); };
+
+  await Net.openSpectatorHost();
+
+  assert.equal(trysteroCalls, 0);
+  assert.equal(Net.spectatorRoom.existing, true);
+});
+
 test('live authority opens a watcher room when a hosted match actually starts', async () => {
   const {Net} = await loadNet();
   let opened = 0;
