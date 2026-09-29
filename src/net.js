@@ -87,6 +87,8 @@ const Net = {
   authorityEpoch: 0,   // monotonic authority generation; higher epoch wins
   authorityRecovery: false,
   authoritySettleTimer: 0,
+  peerAuthorityVersion: 0,
+  authorityMigrationReady: false,
   active: false,       // true while a match owns the room
   matchStarted: false, // distinguishes a new match from the next point
   code: null,          // 6-character room code
@@ -313,6 +315,7 @@ Net.buildSessionCheckpoint = function () {
     side:Net.playerSide(),
     authoritySide:Net.authoritySide,
     authorityEpoch:Net.authorityEpoch,
+    authorityReady:!!Net.authorityMigrationReady,
     sid:Net.sessionId,
     player:Net.localPlayer(),
     rival:Net.cleanPlayer(Net.rivalIdentity),
@@ -443,6 +446,7 @@ const NET_SESSION_KEY = 'atelier-ah-session-v1';
 const NET_SESSION_VERSION = 1;
 const NET_SESSION_TTL_MS = 45000;
 const NET_SESSION_SAVE_MS = 500;
+const NET_AUTHORITY_VERSION = 1;
 const NET_AUTHORITY_SETTLE_MS = 120;
 const NET_AUTHORITY_RECOVERY_MS = 30000;
 
@@ -1734,10 +1738,11 @@ Net.adoptAuthoritySnapshot = function (saved) {
 };
 
 Net.sendAuthorityClaim = function () {
-  if (!Net.wire || !Net.active || !Net.isPlayer() || !Net.validSessionId(Net.sessionId)) return;
+  if (!Net.authorityMigrationReady || !Net.wire || !Net.active || !Net.isPlayer() ||
+      !Net.validSessionId(Net.sessionId)) return;
   const ev = {
     t:'authority',
-    v:1,
+    v:NET_AUTHORITY_VERSION,
     sid:Net.sessionId,
     epoch:Net.authorityEpoch,
     side:Net.authoritySide,
@@ -1747,7 +1752,8 @@ Net.sendAuthorityClaim = function () {
 };
 
 Net.onAuthorityClaim = function (ev) {
-  if (!ev || ev.v !== 1 || ev.sid !== Net.sessionId || !Net.isPlayer() ||
+  if (!Net.authorityMigrationReady || !ev || ev.v !== NET_AUTHORITY_VERSION ||
+      ev.sid !== Net.sessionId || !Net.isPlayer() ||
       (ev.side !== 0 && ev.side !== 1) || ev.side === Net.playerSide() ||
       !Number.isInteger(ev.epoch) || ev.epoch < 1) return false;
 
@@ -1798,6 +1804,11 @@ Net.promoteAuthority = function () {
 
 Net.beginAuthorityRecovery = function () {
   if (!Net.active || !Net.isPlayer() || Net.peerId) return;
+  if (!Net.authorityMigrationReady) {
+    Net.reconnecting = false;
+    Net.onRivalLeft();
+    return;
+  }
   Net.authorityRecovery = true;
   if (!Net.isAuthority()) Net.promoteAuthority();
   clearTimeout(Net.disconnectTimer);
@@ -1866,6 +1877,7 @@ Net.dropRoom = function () {
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.side = null; Net.authoritySide = 0; Net.authorityEpoch = 0;
   Net.authorityRecovery = false;
+  Net.peerAuthorityVersion = 0; Net.authorityMigrationReady = false;
   clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
   Net.rivalIdentity = null;
   Net.sessionId = null; Net.resumingSession = false;
@@ -2210,6 +2222,7 @@ Net.startHostMatch = function () {
   if (Net.active || !Net.waitingForRival) return;
   Net.sessionId = Net.newSessionId();
   Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // the host deals the music seed: both peers play the same generative sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
@@ -2226,6 +2239,8 @@ Net.onHello = function (ev) {
   if (ev && ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
   if (ev && Net.validSessionId(ev.sid)) Net.sessionId = ev.sid;
   Net.side = 1;
+  Net.peerAuthorityVersion = ev && Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.authoritySide = ev && ev.authoritySide === 1 ? 1 : 0;
   Net.authorityEpoch = ev && Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
   clearTimeout(Net.knockTimer); Net.knockTimer = 0; // the knock landed
@@ -2605,7 +2620,8 @@ Net.guestApply = function (rdt) {
 Net.sendHello = function () {
   if (!Net.wire || !Net.active) return;
   const ev = { t:'hello', firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id,
-    sid:Net.sessionId, authoritySide:Net.authoritySide, authorityEpoch:Net.authorityEpoch,
+    sid:Net.sessionId, authorityV:NET_AUTHORITY_VERSION,
+    authoritySide:Net.authoritySide, authorityEpoch:Net.authorityEpoch,
     player:Net.localPlayer(), mseed:Net.musicSeed >>> 0 };
   Net.wire.sendEv(ev);
   void Net.spectatorSendEvent(ev); // the generative sequence seed, so guest music matches the host's
