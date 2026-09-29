@@ -459,7 +459,7 @@ function keyboardGamepadDrive(now) {
       m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
       G.kbDriveT = now; // keyboard drove a target this frame (see playStep)
     };
-    const ownsRight = G.mode === 'online' && Net.side === 1;
+    const ownsRight = G.mode === 'online' && Net.playerSide() === 1;
     const p1 = ownsRight ? G.m2 : G.m1;
     const p1Lo = ownsRight ? CX + MALLET_R : PX + MALLET_R;
     const p1Hi = ownsRight ? PX + PW - MALLET_R : CX - MALLET_R;
