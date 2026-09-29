@@ -409,6 +409,22 @@
   }
   .online-input:focus{ outline:none; border-color:var(--btnbg); }
   .online-note{ color:var(--sub); font-size:13px; line-height:1.55; margin:8px 0; }
+  .online-quick{ width:100%; margin:6px 0 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .online-quick span,.online-watch span{ font-weight:700; }
+  .online-quick small,.online-watch small{ opacity:.72; font-size:9px; letter-spacing:1.7px; }
+  .online-watch{
+    width:100%; margin:-4px 0 12px; display:flex; align-items:center;
+    justify-content:space-between; gap:12px; padding:9px 11px;
+  }
+  .online-divider{
+    display:flex; align-items:center; gap:10px; margin:2px 0 8px;
+    font-size:9px; letter-spacing:2px; text-transform:uppercase;
+  }
+  .online-divider::before,.online-divider::after{ content:""; height:1px; flex:1; background:var(--pline); }
+  .online-matchpulse{
+    margin:12px auto 6px; padding:12px 14px; border:1px solid var(--pline);
+    border-radius:10px; color:var(--title); font-size:10px; font-weight:700; letter-spacing:2px;
+  }
   /* host lobby QR: white card for contrast, quiet zone built into the SVG
      plus padding here; fixed size so it scans from a phone screen */
   .qr-wrap{ display:flex; justify-content:center; margin:6px 0 2px; }
