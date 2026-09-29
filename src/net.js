@@ -81,7 +81,15 @@ const Net = {
   // ---- lifecycle state ----
   room: null,          // Room (Trystero or stub)
   wire: null,          // {sendSt, sendIn, sendEv} from wireRoom()
-  role: null,          // 'host' | 'guest' once a match is live
+  role: null,          // origin role: 'host' | 'guest' | 'spectator'
+  side: null,          // player side 0/1, independent from simulation authority
+  authoritySide: 0,    // side currently allowed to simulate/score/send state
+  authorityEpoch: 0,   // monotonic authority generation; higher epoch wins
+  authorityRecovery: false,
+  authoritySettleTimer: 0,
+  authorityPeerClaimSeen: false,
+  peerAuthorityVersion: 0,
+  authorityMigrationReady: false,
   active: false,       // true while a match owns the room
   matchStarted: false, // distinguishes a new match from the next point
   code: null,          // 6-character room code
@@ -101,6 +109,31 @@ const Net = {
 
   // ---- UI state ----
   lobbyOpen: false,    // online overlay visible -> attract demo stays off
+
+  // ---- account-free identity / matchmaking ----
+  _localPlayer: null,
+  rivalIdentity: null,
+  quickEntries: [],
+  quickPeer: null,
+  quickNonce: 0,
+  quickTimer: 0,
+  quickPeerTimer: 0,
+  quickTransition: false,
+
+  // ---- lightweight spectator room ----
+  spectatorRoom: null,
+  spectatorWire: null,
+  spectatorIds: new Set(),
+  spectatorAcc: 0,
+  spectatorToken: 0,
+  watchHostPeerId: null,
+  watchJoinTimer: 0,
+
+  // ---- short-lived session resurrection ----
+  sessionId: null,
+  resumingSession: false,
+  resumeCheckpoint: null,
+  sessionAcc: 0,
 
   // ---- host-side ----
   remote: { tx: 0, ty: 0 },  // guest mallet target, from `in`
@@ -166,6 +199,233 @@ function netGenCode() {
   return c;
 }
 
+Net.playerSide = function () {
+  if (Net.side === 0 || Net.side === 1) return Net.side;
+  if (Net.role === 'host') return 0;
+  if (Net.role === 'guest') return 1;
+  return null;
+};
+
+Net.isPlayer = function () {
+  return Net.playerSide() !== null;
+};
+
+Net.isAuthority = function () {
+  return Net.active && Net.isPlayer() && Net.playerSide() === Net.authoritySide;
+};
+
+Net.localMallet = function () {
+  const side = Net.playerSide();
+  return side === 1 ? G.m2 : side === 0 ? G.m1 : null;
+};
+
+Net.remoteMallet = function () {
+  const side = Net.playerSide();
+  return side === 1 ? G.m1 : side === 0 ? G.m2 : null;
+};
+
+Net.remoteSide = function () {
+  const side = Net.playerSide();
+  return side === 0 ? 1 : side === 1 ? 0 : null;
+};
+
+Net.authorityTupleWins = function (epoch, side) {
+  if (!Number.isInteger(epoch) || epoch < 0 || (side !== 0 && side !== 1)) return false;
+  if (epoch !== Net.authorityEpoch) return epoch > Net.authorityEpoch;
+  if (side === Net.authoritySide) return false;
+  // Deterministic split-brain tie breaker. Equal epochs should be rare; side
+  // zero wins only to make the rule total and repeatable.
+  return side < Net.authoritySide;
+};
+
+Net.newSessionId = function () {
+  let id = '';
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(12);
+      crypto.getRandomValues(bytes);
+      id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {}
+  if (!id) {
+    for (let i = 0; i < 24; i++) id += NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0];
+  }
+  return id;
+};
+
+Net.validSessionId = function (id) {
+  return typeof id === 'string' && /^[A-Za-z0-9_-]{12,40}$/.test(id);
+};
+
+Net.copyBodyState = function (body) {
+  if (!body) return null;
+  const keys = ['x','y','tx','ty','vx','vy'];
+  const out = {};
+  for (const key of keys) out[key] = Number.isFinite(body[key]) ? body[key] : 0;
+  return out;
+};
+
+Net.copyStatsState = function (stats) {
+  if (!stats || typeof stats !== 'object') return null;
+  const pair = value => Array.isArray(value) && value.length >= 2 ? [value[0] | 0, value[1] | 0] : [0,0];
+  return {
+    topSpeed:Number.isFinite(stats.topSpeed) ? stats.topSpeed : 0,
+    rally:stats.rally | 0,
+    bestRally:stats.bestRally | 0,
+    bestGoalRally:stats.bestGoalRally | 0,
+    bankGoals:pair(stats.bankGoals),
+    rallyLastSide:Number.isInteger(stats.rallyLastSide) ? stats.rallyLastSide : -1,
+    saves:pair(stats.saves),
+    elapsedMs:Number.isFinite(stats.t0) ? Math.max(0, performance.now() - stats.t0) : 0,
+    streak:pair(stats.streak),
+    bestStreak:pair(stats.bestStreak),
+    worstDef:pair(stats.worstDef),
+  };
+};
+
+Net.authorityCheckpoint = function () {
+  if (!Net.isAuthority() || !G.puck || !G.m1 || !G.m2) return null;
+  return {
+    snapshot:Net.encodeSnapshot(),
+    puck:{
+      w:Number.isFinite(G.puck.w) ? G.puck.w : 0,
+      ang:Number.isFinite(G.puck.ang) ? G.puck.ang : 0,
+    },
+    m1:Net.copyBodyState(G.m1),
+    m2:Net.copyBodyState(G.m2),
+    stats:Net.copyStatsState(G.stats),
+    state:(Net.reconnecting && G.state === 'pause' && !Net.dropPaused && Net.reconnectState)
+      ? Net.reconnectState
+      : (G.focusLost && G.state === 'pause' ? (G.pausedFrom || 'play') : G.state),
+    pausedFrom:(Net.reconnecting && G.state === 'pause' && !Net.dropPaused && Net.reconnectState)
+      ? Net.reconnectState
+      : (G.focusLost && G.state === 'pause' ? (G.pausedFrom || 'play') : (G.pausedFrom || 'play')),
+    winSide:G.winSide | 0,
+    gwNet:Number.isFinite(G.gwNet) ? G.gwNet : 0,
+    countT:Number.isFinite(G.countT) ? G.countT : 0,
+    countN:Number.isInteger(G.countN) ? G.countN : 3,
+    goPlayed:!!G.goPlayed,
+    goalT:Number.isFinite(G.goalT) ? G.goalT : 0,
+    goalSlowT:Number.isFinite(G.goalSlowT) ? G.goalSlowT : 0,
+    goalSide:G.goalSide === 1 ? 1 : 0,
+    timeScale:Number.isFinite(G.timeScale) ? G.timeScale : 1,
+  };
+};
+
+Net.buildSessionCheckpoint = function () {
+  if (!Net.active || !Net.code || !Net.validSessionId(Net.sessionId) ||
+      !['host','guest'].includes(Net.role)) return null;
+  const now = Date.now();
+  return {
+    v:NET_SESSION_VERSION,
+    savedAt:now,
+    expiresAt:now + NET_SESSION_TTL_MS,
+    code:Net.code,
+    role:Net.role,
+    side:Net.playerSide(),
+    authoritySide:Net.authoritySide,
+    authorityEpoch:Net.authorityEpoch,
+    authorityReady:!!Net.authorityMigrationReady,
+    sid:Net.sessionId,
+    player:Net.localPlayer(),
+    rival:Net.cleanPlayer(Net.rivalIdentity),
+    matchStarted:!!Net.matchStarted,
+    firstTo:Settings.firstTo,
+    pace:Settings.pace,
+    goalW:Settings.goalW,
+    theme:THEME.id,
+    musicSeed:Net.musicSeed >>> 0,
+    authority:Net.isAuthority() ? Net.authorityCheckpoint() : null,
+  };
+};
+
+Net.saveSessionCheckpoint = function () {
+  const checkpoint = Net.buildSessionCheckpoint();
+  if (!checkpoint) return false;
+  try {
+    localStorage.setItem(NET_SESSION_KEY, JSON.stringify(checkpoint));
+    Net.resumeCheckpoint = checkpoint;
+    return true;
+  } catch (e) { return false; }
+};
+
+Net.clearSessionCheckpoint = function () {
+  Net.resumeCheckpoint = null;
+  Net.sessionAcc = 0;
+  try { localStorage.removeItem(NET_SESSION_KEY); } catch (e) {}
+};
+
+Net.readSessionCheckpoint = function (now = Date.now()) {
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(NET_SESSION_KEY) || 'null'); } catch (e) {}
+  if (!raw || raw.v !== NET_SESSION_VERSION || raw.expiresAt <= now ||
+      !/^[A-Z2-9]{6}$/.test(raw.code || '') ||
+      !['host','guest'].includes(raw.role) || !Net.validSessionId(raw.sid)) {
+    if (raw) Net.clearSessionCheckpoint();
+    return null;
+  }
+  return raw;
+};
+
+
+
+Net.cleanPlayer = function (player) {
+  if (!player || typeof player !== 'object') return null;
+  const id = typeof player.id === 'string' ? player.id.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 32) : '';
+  const name = typeof player.name === 'string'
+    ? player.name.replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, 18)
+    : '';
+  if (!id) return null;
+  return { id, name: name || ('PLAYER ' + id.slice(-4).toUpperCase()) };
+};
+
+Net.localPlayer = function () {
+  if (Net._localPlayer) return Net._localPlayer;
+  try {
+    const saved = Net.cleanPlayer(JSON.parse(localStorage.getItem(NET_PLAYER_KEY) || 'null'));
+    if (saved) return (Net._localPlayer = saved);
+  } catch (e) {}
+  let id = '';
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(10);
+      crypto.getRandomValues(bytes);
+      id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {}
+  if (!id) {
+    for (let i = 0; i < 20; i++) id += NET_ALPHABET[(Math.random() * NET_ALPHABET.length) | 0];
+  }
+  const player = { id, name:'PLAYER ' + id.slice(-4).toUpperCase() };
+  Net._localPlayer = player;
+  try { localStorage.setItem(NET_PLAYER_KEY, JSON.stringify(player)); } catch (e) {}
+  return player;
+};
+
+Net.recentRivals = function () {
+  try {
+    const rows = JSON.parse(localStorage.getItem(NET_RIVALS_KEY) || '[]');
+    return Array.isArray(rows) ? rows.filter(row => Net.cleanPlayer(row && row.player)).slice(0, 8) : [];
+  } catch (e) { return []; }
+};
+
+Net.rememberRival = function (score) {
+  const player = Net.cleanPlayer(Net.rivalIdentity);
+  if (!player) return;
+  const rows = Net.recentRivals().filter(row => row.player.id !== player.id);
+  rows.unshift({
+    player,
+    lastPlayed:Date.now(),
+    score:Array.isArray(score) && score.length >= 2 ? [score[0] | 0, score[1] | 0] : null,
+  });
+  try { localStorage.setItem(NET_RIVALS_KEY, JSON.stringify(rows.slice(0, 8))); } catch (e) {}
+};
+
+Net.quickSlots = function (now = Date.now()) {
+  const current = Math.floor(now / NET_QUICK_SLOT_MS);
+  return [String(current), String(current - 1)];
+};
+
 /* Pinned Nostr relays (Trystero 0.25 reads ONLY relayConfig - the old
  * relayUrls/relayRedundancy keys are silently ignored). */
 const NET_RELAYS = [
@@ -189,6 +449,21 @@ const NET_RT_STATE = 1;
 const NET_RT_INPUT = 2;
 const NET_RT_ACK = 3;
 const NET_RT_MAX_BUFFERED = 32 * 1024;
+const NET_PLAYER_KEY = 'atelier-ah-player-v1';
+const NET_RIVALS_KEY = 'atelier-ah-rivals-v1';
+const NET_QUICK_VERSION = 1;
+const NET_QUICK_SLOT_MS = 30000;
+const NET_QUICK_TIMEOUT_MS = 22000;
+const NET_QUICK_RESERVE_MS = 4000;
+const NET_SPECTATOR_LIMIT = 3;
+const NET_SPECTATOR_HZ = 20;
+const NET_SESSION_KEY = 'atelier-ah-session-v1';
+const NET_SESSION_VERSION = 1;
+const NET_SESSION_TTL_MS = 45000;
+const NET_SESSION_SAVE_MS = 500;
+const NET_AUTHORITY_VERSION = 1;
+const NET_AUTHORITY_HANDSHAKE_TIMEOUT_MS = 2500;
+const NET_AUTHORITY_RECOVERY_MS = 30000;
 
 Net.validIceServers = function (servers) {
   if (!Array.isArray(servers)) return [];
@@ -265,12 +540,13 @@ Net.trystero = async function () {
   return Net._trystero;
 };
 
-Net.makeRoom = async function (joinRoom, code) {
+Net.makeRoom = async function (joinRoom, code, options = {}) {
   const iceServers = await Net.fetchIceServers();
   const config = {
     appId: 'atelier-air-hockey',
     relayConfig: { urls: NET_RELAYS, redundancy: 5 },
   };
+  if (options.passive === true) config.passive = true;
 
   if (Net.forceTurnEnabled()) {
     // Trystero documents rtcConfig as the way to override its default STUN
@@ -286,21 +562,423 @@ Net.makeRoom = async function (joinRoom, code) {
     config.turnConfig = iceServers;
   }
 
-  return joinRoom(
-    config,
-    'atelier-ah-' + code,
-    {
-      onPeerHandshake: async (peerId) => {
-        const locked = Net.peerId || Net.handshakePeerId;
-        if (locked && locked !== peerId) throw new Error('Table is full');
-        if (!Net.handshakePeerId) Net.handshakePeerId = peerId;
-      },
-      onJoinError: (details) => {
-        if (details && details.peerId === Net.handshakePeerId && !Net.peerId) Net.handshakePeerId = null;
-        Net.logErr(details && (details.error || details));
-      },
+  const lockPeer = options.lockPeer !== false;
+  const callbacks = {
+    onJoinError: (details) => {
+      if (lockPeer && details && details.peerId === Net.handshakePeerId && !Net.peerId) Net.handshakePeerId = null;
+      Net.logErr(details && (details.error || details));
+    },
+  };
+  if (lockPeer) {
+    callbacks.onPeerHandshake = async (peerId) => {
+      const locked = Net.peerId || Net.handshakePeerId;
+      if (locked && locked !== peerId) throw new Error('Table is full');
+      if (!Net.handshakePeerId) Net.handshakePeerId = peerId;
+    };
+  }
+
+  return joinRoom(config, (options.prefix || 'atelier-ah-') + code, callbacks);
+};
+
+
+Net.stopQuick = function () {
+  clearTimeout(Net.quickTimer); Net.quickTimer = 0;
+  clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
+  const entries = Net.quickEntries.slice();
+  Net.quickEntries.length = 0;
+  for (const entry of entries) {
+    try { if (entry && entry.room) entry.room.leave(); } catch (e) {}
+  }
+  Net.quickPeer = null;
+  Net.quickNonce = 0;
+  Net.quickTransition = false;
+};
+
+Net.quickSend = function (action, data, peerId) {
+  if (!action || !peerId) return Promise.resolve();
+  try { return action.send(data, { target:peerId }).catch(Net.logErr); }
+  catch (e) { Net.logErr(e); return Promise.resolve(); }
+};
+
+Net.quickHello = function (action, peerId) {
+  if (!Net.quickNonce) return;
+  return Net.quickSend(action, {
+    t:'hello', v:NET_QUICK_VERSION, nonce:Net.quickNonce, player:Net.localPlayer(),
+  }, peerId);
+};
+
+Net.quickProbePeers = function (excludePeerId = null) {
+  if (!Net.quickNonce || Net.quickTransition) return;
+  for (const entry of Net.quickEntries) {
+    if (!entry || !entry.room || !entry.action || typeof entry.room.getPeers !== 'function') continue;
+    let peers = {};
+    try { peers = entry.room.getPeers() || {}; } catch (e) { continue; }
+    for (const id of Object.keys(peers)) {
+      if (id && id !== excludePeerId) void Net.quickHello(entry.action, id);
     }
-  );
+  }
+};
+
+Net.quickReleasePeer = function (peerId) {
+  if (peerId && Net.quickPeer !== peerId) return false;
+  clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
+  const released = Net.quickPeer;
+  Net.quickPeer = null;
+  Net.rivalIdentity = null;
+  if (!Net.quickTransition) Net.quickProbePeers(released || peerId || null);
+  return !!released;
+};
+
+Net.quickLockPeer = function (peerId) {
+  if (!peerId || Net.quickTransition) return false;
+  if (Net.quickPeer && Net.quickPeer !== peerId) return false;
+  Net.quickPeer = peerId;
+  clearTimeout(Net.quickPeerTimer);
+  Net.quickPeerTimer = setTimeout(() => {
+    if (!Net.quickTransition && Net.quickPeer === peerId) Net.quickReleasePeer(peerId);
+  }, NET_QUICK_RESERVE_MS);
+  return true;
+};
+
+Net.quickBecomeHost = async function (action, peerId) {
+  if (Net.quickTransition || Net.quickPeer !== peerId) return;
+  Net.quickTransition = true;
+  const code = netGenCode();
+  await Net.quickSend(action, { t:'match', v:NET_QUICK_VERSION, code }, peerId);
+  Net.stopQuick();
+  await Net.create(code);
+};
+
+Net.quickHandleMessage = function (action, data, peerId) {
+  if (!Net.quickNonce || !data || typeof data !== 'object' || !peerId ||
+      data.v !== NET_QUICK_VERSION || Net.quickTransition) return;
+  const remoteNonce = Number(data.nonce);
+  if (data.t === 'hello') {
+    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0) return;
+    const player = Net.cleanPlayer(data.player);
+    if (Net.quickPeer) return;
+    // Lower nonce proposes. Lock the candidate before sending so one client
+    // can never reserve several rivals at once when a lobby wakes up in a burst.
+    if (Net.quickNonce < remoteNonce) {
+      if (!Net.quickLockPeer(peerId)) return;
+      Net.rivalIdentity = player;
+      void Net.quickSend(action, { t:'reserve', v:NET_QUICK_VERSION, nonce:Net.quickNonce, player:Net.localPlayer() }, peerId);
+    } else if (Net.quickNonce > remoteNonce && !Net.quickPeer) {
+      Net.rivalIdentity = player;
+      // Echo our hello so a lower-nonce peer can retry after a prior candidate
+      // was busy or disappeared without waiting for another room announcement.
+      void Net.quickHello(action, peerId);
+    }
+  } else if (data.t === 'reserve') {
+    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0 || remoteNonce >= Net.quickNonce) return;
+    if (Net.quickPeer && Net.quickPeer !== peerId) {
+      void Net.quickSend(action, { t:'busy', v:NET_QUICK_VERSION, nonce:Net.quickNonce }, peerId);
+      return;
+    }
+    if (!Net.quickLockPeer(peerId)) return;
+    Net.rivalIdentity = Net.cleanPlayer(data.player);
+    void Net.quickSend(action, { t:'accept', v:NET_QUICK_VERSION, nonce:Net.quickNonce, player:Net.localPlayer() }, peerId);
+  } else if (data.t === 'accept') {
+    if (Net.quickPeer !== peerId || !Number.isSafeInteger(remoteNonce) || remoteNonce <= Net.quickNonce) return;
+    clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
+    Net.rivalIdentity = Net.cleanPlayer(data.player);
+    void Net.quickBecomeHost(action, peerId);
+  } else if (data.t === 'busy') {
+    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0 || Net.quickPeer !== peerId) return;
+    Net.quickReleasePeer(peerId);
+  } else if (data.t === 'match') {
+    if (Net.quickPeer !== peerId || typeof data.code !== 'string') return;
+    const code = data.code.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6);
+    if (code.length !== 6) return;
+    clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
+    Net.quickTransition = true;
+    Net.stopQuick();
+    void Net.join(code);
+  }
+};
+
+Net.quickStart = async function () {
+  Net.stopQuick();
+  const token = ++Net.opToken;
+  Net.quickNonce = Math.floor(Math.random() * 0x1fffffffffffff) + 1;
+  Net.uiShow('matching');
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return;
+    const slots = Net.quickSlots();
+    for (const slot of slots) {
+      const room = await Net.makeRoom(joinRoom, slot, {
+        prefix:'atelier-ah-qm-v1-', lockPeer:false,
+      });
+      if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
+      const action = room.makeAction('qm');
+      action.onMessage = (data, meta = {}) => {
+        try { Net.quickHandleMessage(action, data, meta.peerId); } catch (e) { Net.logErr(e); }
+      };
+      room.onPeerJoin = id => { void Net.quickHello(action, id); };
+      room.onPeerLeave = id => {
+        if (id !== Net.quickPeer || Net.quickTransition) return;
+        let stillPresent = false;
+        for (const existing of Net.quickEntries) {
+          try {
+            if (existing && existing.room && existing.room.getPeers &&
+                Object.prototype.hasOwnProperty.call(existing.room.getPeers() || {}, id)) {
+              stillPresent = true;
+              break;
+            }
+          } catch (e) {}
+        }
+        if (!stillPresent) Net.quickReleasePeer(id);
+      };
+      const entry = { room, action };
+      Net.quickEntries.push(entry);
+      for (const id of Object.keys(room.getPeers())) void Net.quickHello(action, id);
+    }
+    Net.quickTimer = setTimeout(() => {
+      if (Net.quickTransition || token !== Net.opToken) return;
+      Net.stopQuick();
+      Net.uiShow('choose');
+      Net.uiError('No open table answered yet. Try again, or invite a friend.');
+    }, NET_QUICK_TIMEOUT_MS);
+  } catch (e) {
+    Net.stopQuick();
+    Net.uiShow('choose');
+    Net.uiError(Net.connectionError(e, "Couldn't search for a rival. Check your connection and try again."));
+  }
+};
+
+
+Net.closeSpectatorRoom = function () {
+  Net.spectatorToken++;
+  clearTimeout(Net.watchJoinTimer); Net.watchJoinTimer = 0;
+  try { if (Net.spectatorRoom) Net.spectatorRoom.leave(); } catch (e) {}
+  Net.spectatorRoom = null;
+  Net.spectatorWire = null;
+  Net.spectatorIds.clear();
+  Net.spectatorAcc = 0;
+  Net.watchHostPeerId = null;
+};
+
+Net.spectatorSendEvent = function (ev, target) {
+  const wire = Net.spectatorWire;
+  if (!wire || !wire.sendEv) return Promise.resolve();
+  try { return wire.sendEv(ev, target).catch(Net.logErr); }
+  catch (e) { Net.logErr(e); return Promise.resolve(); }
+};
+
+Net.spectatorSendState = function (target) {
+  const wire = Net.spectatorWire;
+  if (!wire || !wire.sendSt) return Promise.resolve();
+  try { return wire.sendSt(Net.encodeSnapshot(), target).catch(Net.logErr); }
+  catch (e) { Net.logErr(e); return Promise.resolve(); }
+};
+
+Net.spectatorHello = function (target) {
+  if (!Net.code) return Promise.resolve();
+  return Net.spectatorSendEvent({
+    t:'hello',
+    firstTo:Settings.firstTo,
+    pace:Settings.pace,
+    theme:THEME.id,
+    player:Net.localPlayer(),
+    mseed:Net.musicSeed >>> 0,
+    gw:Math.round(goalW()),
+  }, target);
+};
+
+Net.openSpectatorHost = async function () {
+  if (!Net.isAuthority() || !Net.code) return;
+  const token = ++Net.spectatorToken;
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.spectatorToken || !Net.isAuthority() || !Net.code) return;
+    const room = await Net.makeRoom(joinRoom, Net.code, {
+      prefix:'atelier-ah-watch-', lockPeer:false, passive:true,
+    });
+    if (token !== Net.spectatorToken || !Net.isAuthority()) { try { room.leave(); } catch (e) {} return; }
+
+    const st = room.makeAction('wst');
+    const ev = room.makeAction('wev');
+    const send = (action, data, target) => {
+      const opts = target ? { target } : undefined;
+      return action.send(data, opts).catch(Net.logErr);
+    };
+    Net.spectatorRoom = room;
+    Net.spectatorWire = {
+      sendSt:(data, target) => send(st, data, target),
+      sendEv:(data, target) => send(ev, data, target),
+    };
+    Net.spectatorIds.clear();
+
+    room.onPeerJoin = id => {
+      if (Net.spectatorIds.size >= NET_SPECTATOR_LIMIT) {
+        try {
+          const pc = room.getPeers()[id];
+          if (pc && typeof pc.close === 'function') pc.close();
+        } catch (e) {}
+        return;
+      }
+      Net.spectatorIds.add(id);
+      void Net.spectatorHello(id);
+      if (Net.active) void Net.spectatorSendState(id);
+    };
+    room.onPeerLeave = id => Net.spectatorIds.delete(id);
+
+    // Passive rooms can wake with a peer already present before handlers are
+    // attached. Adopt those peers without allowing an unbounded watcher fanout.
+    for (const id of Object.keys(room.getPeers())) {
+      if (Net.spectatorIds.size >= NET_SPECTATOR_LIMIT) break;
+      Net.spectatorIds.add(id);
+      void Net.spectatorHello(id);
+      if (Net.active) void Net.spectatorSendState(id);
+    }
+  } catch (e) {
+    // Spectators are optional. A watcher-room failure must never disturb the
+    // actual two-player match.
+    Net.logErr(e);
+  }
+};
+
+Net.applyRemoteSnapshot = function (a) {
+  if (!Array.isArray(a) || a.length < 15 || !a.every(Number.isFinite)) return false;
+  const snap = Net.decodeSnapshot(a);
+  if (!Net.gview) {
+    Net.gview = { px:snap.px, py:snap.py, pvx:snap.pvx, pvy:snap.pvy };
+  } else {
+    const d = Math.hypot(snap.px - Net.gview.px, snap.py - Net.gview.py);
+    if (!Net.guestPrediction && d > 420) { Net.gview.px = snap.px; Net.gview.py = snap.py; }
+  }
+  Net.rsnap = snap;
+  Net.snapT = performance.now();
+  return true;
+};
+
+Net.onWatchSnapshot = function (a, peerId) {
+  if (Net.role !== 'spectator' || !Net.active) return;
+  if (Net.watchHostPeerId && peerId !== Net.watchHostPeerId) return;
+  if (!Net.watchHostPeerId) Net.watchHostPeerId = peerId;
+  Net.applyRemoteSnapshot(a);
+};
+
+Net.onWatchHello = function (ev, peerId) {
+  if (!ev || typeof ev !== 'object') return;
+  if (Net.watchHostPeerId && peerId !== Net.watchHostPeerId) return;
+  Net.watchHostPeerId = peerId;
+  clearTimeout(Net.watchJoinTimer); Net.watchJoinTimer = 0;
+  if (!Net.savedSettings) Net.savedSettings = { firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id };
+  if ([5,7,11].includes(+ev.firstTo)) Settings.firstTo = +ev.firstTo;
+  if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
+  if (ev.theme && THEMES[ev.theme]) setTheme(ev.theme, true);
+  G.gwNet = Number.isFinite(ev.gw) ? clamp(ev.gw, 150, 260) : 0;
+  if (Number.isFinite(+ev.mseed)) {
+    Net.musicSeed = (+ev.mseed) >>> 0;
+    try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  }
+  Net.rivalIdentity = Net.cleanPlayer(ev.player);
+  Net.beginMatch('spectator');
+  G.onlineFlip = false;
+  try { applySettingsToUI(); } catch (e) {}
+};
+
+Net.onWatchEvent = function (ev, peerId) {
+  if (!ev || typeof ev !== 'object' || typeof ev.t !== 'string') return;
+  if (ev.t === 'hello') { Net.onWatchHello(ev, peerId); return; }
+  if (Net.role !== 'spectator' || !Net.active || peerId !== Net.watchHostPeerId) return;
+  if (ev.t === 'goal' && Net.validGoalEvent(ev)) Net.guestGoal(ev);
+  else if (ev.t === 'pause') Net.applyRemotePause(true);
+  else if (ev.t === 'resume') Net.applyRemotePause(false);
+  else if (ev.t === 'countdown') {
+    if (Number.isInteger(ev.s0) && Number.isInteger(ev.s1)) G.score = [ev.s0, ev.s1];
+    G.gwNet = Number.isFinite(ev.gw) ? clamp(ev.gw, 150, 260) : G.gwNet;
+    if (ev.serveDir === 1 || ev.serveDir === -1) G.serveDir = ev.serveDir;
+    if (Number.isFinite(ev.svx) && Number.isFinite(ev.svy)) {
+      G.serveVX = clamp(ev.svx, -PUCK_MAX, PUCK_MAX);
+      G.serveVY = clamp(ev.svy, -PUCK_MAX, PUCK_MAX);
+    }
+    startCount();
+  } else if (ev.t === 'end') {
+    Net.leaveWatch();
+  }
+};
+
+Net.watch = async function (rawCode) {
+  const token = ++Net.opToken;
+  const code = (rawCode || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6);
+  if (code.length !== 6) { Net.uiError('That code needs 6 characters. Check it and try again.'); return; }
+  Net.closeSpectatorRoom();
+  Net.uiShow('watching', { code });
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return;
+    const room = await Net.makeRoom(joinRoom, code, { prefix:'atelier-ah-watch-', lockPeer:false });
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
+    Net.spectatorRoom = room;
+    Net.code = code;
+    Net.role = 'spectator';
+    Net.active = false;
+    const st = room.makeAction('wst');
+    const ev = room.makeAction('wev');
+    st.onMessage = (data, meta = {}) => { try { Net.onWatchSnapshot(data, meta.peerId); } catch (e) { Net.logErr(e); } };
+    ev.onMessage = (data, meta = {}) => { try { Net.onWatchEvent(data, meta.peerId); } catch (e) { Net.logErr(e); } };
+    room.onPeerJoin = id => {
+      if (!Net.watchHostPeerId) Net.watchHostPeerId = id;
+      if (id === Net.watchHostPeerId) {
+        clearTimeout(Net.watchJoinTimer); Net.watchJoinTimer = 0;
+        Net.reconnecting = false;
+      }
+    };
+    room.onPeerLeave = id => {
+      if (id !== Net.watchHostPeerId) return;
+      Net.watchHostPeerId = null;
+      // Authority migration can briefly leave the replacement authority
+      // already connected while the old one disappears. Adopt it immediately
+      // instead of waiting for another join callback that will never fire.
+      const replacement = Object.keys(room.getPeers()).find(peerId => peerId !== id);
+      if (replacement) {
+        Net.watchHostPeerId = replacement;
+        Net.reconnecting = false;
+        return;
+      }
+      if (Net.role === 'spectator') {
+        Net.reconnecting = true;
+        clearTimeout(Net.watchJoinTimer);
+        Net.watchJoinTimer = setTimeout(() => {
+          if (Net.role === 'spectator' && !Net.watchHostPeerId) Net.leaveWatch();
+        }, Net.RECONNECT_GRACE_MS);
+      }
+    };
+    Net.watchJoinTimer = setTimeout(() => {
+      if (Net.role === 'spectator' && !Net.active) {
+        Net.closeSpectatorRoom();
+        Net.role = null;
+        Net.uiShow('choose');
+        Net.uiError("Couldn't open that table for viewing.");
+      }
+    }, 20000);
+  } catch (e) {
+    Net.closeSpectatorRoom();
+    Net.role = null;
+    Net.uiShow('choose');
+    Net.uiError(Net.connectionError(e, "Couldn't open that table for viewing."));
+  }
+};
+
+Net.leaveWatch = function () {
+  Net.closeSpectatorRoom();
+  Net.active = false;
+  Net.role = null;
+  Net.code = null;
+  Net.rsnap = null; Net.gview = null; Net.snapT = 0;
+  G.onlineFlip = false;
+  if (Net.savedSettings) {
+    Settings.firstTo = Net.savedSettings.firstTo;
+    Settings.pace = Net.savedSettings.pace;
+    if (Net.savedSettings.theme && THEMES[Net.savedSettings.theme]) setTheme(Net.savedSettings.theme, true);
+    Net.savedSettings = null;
+  }
+  G.mode = 'ai';
+  hideAll();
+  $('menu').classList.remove('hidden');
 };
 
 /* Wire Trystero 0.25 action objects to the game-facing Net interface. */
@@ -380,12 +1058,52 @@ Net.uiShow = function (mode, data) {
   };
   if (mode === 'choose') {
     T.textContent = 'Play a rival';
-    S.textContent = 'Host a table, or join one with a code.';
-    B.innerHTML = '<p class="online-note">Hosting is instant: share the 6-character code ' +
-      'and your rival joins straight in. Your table, your rules: ' +
-      'the host\u2019s table and settings win.</p>';
+    S.textContent = 'Find someone now, or open a private table.';
+    B.innerHTML = '<button id="onlineQuick" class="btn primary online-quick" type="button">' +
+      '<span>Find a rival</span><small>QUICK MATCH</small></button>' +
+      '<button id="onlineWatch" class="btn online-watch" type="button">' +
+      '<span>Watch a table</span><small>SPECTATE</small></button>' +
+      '<p class="online-note online-divider">Private table</p>';
+    const quick = $('onlineQuick'), watch = $('onlineWatch');
+    if (quick) quick.onclick = () => Net.quickStart();
+    if (watch) watch.onclick = () => Net.uiShow('watchjoin');
     setBtn(P, 'Host a table', () => Net.create());
     setBtn(Q, 'Join with a code', () => Net.uiShow('join'));
+  } else if (mode === 'matching') {
+    const player = Net.localPlayer();
+    T.textContent = 'Finding a rival';
+    S.textContent = 'Searching the house for an open table.';
+    B.innerHTML = '<div class="online-matchpulse pulse">LOOKING FOR A TABLE</div>' +
+      '<p class="online-note">' + player.name + ' · Direct connection preferred</p>';
+    setBtn(P, null);
+    setBtn(Q, 'Cancel', () => { Net.opToken++; Net.stopQuick(); Net.uiShow('choose'); });
+  } else if (mode === 'watchjoin') {
+    T.textContent = 'Watch a table';
+    S.textContent = 'Enter the host\u2019s 6-character table code.';
+    B.innerHTML = '<input id="onlineWatchInput" class="online-input" maxlength="6" ' +
+      'autocomplete="off" autocapitalize="characters" spellcheck="false" ' +
+      'placeholder="······" aria-label="Table code">';
+    setBtn(P, 'Watch', () => Net.watch(($('onlineWatchInput') || {}).value || ''));
+    setBtn(Q, 'Back', () => Net.uiShow('choose'));
+    setTimeout(() => {
+      try {
+        const input = $('onlineWatchInput');
+        input.focus({ preventScroll:true });
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); P.click(); } });
+      } catch (e) {}
+    }, 60);
+  } else if (mode === 'watching') {
+    T.textContent = 'Opening the gallery';
+    S.textContent = 'Connecting to table ' + (data.code || '') + '.';
+    B.innerHTML = '<div class="online-matchpulse pulse">WAITING FOR THE TABLE</div>' +
+      '<p class="online-note">Spectators can watch, never affect play.</p>';
+    setBtn(P, null);
+    setBtn(Q, 'Cancel', () => {
+      Net.opToken++;
+      Net.closeSpectatorRoom();
+      Net.role = null; Net.code = null; Net.active = false;
+      Net.uiShow('choose');
+    });
   } else if (mode === 'join') {
     T.textContent = 'Join a table';
     S.textContent = 'Enter the 6-character code from your rival.';
@@ -401,6 +1119,19 @@ Net.uiShow = function (mode, data) {
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); P.click(); } });
       } catch (e) { console.warn('Could not focus code field', e); }
     }, 60);
+  } else if (mode === 'resuming') {
+    T.textContent = 'Resuming table';
+    S.textContent = 'Recovering your place in the match.';
+    B.innerHTML = '<div class="online-matchpulse pulse">RECONNECTING TO THE TABLE</div>' +
+      '<p class="online-note">Your saved seat expires automatically if the old match is gone.</p>';
+    setBtn(P, null);
+    setBtn(Q, 'Give up', () => {
+      Net.opToken++;
+      Net.resumingSession = false;
+      Net.clearSessionCheckpoint();
+      Net.dropRoom();
+      Net.uiShow('choose');
+    });
   } else if (mode === 'opening') {
     T.textContent = 'Opening table';
     S.textContent = 'Preparing a secure peer-to-peer room.';
@@ -532,19 +1263,20 @@ Net.closeLobby = function () {
   $('menu').classList.remove('hidden');
 };
 
-Net.create = async function () {
+Net.create = async function (forcedCode) {
   const token = ++Net.opToken;
   Net.uiShow('opening');
   try {
     const { joinRoom } = await Net.trystero();
     if (token !== Net.opToken) return;
-    const code = netGenCode();
+    const code = typeof forcedCode === 'string' && /^[A-Z2-9]{6}$/.test(forcedCode) ? forcedCode : netGenCode();
     const room = await Net.makeRoom(joinRoom, code);
     if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
     Net.initRoom(room, 'host');
     Net.code = code;
     Net.waitingForRival = true;
     Net.uiShow('waiting', { code });
+    void Net.openSpectatorHost();
   } catch (e) {
     Net.uiShow('choose');
     Net.uiError(Net.connectionError(e, "Couldn't reach the lobby. Check your connection and try again."));
@@ -590,9 +1322,13 @@ Net.knockBurst = function () {
   clearTimeout(Net.knockTimer);
   let tries = 0;
   const burst = () => {
-    if (Net.active || !Net.wire || Net.role !== 'guest') return;
+    if (Net.active || !Net.wire || !Net.isPlayer()) return;
     if (tries++ >= Net.KNOCK_RETRIES) return;
-    try { Net.wire.sendEv({ t: 'knock' }); } catch (e) {}
+    const ev = Net.resumingSession && Net.validSessionId(Net.sessionId)
+      ? { t:'resume-knock', v:NET_SESSION_VERSION, authorityV:NET_AUTHORITY_VERSION,
+          sid:Net.sessionId, player:Net.localPlayer() }
+      : { t:'knock', authorityV:NET_AUTHORITY_VERSION, player:Net.localPlayer() };
+    try { Net.wire.sendEv(ev); } catch (e) {}
     Net.knockTimer = setTimeout(burst, Net.KNOCK_RETRY_MS);
   };
   burst();
@@ -600,6 +1336,7 @@ Net.knockBurst = function () {
 
 Net.cancelLobby = function () {
   Net.opToken++;
+  Net.stopQuick();
   clearTimeout(Net.joinTimer);
   // Never tear down a live match from the lobby: the lobby can sit over a
   // paused online match (openLobby), and cancelling must hand back to that
@@ -734,10 +1471,10 @@ Net.onRealtimeMessage = function (data) {
   if (!(data instanceof ArrayBuffer) || data.byteLength < 4) return;
   const v = new DataView(data);
   const type = v.getUint8(0);
-  if (type === NET_RT_STATE && Net.role === 'guest') {
+  if (type === NET_RT_STATE && Net.isPlayer() && !Net.isAuthority()) {
     const a = Net.decodeRealtimeState(v);
     if (a) Net.onSnapshot(a, Net.peerId);
-  } else if (type === NET_RT_INPUT && Net.role === 'host') {
+  } else if (type === NET_RT_INPUT && Net.isAuthority()) {
     const a = Net.decodeRealtimeInput(v);
     if (a) {
       Net.onInput(a, Net.peerId);
@@ -745,7 +1482,7 @@ Net.onRealtimeMessage = function (data) {
       // produces a newer ACK. Old clients ignore this unknown message type.
       Net.sendRealtime(Net.encodeRealtimeAck(Net.rtLastInputSeq));
     }
-  } else if (type === NET_RT_ACK && Net.role === 'guest') {
+  } else if (type === NET_RT_ACK && Net.isPlayer() && !Net.isAuthority()) {
     Net.onRealtimeAck(v);
   }
 };
@@ -760,11 +1497,464 @@ Net.sendRealtime = function (buffer) {
   catch (e) { Net.rtReady = false; Net.logErr(e); return false; }
 };
 
+/* ---------------- short-lived session resurrection ---------------- */
+Net.restoreBodyState = function (body, saved) {
+  if (!body || !saved) return;
+  for (const key of ['x','y','tx','ty','vx','vy']) {
+    if (Number.isFinite(saved[key])) body[key] = saved[key];
+  }
+};
+
+Net.restoreStatsState = function (saved) {
+  const stats = freshStats();
+  if (!saved || typeof saved !== 'object') return stats;
+  const pair = (key, fallback) => Array.isArray(saved[key]) && saved[key].length >= 2
+    ? [saved[key][0] | 0, saved[key][1] | 0] : fallback;
+  stats.topSpeed = Number.isFinite(saved.topSpeed) ? Math.max(0, saved.topSpeed) : 0;
+  stats.rally = saved.rally | 0;
+  stats.bestRally = saved.bestRally | 0;
+  stats.bestGoalRally = saved.bestGoalRally | 0;
+  stats.bankGoals = pair('bankGoals', [0,0]);
+  stats.rallyLastSide = Number.isInteger(saved.rallyLastSide) ? saved.rallyLastSide : -1;
+  stats.saves = pair('saves', [0,0]);
+  stats.streak = pair('streak', [0,0]);
+  stats.bestStreak = pair('bestStreak', [0,0]);
+  stats.worstDef = pair('worstDef', [0,0]);
+  stats.t0 = performance.now() - (Number.isFinite(saved.elapsedMs) ? Math.max(0, saved.elapsedMs) : 0);
+  return stats;
+};
+
+Net.restoreAuthorityCheckpoint = function (checkpoint) {
+  const saved = checkpoint && checkpoint.authority;
+  if (!saved || !Array.isArray(saved.snapshot) || saved.snapshot.length < 15 ||
+      !saved.snapshot.every(Number.isFinite)) return false;
+
+  if ([5,7,11].includes(+checkpoint.firstTo)) Settings.firstTo = +checkpoint.firstTo;
+  if (checkpoint.pace && PACES[checkpoint.pace]) Settings.pace = checkpoint.pace;
+  if (['narrow','standard','wide'].includes(checkpoint.goalW)) Settings.goalW = checkpoint.goalW;
+  if (checkpoint.theme && THEMES[checkpoint.theme]) setTheme(checkpoint.theme, true);
+  try { applySettingsToUI(); } catch (e) {}
+
+  Net.musicSeed = Number.isFinite(+checkpoint.musicSeed) ? (+checkpoint.musicSeed >>> 0) : 0;
+  try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+
+  const resumeRole = checkpoint.role === 'guest' ? 'guest' : 'host';
+  Net.side = checkpoint.side === 1 ? 1 : 0;
+  Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
+  Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
+  Net.authorityMigrationReady = checkpoint.authorityReady === true;
+  Net.peerAuthorityVersion = Net.authorityMigrationReady ? NET_AUTHORITY_VERSION : 0;
+  Net.beginMatch(resumeRole);
+  const snap = Net.decodeSnapshot(saved.snapshot);
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  G.winSide = saved.winSide === 1 ? 1 : 0;
+  G.gwNet = Number.isFinite(saved.gwNet) ? saved.gwNet : 0;
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  if (saved.puck) {
+    if (Number.isFinite(saved.puck.w)) G.puck.w = saved.puck.w;
+    if (Number.isFinite(saved.puck.ang)) G.puck.ang = saved.puck.ang;
+  }
+  Net.restoreBodyState(G.m1, saved.m1);
+  Net.restoreBodyState(G.m2, saved.m2);
+  const remote = Net.remoteMallet();
+  if (remote) { Net.remote.tx = remote.x; Net.remote.ty = remote.y; }
+  G.stats = Net.restoreStatsState(saved.stats);
+  G.serveVX = Number.isFinite(snap.svx) ? snap.svx : 0;
+  G.serveVY = Number.isFinite(snap.svy) ? snap.svy : 0;
+  if (snap.sdir === 1 || snap.sdir === -1) G.serveDir = snap.sdir;
+
+  let state = ['play','count','goal','pause','win'].includes(saved.state) ? saved.state : 'play';
+  if (state === 'goal') {
+    // A reload does not replay a half-finished ceremony. Advance to the next
+    // stable authoritative state while preserving the already-awarded score.
+    if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
+      G.winSide = G.score[0] > G.score[1] ? 0 : 1;
+      state = 'win';
+    } else {
+      resetPositions();
+      rollServe(saved.goalSide === 0 ? 1 : -1);
+      startCount();
+      state = 'count';
+    }
+  } else if (state === 'count') {
+    G.state = 'count';
+    G.countT = Number.isFinite(saved.countT) ? clamp(saved.countT, 0, 2) : 0;
+    G.countN = Number.isInteger(saved.countN) ? clamp(saved.countN, 1, 3) : 3;
+    G.goPlayed = !!saved.goPlayed;
+  } else {
+    G.state = state;
+  }
+
+  if (state === 'win') {
+    G.state = 'win';
+    showWin();
+  } else {
+    const originallyPaused = state === 'pause';
+    const resumeState = originallyPaused
+      ? (['play','count','goal'].includes(saved.pausedFrom) ? saved.pausedFrom : 'play')
+      : state;
+    Net.reconnecting = true;
+    Net.reconnectState = resumeState;
+    Net.dropPaused = originallyPaused;
+    G.pausedFrom = resumeState;
+    G.state = 'pause';
+    hideAll();
+    $('pauseov').classList.remove('hidden');
+    Net.setPauseNotice(true);
+  }
+
+  Net.active = true;
+  Net.matchStarted = true;
+  Net.waitingForRival = false;
+  Net.resumingSession = true;
+  // A resurrected authority always performs the short epoch handshake before
+  // resuming, even if the rival reconnects immediately.
+  Net.authorityRecovery = true;
+  Net.resetConn();
+  return true;
+};
+
+Net.sessionSyncPayload = function () {
+  if (!Net.isAuthority() || !Net.validSessionId(Net.sessionId)) return null;
+  const authority = Net.authorityCheckpoint();
+  if (!authority) return null;
+  return {
+    t:'session-sync',
+    v:NET_SESSION_VERSION,
+    sid:Net.sessionId,
+    authorityV:NET_AUTHORITY_VERSION,
+    authoritySide:Net.authoritySide,
+    authorityEpoch:Net.authorityEpoch,
+    firstTo:Settings.firstTo,
+    pace:Settings.pace,
+    goalW:Math.round(goalW()),
+    theme:THEME.id,
+    mseed:Net.musicSeed >>> 0,
+    player:Net.localPlayer(),
+    authority,
+  };
+};
+
+Net.sendSessionSync = function () {
+  if (!Net.wire) return;
+  const payload = Net.sessionSyncPayload();
+  if (!payload) return;
+  Net.wire.sendEv(payload);
+  Net.wire.sendSt(Net.encodeSnapshot());
+};
+
+Net.applySessionSync = function (ev) {
+  if (!ev || ev.v !== NET_SESSION_VERSION || ev.sid !== Net.sessionId ||
+      !Net.resumingSession || !ev.authority ||
+      !Array.isArray(ev.authority.snapshot) || ev.authority.snapshot.length < 15 ||
+      !ev.authority.snapshot.every(Number.isFinite)) return false;
+
+  clearTimeout(Net.joinTimer); Net.joinTimer = 0;
+  clearTimeout(Net.knockTimer); Net.knockTimer = 0;
+  if (!Net.savedSettings) Net.savedSettings = { firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id };
+  if ([5,7,11].includes(+ev.firstTo)) Settings.firstTo = +ev.firstTo;
+  if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
+  if (ev.theme && THEMES[ev.theme]) setTheme(ev.theme, true);
+  Net.musicSeed = Number.isFinite(+ev.mseed) ? (+ev.mseed >>> 0) : 0;
+  try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  Net.rivalIdentity = Net.cleanPlayer(ev.player);
+  Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
+
+  Net.authoritySide = ev.authoritySide === 1 ? 1 : 0;
+  Net.authorityEpoch = Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
+  Net.beginMatch(Net.role === 'host' ? 'host' : 'guest');
+  Net.sessionId = ev.sid;
+  const saved = ev.authority;
+  const snap = Net.decodeSnapshot(saved.snapshot);
+  Net.applyRemoteSnapshot(saved.snapshot);
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  G.winSide = saved.winSide === 1 ? 1 : 0;
+  G.gwNet = Number.isFinite(ev.goalW) ? clamp(ev.goalW, 150, 260) : 0;
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  G.m1.x = G.m1.tx = snap.m1x; G.m1.y = G.m1.ty = snap.m1y;
+  G.m2.x = G.m2.tx = snap.m2x; G.m2.y = G.m2.ty = snap.m2y;
+  G.serveVX = Number.isFinite(snap.svx) ? snap.svx : 0;
+  G.serveVY = Number.isFinite(snap.svy) ? snap.svy : 0;
+  if (snap.sdir === 1 || snap.sdir === -1) G.serveDir = snap.sdir;
+
+  const state = ['play','count','goal','pause','win'].includes(saved.state) ? saved.state : 'play';
+  if (state === 'count') {
+    startCount();
+    G.countT = Number.isFinite(saved.countT) ? clamp(saved.countT, 0, 2) : 0;
+    G.countN = Number.isInteger(saved.countN) ? clamp(saved.countN, 1, 3) : 3;
+    G.goPlayed = !!saved.goPlayed;
+  } else if (state === 'goal') {
+    beginGoalCeremony(saved.goalSide === 1 ? 1 : 0);
+    G.goalT = Number.isFinite(saved.goalT) ? Math.max(0, saved.goalT) : 0;
+    G.goalSlowT = Number.isFinite(saved.goalSlowT) ? Math.max(0, saved.goalSlowT) : 0;
+    G.timeScale = Number.isFinite(saved.timeScale) ? saved.timeScale : G.timeScale;
+  } else if (state === 'pause') {
+    G.pausedFrom = ['play','count','goal'].includes(saved.pausedFrom) ? saved.pausedFrom : 'play';
+    G.state = 'pause';
+    hideAll(); $('pauseov').classList.remove('hidden');
+  } else if (state === 'win') {
+    G.state = 'win';
+    showWin();
+  } else {
+    G.state = 'play';
+    hideAll(); $('topbar').classList.remove('hidden');
+  }
+
+  Net.active = true;
+  Net.matchStarted = true;
+  Net.resumingSession = false;
+  Net.reconnecting = false;
+  Net.setPauseNotice(false);
+  Net.saveSessionCheckpoint();
+  return true;
+};
+
+Net.resumeGuestSession = async function (checkpoint) {
+  const token = ++Net.opToken;
+  Net.openLobby();
+  Net.uiShow('resuming');
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return false;
+    const room = await Net.makeRoom(joinRoom, checkpoint.code);
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return false; }
+    const resumeRole = checkpoint.role === 'host' ? 'host' : 'guest';
+    Net.initRoom(room, resumeRole);
+    Net.code = checkpoint.code;
+    Net.side = checkpoint.side === 0 ? 0 : 1;
+    Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
+    Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
+    Net.authorityMigrationReady = checkpoint.authorityReady === true;
+    Net.peerAuthorityVersion = Net.authorityMigrationReady ? NET_AUTHORITY_VERSION : 0;
+    Net.sessionId = checkpoint.sid;
+    Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
+    Net.resumingSession = true;
+    Net.resumeCheckpoint = checkpoint;
+    Net.joinTimer = setTimeout(() => {
+      if (!Net.active && Net.resumingSession) {
+        Net.resumingSession = false;
+        Net.clearSessionCheckpoint();
+        Net.dropRoom();
+        Net.uiShow('choose');
+        Net.uiError("Couldn't resume that table.");
+      }
+    }, 20000);
+    const peers = Object.keys(room.getPeers());
+    if (peers.length > 0 && Net.acceptPeer(peers[0])) Net.knockBurst();
+    return true;
+  } catch (e) {
+    Net.resumingSession = false;
+    Net.clearSessionCheckpoint();
+    Net.dropRoom();
+    Net.uiShow('choose');
+    Net.uiError(Net.connectionError(e, "Couldn't resume that table."));
+    return false;
+  }
+};
+
+Net.resumeAuthoritySession = async function (checkpoint) {
+  const token = ++Net.opToken;
+  Net.openLobby();
+  Net.uiShow('resuming');
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return false;
+    const room = await Net.makeRoom(joinRoom, checkpoint.code);
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return false; }
+    const resumeRole = checkpoint.role === 'guest' ? 'guest' : 'host';
+    Net.initRoom(room, resumeRole);
+    Net.code = checkpoint.code;
+    Net.sessionId = checkpoint.sid;
+    Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
+    Net.resumeCheckpoint = checkpoint;
+    if (!Net.restoreAuthorityCheckpoint(checkpoint)) throw new Error('Saved authority state is invalid');
+    const peers = Object.keys(room.getPeers());
+    if (peers.length > 0) Net.onPeerJoin(peers[0]);
+    clearTimeout(Net.disconnectTimer);
+    Net.disconnectTimer = setTimeout(() => {
+      if (!Net.peerId && Net.resumingSession) Net.beginAuthorityRecovery();
+    }, Net.RECONNECT_GRACE_MS);
+    return true;
+  } catch (e) {
+    Net.resumingSession = false;
+    Net.clearSessionCheckpoint();
+    Net.dropRoom();
+    Net.uiShow('choose');
+    Net.uiError(Net.connectionError(e, "Couldn't restore that table."));
+    return false;
+  }
+};
+
+Net.tryResumeSession = async function () {
+  const checkpoint = Net.readSessionCheckpoint();
+  if (!checkpoint || Net.active || Net.room) return false;
+  return checkpoint.authority
+    ? Net.resumeAuthoritySession(checkpoint)
+    : Net.resumeGuestSession(checkpoint);
+};
+
+/* ---------------- authority migration ---------------- */
+Net.adoptAuthoritySnapshot = function (saved) {
+  if (!saved || !Array.isArray(saved.snapshot) || saved.snapshot.length < 15 ||
+      !saved.snapshot.every(Number.isFinite)) return false;
+  const snap = Net.decodeSnapshot(saved.snapshot);
+  Net.clearGuestPrediction();
+  Net.rsnap = snap;
+  Net.snapT = performance.now();
+  Net.gview = { px:snap.px, py:snap.py, pvx:snap.pvx, pvy:snap.pvy };
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  G.m1.x = G.m1.tx = snap.m1x; G.m1.y = G.m1.ty = snap.m1y;
+  G.m2.x = G.m2.tx = snap.m2x; G.m2.y = G.m2.ty = snap.m2y;
+  if (Number.isFinite(snap.svx)) G.serveVX = snap.svx;
+  if (Number.isFinite(snap.svy)) G.serveVY = snap.svy;
+  if (snap.sdir === 1 || snap.sdir === -1) G.serveDir = snap.sdir;
+  if (saved.winSide === 0 || saved.winSide === 1) G.winSide = saved.winSide;
+  const semantic = ['play','count','goal','pause','win'].includes(saved.state) ? saved.state : 'play';
+  if (Net.reconnecting && G.state === 'pause') {
+    Net.reconnectState = semantic === 'pause'
+      ? (['play','count','goal'].includes(saved.pausedFrom) ? saved.pausedFrom : 'play')
+      : semantic;
+    Net.dropPaused = semantic === 'pause';
+  }
+  return true;
+};
+
+Net.sendAuthorityClaim = function () {
+  if (!Net.authorityMigrationReady || !Net.wire || !Net.active || !Net.isPlayer() ||
+      !Net.validSessionId(Net.sessionId)) return;
+  const ev = {
+    t:'authority',
+    v:NET_AUTHORITY_VERSION,
+    sid:Net.sessionId,
+    epoch:Net.authorityEpoch,
+    side:Net.authoritySide,
+  };
+  if (Net.isAuthority()) ev.authority = Net.authorityCheckpoint();
+  try { Net.wire.sendEv(ev); } catch (e) { Net.logErr(e); }
+};
+
+Net.onAuthorityClaim = function (ev) {
+  if (!Net.authorityMigrationReady || !ev || ev.v !== NET_AUTHORITY_VERSION ||
+      ev.sid !== Net.sessionId || !Net.isPlayer() ||
+      (ev.side !== 0 && ev.side !== 1) || ev.side === Net.playerSide() ||
+      !Number.isInteger(ev.epoch) || ev.epoch < 1) return false;
+
+  const incomingWins = Net.authorityTupleWins(ev.epoch, ev.side);
+  // A losing claim is still a valid handshake message: it proves the peer
+  // has observed an authority epoch and can safely compare it with ours.
+  if (!incomingWins) return true;
+
+  // Never demote to a newer remote authority unless it also proves the
+  // authoritative state boundary it is claiming. A malformed/newer epoch
+  // must keep the table frozen rather than create an unverified split brain.
+  if (!ev.authority || !Net.adoptAuthoritySnapshot(ev.authority)) return false;
+
+  const wasAuthority = Net.isAuthority();
+  Net.authoritySide = ev.side;
+  Net.authorityEpoch = ev.epoch;
+
+  if (wasAuthority && !Net.isAuthority()) Net.closeSpectatorRoom();
+  Net.rtLastInputSeq = null;
+  Net.rtAckInputSeq = null;
+  Net.saveSessionCheckpoint();
+  return true;
+};
+
+Net.promoteAuthority = function () {
+  if (!Net.active || !Net.isPlayer() || Net.isAuthority() || !Net.rsnap) return false;
+  const snap = Net.rsnap;
+  Net.authoritySide = Net.playerSide();
+  Net.authorityEpoch = Math.max(1, Net.authorityEpoch + 1);
+  Net.rtStateSeq = Net.rtLastStateSeq === null ? Net.rtStateSeq : Net.rtLastStateSeq;
+  Net.rtLastInputSeq = null;
+  Net.rtAckInputSeq = null;
+  Net.clearGuestPrediction();
+
+  // Promotion starts from the last host-authored state, never from speculative
+  // puck flight. That keeps score/position authority on a converged boundary.
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  G.m1.x = G.m1.tx = snap.m1x; G.m1.y = G.m1.ty = snap.m1y;
+  G.m2.x = G.m2.tx = snap.m2x; G.m2.y = G.m2.ty = snap.m2y;
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  Net.remote.tx = Net.remoteMallet().x;
+  Net.remote.ty = Net.remoteMallet().y;
+  if (G.stats) {
+    G.stats.topSpeed = Math.max(G.stats.topSpeed || 0, snap.top || 0);
+    G.stats.bestRally = Math.max(G.stats.bestRally || 0, snap.br || 0);
+    G.stats.saves = [snap.sv0 | 0, snap.sv1 | 0];
+  }
+  Net.gview = null;
+  // Do not publish a replacement watcher authority while the peer epoch is
+  // unresolved. finishAuthorityReconnect opens the watcher room after settle.
+  Net.saveSessionCheckpoint();
+  return true;
+};
+
+Net.beginAuthorityRecovery = function () {
+  if (!Net.active || !Net.isPlayer() || Net.peerId) return;
+  if (!Net.authorityMigrationReady) {
+    Net.reconnecting = false;
+    Net.onRivalLeft();
+    return;
+  }
+  Net.authorityRecovery = true;
+  Net.authorityPeerClaimSeen = false;
+  if (!Net.isAuthority()) Net.promoteAuthority();
+  clearTimeout(Net.disconnectTimer);
+  Net.disconnectTimer = setTimeout(() => {
+    if (!Net.peerId && Net.authorityRecovery) {
+      Net.authorityRecovery = false;
+      Net.reconnecting = false;
+      Net.onRivalLeft();
+    }
+  }, NET_AUTHORITY_RECOVERY_MS);
+};
+
+Net.finishAuthorityReconnect = function () {
+  clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
+  if (!Net.active || !Net.peerId || !Net.authorityPeerClaimSeen) return;
+  Net.reconnecting = false;
+  Net.authorityRecovery = false;
+  Net.authorityPeerClaimSeen = false;
+  Net.setPauseNotice(false);
+  const resumeUs = !Net.dropPaused && G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause';
+  if (resumeUs) togglePause(false, true);
+  Net.reconnectState = null;
+  Net.dropPaused = false;
+  if (Net.wire && resumeUs) Net.wire.sendEv({ t:'resume' });
+  if (Net.isAuthority()) {
+    Net.snapAcc = 1;
+    void Net.openSpectatorHost();
+  } else {
+    Net.closeSpectatorRoom();
+  }
+  Net.resumingSession = false;
+  Net.saveSessionCheckpoint();
+  Net.paintConn();
+};
+
+Net.scheduleAuthoritySettle = function () {
+  clearTimeout(Net.authoritySettleTimer);
+  Net.authoritySettleTimer = setTimeout(() => {
+    Net.authoritySettleTimer = 0;
+    if (!Net.authorityRecovery || !Net.peerId || Net.authorityPeerClaimSeen) return;
+    // The reliable control channel should deliver the peer epoch quickly once
+    // the WebRTC transport is back. If it does not, fail closed: ending the
+    // match is safer than resuming two simulation authorities.
+    Net.authorityRecovery = false;
+    Net.reconnecting = false;
+    Net.onRivalLeft();
+  }, NET_AUTHORITY_HANDSHAKE_TIMEOUT_MS);
+};
+
 /* ---------------- room lifecycle ---------------- */
 Net.initRoom = function (room, role) {
   Net.dropRoom();
   Net.room = room;
-  Net.role = role; // provisional until the match starts
+  Net.role = role; // origin role remains stable across authority migration
+  Net.side = role === 'host' ? 0 : role === 'guest' ? 1 : null;
   Net.wire = Net.wireRoom(room, {
     onPeerJoin: (id) => Net.onPeerJoin(id),
     onPeerLeave: (id) => Net.onPeerLeave(id),
@@ -777,12 +1967,22 @@ Net.initRoom = function (room, role) {
 Net.dropRoom = function () {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
   Net.detachIceRecovery();
+  if (Net.isAuthority()) {
+    void Net.spectatorSendEvent({ t:'end' });
+    Net.closeSpectatorRoom();
+  }
   Net.closeRealtime();
   clearTimeout(Net.knockTimer); Net.knockTimer = 0;
   Net.reconnecting = false; Net.reconnectState = null;
   Net.setPauseNotice(false);
   try { if (Net.room) Net.room.leave(); } catch (e) {}
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
+  Net.side = null; Net.authoritySide = 0; Net.authorityEpoch = 0;
+  Net.authorityRecovery = false; Net.authorityPeerClaimSeen = false;
+  Net.peerAuthorityVersion = 0; Net.authorityMigrationReady = false;
+  clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
+  Net.rivalIdentity = null;
+  Net.sessionId = null; Net.resumingSession = false;
   Net.active = false; Net.waitingForRival = false;
   Net.matchStarted = false;
   Net.resetConn(); // chip hides with the match
@@ -799,31 +1999,42 @@ Net.onPeerJoin = function (id) {
   if (!Net.acceptPeer(id)) return;
   const wasReconnecting = Net.reconnecting;
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
-  Net.reconnecting = false;
-  Net.paintConn();
   // The negotiated lane is created only after Trystero has established the
   // underlying RTCPeerConnection. Old peers simply never open the matching
   // channel, so the reliable path remains active.
   Net.ensureRealtimeChannel();
   Net.attachIceRecovery(Net.peerConnection());
+
   if (wasReconnecting && Net.active) {
-    // The rival is back inside the grace window: both sides resume their
-    // own retained state. A manual pause from before the drop is kept.
-    // The 'resume' event goes out only when WE are resuming from the
-    // drop-induced pause - never clobber the rival's own manual pause.
+    if (Net.authorityRecovery) {
+      // After the long disconnect window, both sides exchange authority
+      // epochs before either simulation resumes. Do not use a fixed delay:
+      // wait for a structurally valid peer claim on the reliable channel.
+      Net.authorityPeerClaimSeen = false;
+      Net.sendAuthorityClaim();
+      Net.scheduleAuthoritySettle();
+      Net.paintConn();
+      return;
+    }
+    Net.reconnecting = false;
     Net.setPauseNotice(false);
     const resumeUs = !Net.dropPaused && G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause';
     if (resumeUs) togglePause(false, true);
     Net.reconnectState = null;
     Net.dropPaused = false;
-    if (Net.wire && resumeUs) Net.wire.sendEv({ t: 'resume' });
-    // fast resync: push a snapshot on the next pump instead of waiting
-    // for the tick, so the guest reconverges immediately
-    if (Net.role === 'host') Net.snapAcc = 1;
+    if (Net.wire && resumeUs) Net.wire.sendEv({ t:'resume' });
+    if (Net.isAuthority()) Net.snapAcc = 1;
+    Net.resumingSession = false;
+    Net.sendAuthorityClaim();
+    Net.paintConn();
     return;
   }
-  if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
-  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.knockBurst(); // a rejoin knock can race too
+
+  Net.reconnecting = false;
+  Net.paintConn();
+  if (!Net.active && Net.resumingSession && Net.wire && Net.isPlayer()) Net.knockBurst();
+  else if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
+  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.knockBurst();
 };
 // The "rival left" overlay is up and the room is still alive - a peer that
 // (re)joins now is knocking for a fresh match. DOM-guarded for headless.
@@ -865,41 +2076,22 @@ Net.onPeerLeave = function (id) {
   Net.paintConn();
   clearTimeout(Net.disconnectTimer);
   Net.disconnectTimer = setTimeout(() => {
-    if (!Net.peerId && Net.reconnecting) {
-      Net.reconnecting = false;
-      Net.onRivalLeft();
-    }
+    if (!Net.peerId && Net.reconnecting) Net.beginAuthorityRecovery();
   }, Net.RECONNECT_GRACE_MS);
 };
 
 Net.onSnapshot = function (a, peerId) {
-  if (Net.role !== 'guest' || !Net.active || !Net.acceptPeer(peerId)) return;
-  // 15 slots from older hosts still decode (serve slots are optional);
-  // anything shorter or non-numeric is junk
-  if (!Array.isArray(a) || a.length < 15 || !a.every(Number.isFinite)) return;
-  const s = Net.decodeSnapshot(a);
-  if (!Net.gview) {
-    Net.gview = { px: s.px, py: s.py, pvx: s.pvx, pvy: s.pvy };
-  } else {
-    // teleport guard: a snapshot from across the table means our model is
-    // stale (missed packets) - seed hard instead of rubber-banding.
-    const d = Math.hypot(s.px - Net.gview.px, s.py - Net.gview.py);
-    // During local contact prediction, reconciliation owns large corrections.
-    // The generic stale-model teleport guard would otherwise erase the
-    // predicted hit before the authoritative post-input state can arrive.
-    if (!Net.guestPrediction && d > 420) { Net.gview.px = s.px; Net.gview.py = s.py; }
-  }
-  Net.rsnap = s;
-  Net.snapT = performance.now();
+  if (!Net.isPlayer() || Net.isAuthority() || !Net.active || !Net.acceptPeer(peerId)) return;
+  Net.applyRemoteSnapshot(a);
 };
 
 Net.onInput = function (a, peerId) {
-  if (Net.role !== 'host' || !Net.active || !Net.acceptPeer(peerId)) return;
+  if (!Net.isAuthority() || !Net.acceptPeer(peerId)) return;
   if (!Array.isArray(a) || a.length < 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1])) return;
-  // the guest owns the right half - clamp the target to it up front
-  // (driveMallet re-clamps per side, but the target itself should never
-  // cross the center line)
-  Net.remote.tx = clamp(a[0], CX + 8, PX + PW - MALLET_R);
+  const side = Net.remoteSide();
+  const lo = side === 0 ? PX + MALLET_R : CX + 8;
+  const hi = side === 0 ? CX - 8 : PX + PW - MALLET_R;
+  Net.remote.tx = clamp(a[0], lo, hi);
   Net.remote.ty = clamp(a[1], PY + MALLET_R, PY + PH - MALLET_R);
 };
 
@@ -910,7 +2102,8 @@ Net.onInput = function (a, peerId) {
  * never touch the puck. driveMallet and PLAYER_CAP live in game.js; unit
  * tests stub driveMallet. */
 Net.driveRemoteMallet = function (dt) {
-  const m = G.m2;
+  const m = Net.remoteMallet();
+  if (!m) return;
   m.tx = Net.remote.tx; m.ty = Net.remote.ty;
   driveMallet(m, dt, PLAYER_CAP);
 };
@@ -923,20 +2116,43 @@ Net.onEvent = function (ev, peerId) {
   if (!Net.acceptPeer(peerId) || !ev || typeof ev !== 'object' || typeof ev.t !== 'string') return;
   switch (ev.t) {
     case 'knock':
+      if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+      Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+      Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
       if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
       // late rejoin after the match was declared dead: the guest re-knocks
       // on join (see onPeerJoin) - answer with a fresh match instead of
       // silence, so a long blip ends in a rematch, not a dead table
       else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
       break;
+    case 'authority': {
+      const validClaim = Net.onAuthorityClaim(ev);
+      if (validClaim && Net.authorityRecovery) {
+        Net.authorityPeerClaimSeen = true;
+        Net.finishAuthorityReconnect();
+      }
+      break;
+    }
+    case 'resume-knock':
+      if (Net.isAuthority() && ev.v === NET_SESSION_VERSION &&
+          ev.sid === Net.sessionId && Net.validSessionId(ev.sid)) {
+        if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+        Net.peerAuthorityVersion = Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+        Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
+        Net.sendSessionSync();
+      }
+      break;
+    case 'session-sync':
+      if (Net.isPlayer() && !Net.isAuthority()) Net.applySessionSync(ev);
+      break;
     case 'hello':
       if (Net.role === 'guest') Net.onHello(ev);
       break;
     case 'countdown':
-      if (Net.role === 'guest') Net.onCountdown(ev);
+      if (Net.isPlayer() && !Net.isAuthority()) Net.onCountdown(ev);
       break;
     case 'goal':
-      if (Net.role === 'guest' && Net.active && Net.validGoalEvent(ev)) Net.guestGoal(ev);
+      if (Net.isPlayer() && !Net.isAuthority() && Net.active && Net.validGoalEvent(ev)) Net.guestGoal(ev);
       break;
     case 'pause':
       if (Net.active) Net.applyRemotePause(true);
@@ -950,7 +2166,7 @@ Net.onEvent = function (ev, peerId) {
     case 'restart-req':
       // ONLINE: guest asks mid-match for a restart - host authority performs
       // it; the countdown event pulls the guest along via Net.onCountdown.
-      if (Net.role === 'host' && Net.active) Net.restartMatchAsHost();
+      if (Net.isAuthority()) Net.restartMatchAsAuthority();
       break;
     case 'leave':
       if (Net.active || Net.waitingForRival) Net.onRivalLeft();
@@ -1239,14 +2455,13 @@ Net.resetConn = function () {
   Net.conn.salt = Math.random().toString(36).slice(2, 10);
   Net.rtcAcc = 0; Net.rtcStatsPending = false;
   Net.rtc = { route: 'unknown', protocol: '', localType: '', remoteType: '', availableOut: 0 };
-  // Connection-chip reset is match/UI state, not peer lifecycle. Recovery is
-  // owned by attach/detach + RTCPeerConnection state changes.
   Net.paintConn();
 };
 
 /* ---------------- match flow ---------------- */
 Net.beginMatch = function (role) {
   Net.role = role;
+  Net.side = role === 'host' ? 0 : role === 'guest' ? 1 : null;
   Net.active = true;
   Net.matchStarted = true;
   Net.waitingForRival = false;
@@ -1270,6 +2485,8 @@ Net.beginMatch = function (role) {
   pointers.clear();
   hideAll();
   $('topbar').classList.remove('hidden');
+  const pauseButton = $('btnPause');
+  if (pauseButton) pauseButton.classList.toggle('hidden', role === 'spectator');
   // reset rematch UI
   const rb = $('btnRematch'); rb.textContent = 'Rematch'; rb.disabled = false;
   // net state
@@ -1280,12 +2497,16 @@ Net.beginMatch = function (role) {
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null; Net.rtDropped = 0;
   Net.guestPrediction = null; Net.guestContactLatch = false;
   Net.predictionCorrections = 0; Net.predictionMaxError = 0;
-  Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
+  Net.remote.tx = Net.remoteSide() === 0 ? PX + 170 : PX + PW - 170;
+  Net.remote.ty = CY;
 };
 
 /* Host: a rival arrived - start the match, send the settings, count down. */
 Net.startHostMatch = function () {
   if (Net.active || !Net.waitingForRival) return;
+  Net.sessionId = Net.newSessionId();
+  Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // the host deals the music seed: both peers play the same generative sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
@@ -1299,6 +2520,13 @@ Net.startHostMatch = function () {
 /* Guest: the host's settings win. Stash our own, apply theirs, wait. */
 Net.onHello = function (ev) {
   clearTimeout(Net.joinTimer);
+  if (ev && ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+  if (ev && Net.validSessionId(ev.sid)) Net.sessionId = ev.sid;
+  Net.side = 1;
+  Net.peerAuthorityVersion = ev && Number.isInteger(ev.authorityV) ? ev.authorityV : 0;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
+  Net.authoritySide = ev && ev.authoritySide === 1 ? 1 : 0;
+  Net.authorityEpoch = ev && Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
   clearTimeout(Net.knockTimer); Net.knockTimer = 0; // the knock landed
   Net.matchStarted = false; // the next countdown begins a new match, including older hosts
   // A rematch hello may update the host's settings, but the guest's original
@@ -1319,7 +2547,7 @@ Net.onHello = function (ev) {
   Net.active = true;
   Net.waitingForRival = false;
   G.mode = 'online';
-  G.onlineFlip = true;
+  G.onlineFlip = Net.side === 1;
   if (typeof fitCamera === 'function') fitCamera(); // 2.5D: re-seat the camera behind the viewer's end
   if (typeof paintTableWarp === 'function') paintTableWarp(); // re-warp the static table
   Net.resetConn(); // fresh RTT chip for a fresh match (not on every countdown)
@@ -1329,9 +2557,15 @@ Net.onHello = function (ev) {
 /* Guest: a new-match countdown resets match state; a post-goal countdown
  * starts only the next point, preserving the score and cumulative stats. */
 Net.onCountdown = function (ev) {
-  if (Net.role !== 'guest' || !Net.active) return;
+  if (!Net.active || !Net.isPlayer() || Net.isAuthority()) return;
   const fresh = ev?.fresh === true || !Net.matchStarted || G.state === 'win';
-  if (fresh) Net.beginMatch('guest');
+  if (ev && (ev.authoritySide === 0 || ev.authoritySide === 1)) Net.authoritySide = ev.authoritySide;
+  if (ev && Number.isInteger(ev.authorityEpoch)) Net.authorityEpoch = Math.max(Net.authorityEpoch, ev.authorityEpoch);
+  if (ev && Number.isFinite(+ev.mseed)) {
+    Net.musicSeed = (+ev.mseed) >>> 0;
+    try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  }
+  if (fresh) Net.beginMatch(Net.role === 'host' ? 'host' : 'guest');
   else {
     clearCeremony();
     hideAll();
@@ -1363,6 +2597,7 @@ Net.onCountdown = function (ev) {
 Net.guestGoal = function (ev) {
   Net.clearGuestPrediction();
   G.score = [ev.s0, ev.s1];
+  if (ev.matchEnd && Net.role !== 'spectator') Net.rememberRival(G.score);
   if (Net.rsnap) { Net.rsnap.s0 = ev.s0; Net.rsnap.s1 = ev.s1; }
   beginGoalCeremony(ev.scorer); // visuals only - no scoring, no send
 };
@@ -1445,8 +2680,8 @@ Net.predictionTarget = function () {
  * conservative: no prediction without the V2 realtime/ACK lane, while
  * reconnecting, or when the outgoing queue is already backed up. */
 Net.tryPredictGuestHit = function () {
-  if (Net.role !== 'guest' || G.state !== 'play' || Net.reconnecting || !Net.realtimeWritable()) return false;
-  const gv = Net.gview, m = G.m2;
+  if (!Net.isPlayer() || Net.isAuthority() || G.state !== 'play' || Net.reconnecting || !Net.realtimeWritable()) return false;
+  const gv = Net.gview, m = Net.localMallet();
   if (!gv || !m) return false;
 
   const dx = gv.px - m.x, dy = gv.py - m.y;
@@ -1558,7 +2793,17 @@ Net.advanceGuestPrediction = function (rdt) {
  * compatibility lane. Guest input uses the same adaptive cadence; visual
  * dead reckoning still runs every frame. No-op unless a match is live. */
 Net.pump = function (rdt) {
-  if (!Net.active || !Net.wire) return;
+  if (!Net.active) return;
+  if (Net.role === 'spectator') {
+    if (G.state !== 'pause') Net.guestApply(rdt);
+    return;
+  }
+  Net.sessionAcc += rdt;
+  if (Net.sessionAcc >= NET_SESSION_SAVE_MS / 1000) {
+    Net.sessionAcc = 0;
+    Net.saveSessionCheckpoint();
+  }
+  if (!Net.wire) return;
   // RTT probe: cheap, on the event channel, display-only
   Net.conn.pingAcc += rdt;
   if (Net.conn.pingAcc >= 2.5) { Net.conn.pingAcc = 0; Net.sendPing(); }
@@ -1569,12 +2814,19 @@ Net.pump = function (rdt) {
   // the foundation pass; adaptive netcode will consume it in Online V2.
   Net.rtcAcc += rdt;
   if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; void Net.sampleRtcStats(); }
-  if (Net.role === 'host') {
+  if (Net.isAuthority()) {
     Net.snapAcc += rdt;
     const stateStep = Net.rtReady ? 1 / 60 : 1 / 30;
     if (Net.snapAcc >= stateStep && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
       Net.snapAcc = 0;
       if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeState()))) Net.wire.sendSt(Net.encodeSnapshot());
+    }
+    if (Net.spectatorWire && Net.spectatorIds.size > 0) {
+      Net.spectatorAcc += rdt;
+      if (Net.spectatorAcc >= 1 / NET_SPECTATOR_HZ) {
+        Net.spectatorAcc = 0;
+        void Net.spectatorSendState();
+      }
     }
   } else {
     Net.inAcc += rdt;
@@ -1589,8 +2841,20 @@ Net.pump = function (rdt) {
 Net.easeHostMallet = function (rdt) {
   if (!Net.rsnap) return;
   const k = Math.min(1, rdt * 18);
+  const m = Net.authoritySide === 1 ? G.m2 : G.m1;
+  const x = Net.authoritySide === 1 ? Net.rsnap.m2x : Net.rsnap.m1x;
+  const y = Net.authoritySide === 1 ? Net.rsnap.m2y : Net.rsnap.m1y;
+  m.x += (x - m.x) * k;
+  m.y += (y - m.y) * k;
+};
+
+Net.easeSpectatorMallets = function (rdt) {
+  if (!Net.rsnap) return;
+  const k = Math.min(1, rdt * 18);
   G.m1.x += (Net.rsnap.m1x - G.m1.x) * k;
   G.m1.y += (Net.rsnap.m1y - G.m1.y) * k;
+  G.m2.x += (Net.rsnap.m2x - G.m2.x) * k;
+  G.m2.y += (Net.rsnap.m2y - G.m2.y) * k;
 };
 
 /* Guest per-frame: predict from the freshest snapshot (bounded age), ease the
@@ -1622,7 +2886,8 @@ Net.guestApply = function (rdt) {
   if (!Net.guestPrediction && G.state === 'play') Net.tryPredictGuestHit();
   G.trail.push({ x: gv.px, y: gv.py });
   if (G.trail.length > 16) G.trail.shift();
-  Net.easeHostMallet(rdt);
+  if (Net.role === 'spectator') Net.easeSpectatorMallets(rdt);
+  else Net.easeHostMallet(rdt);
   G.score[0] = s.s0; G.score[1] = s.s1;
   if (G.stats) {
     if (s.top > G.stats.topSpeed) G.stats.topSpeed = s.top;
@@ -1638,8 +2903,12 @@ Net.guestApply = function (rdt) {
  * they no-op instead of throwing. */
 Net.sendHello = function () {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({ t: 'hello', firstTo: Settings.firstTo, pace: Settings.pace, theme: THEME.id,
-    mseed: Net.musicSeed >>> 0 }); // the generative sequence seed, so guest music matches the host's
+  const ev = { t:'hello', firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id,
+    sid:Net.sessionId, authorityV:NET_AUTHORITY_VERSION,
+    authoritySide:Net.authoritySide, authorityEpoch:Net.authorityEpoch,
+    player:Net.localPlayer(), mseed:Net.musicSeed >>> 0 };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev); // the generative sequence seed, so guest music matches the host's
 };
 // The serve vector rides along so both machines play the identical point -
 // the host's roll is the source of truth, the guest just applies it.
@@ -1647,25 +2916,36 @@ Net.sendHello = function () {
 // (via the host's snapshots) plays the same table.
 Net.sendCountdown = function (fresh = false) {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({ t: 'countdown', fresh, s0:G.score[0], s1:G.score[1], serveDir: G.serveDir,
-    svx: Math.round(G.serveVX * 10) / 10, svy: Math.round(G.serveVY * 10) / 10,
-    gw: Math.round(goalW()) });
+  const ev = { t:'countdown', fresh, s0:G.score[0], s1:G.score[1], serveDir:G.serveDir,
+    svx:Math.round(G.serveVX * 10) / 10, svy:Math.round(G.serveVY * 10) / 10,
+    gw:Math.round(goalW()), mseed:Net.musicSeed >>> 0,
+    authoritySide:Net.authoritySide, authorityEpoch:Net.authorityEpoch };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev);
 };
 Net.sendGoal = function (scorer) {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({
-    t: 'goal', scorer,
-    s0: G.score[0], s1: G.score[1],
-    matchEnd: G.score[scorer] >= Settings.firstTo,
-  });
+  const matchEnd = G.score[scorer] >= Settings.firstTo;
+  const ev = {
+    t:'goal', scorer,
+    s0:G.score[0], s1:G.score[1],
+    matchEnd,
+  };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev);
+  if (matchEnd) Net.rememberRival(G.score);
 };
 Net.sendPause = function (paused) {
   if (!Net.wire || !Net.active) return;
-  Net.wire.sendEv({ t: paused ? 'pause' : 'resume' });
+  const ev = { t:paused ? 'pause' : 'resume' };
+  Net.wire.sendEv(ev);
+  void Net.spectatorSendEvent(ev);
 };
 Net.sendInput = function (force = false) {
-  if (!Net.wire || !Net.active) return null;
-  const tx = _r1(G.m2.tx), ty = _r1(G.m2.ty), now = performance.now();
+  if (!Net.wire || !Net.active || !Net.isPlayer() || Net.isAuthority()) return null;
+  const local = Net.localMallet();
+  if (!local) return null;
+  const tx = _r1(local.tx), ty = _r1(local.ty), now = performance.now();
   // delta suppression: a stationary mallet re-sends nothing. But packets do
   // drop, so heartbeat at least every 500ms - the host must never stick on
   // a target the guest abandoned three drops ago. Predicted contact forces
@@ -1701,7 +2981,7 @@ Net.onRematch = function (phase) {
     Net.uiShow('rematchoffer');
     AudioSys.ui();
   } else if (phase === 'accept') {
-    if (Net.role === 'host') Net.restartMatchAsHost();
+    if (Net.isAuthority()) Net.restartMatchAsAuthority();
     else { Net.uiShow('guestwait'); } // host accepted - they're starting it
   } else if (phase === 'decline') {
     if (!Net.offerSent) return;
@@ -1719,8 +2999,8 @@ Net.acceptRematch = function () {
   if (!Net.active || !Net.wire) return;
   Net.wire.sendEv({ t: 'rematch', phase: 'accept' });
   AudioSys.ui();
-  if (Net.role === 'host') Net.restartMatchAsHost();
-  // guest: the host restarts and the countdown event resets us
+  if (Net.isAuthority()) Net.restartMatchAsAuthority();
+  // non-authority: the authority restarts and the countdown event resets us
 };
 Net.declineRematch = function () {
   if (Net.wire) Net.wire.sendEv({ t: 'rematch', phase: 'decline' });
@@ -1729,7 +3009,24 @@ Net.declineRematch = function () {
 };
 /* Host: a rival re-knocked after a dead match - start a genuinely fresh match:
  * new hello (settings), new countdown, new serve roll, fresh RTT chip. */
+Net.restartMatchAsAuthority = function () {
+  if (!Net.isAuthority()) return;
+  const role = Net.role === 'host' ? 'host' : 'guest';
+  Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0;
+  try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  const side = Net.playerSide(), authoritySide = Net.authoritySide, epoch = Net.authorityEpoch;
+  Net.beginMatch(role);
+  Net.side = side; Net.authoritySide = authoritySide; Net.authorityEpoch = epoch;
+  startCount();
+  rollServe(Math.random() < 0.5 ? 1 : -1);
+  Net.sendCountdown(true);
+  Net.saveSessionCheckpoint();
+};
+
 Net.restartMatchAsHost = function () {
+  Net.sessionId = Net.newSessionId();
+  Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
+  Net.authorityMigrationReady = Net.peerAuthorityVersion >= NET_AUTHORITY_VERSION;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // fresh match, fresh music sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
@@ -1742,7 +3039,9 @@ Net.restartMatchAsHost = function () {
 
 /* ---------------- leave / disconnect ---------------- */
 Net.leave = function () {
+  if (Net.role === 'spectator') { Net.leaveWatch(); return; }
   if (Net.wire && Net.active) { try { Net.wire.sendEv({ t: 'leave' }); } catch (e) {} }
+  Net.clearSessionCheckpoint();
   Net.dropRoom();
   Net.code = null;
   Net.offerSent = false;
@@ -1764,10 +3063,15 @@ Net.leave = function () {
  * Idempotent - safe if the room already dropped. */
 Net.onRivalLeft = function () {
   if (!Net.active && !Net.waitingForRival) return;
+  Net.closeSpectatorRoom();
+  Net.authorityRecovery = false;
+  clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
   Net.active = false;
   Net.matchStarted = false;
   Net.waitingForRival = false;
   Net.offerSent = false;
+  Net.resumingSession = false;
+  Net.clearSessionCheckpoint();
   clearCeremony();
   // freeze the sim behind the overlay (host: stop the clock; guest: stop
   // dead reckoning) so nothing keeps playing without a rival
