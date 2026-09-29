@@ -977,6 +977,19 @@ Net.uiShow = function (mode, data) {
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); P.click(); } });
       } catch (e) { console.warn('Could not focus code field', e); }
     }, 60);
+  } else if (mode === 'resuming') {
+    T.textContent = 'Resuming table';
+    S.textContent = 'Recovering your place in the match.';
+    B.innerHTML = '<div class="online-matchpulse pulse">RECONNECTING TO THE TABLE</div>' +
+      '<p class="online-note">Your saved seat expires automatically if the old match is gone.</p>';
+    setBtn(P, null);
+    setBtn(Q, 'Give up', () => {
+      Net.opToken++;
+      Net.resumingSession = false;
+      Net.clearSessionCheckpoint();
+      Net.dropRoom();
+      Net.uiShow('choose');
+    });
   } else if (mode === 'opening') {
     T.textContent = 'Opening table';
     S.textContent = 'Preparing a secure peer-to-peer room.';
@@ -1169,7 +1182,10 @@ Net.knockBurst = function () {
   const burst = () => {
     if (Net.active || !Net.wire || Net.role !== 'guest') return;
     if (tries++ >= Net.KNOCK_RETRIES) return;
-    try { Net.wire.sendEv({ t: 'knock', player:Net.localPlayer() }); } catch (e) {}
+    const ev = Net.resumingSession && Net.validSessionId(Net.sessionId)
+      ? { t:'resume-knock', v:NET_SESSION_VERSION, sid:Net.sessionId, player:Net.localPlayer() }
+      : { t:'knock', player:Net.localPlayer() };
+    try { Net.wire.sendEv(ev); } catch (e) {}
     Net.knockTimer = setTimeout(burst, Net.KNOCK_RETRY_MS);
   };
   burst();
@@ -1642,6 +1658,7 @@ Net.dropRoom = function () {
   try { if (Net.room) Net.room.leave(); } catch (e) {}
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.rivalIdentity = null;
+  Net.sessionId = null; Net.resumingSession = false;
   Net.active = false; Net.waitingForRival = false;
   Net.matchStarted = false;
   Net.resetConn(); // chip hides with the match
@@ -1678,6 +1695,7 @@ Net.onPeerJoin = function (id) {
     // fast resync: push a snapshot on the next pump instead of waiting
     // for the tick, so the guest reconverges immediately
     if (Net.role === 'host') Net.snapAcc = 1;
+    Net.resumingSession = false;
     return;
   }
   if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
@@ -1770,6 +1788,16 @@ Net.onEvent = function (ev, peerId) {
       // on join (see onPeerJoin) - answer with a fresh match instead of
       // silence, so a long blip ends in a rematch, not a dead table
       else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
+      break;
+    case 'resume-knock':
+      if (Net.role === 'host' && Net.active && ev.v === NET_SESSION_VERSION &&
+          ev.sid === Net.sessionId && Net.validSessionId(ev.sid)) {
+        if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+        Net.sendSessionSync();
+      }
+      break;
+    case 'session-sync':
+      if (Net.role === 'guest') Net.applySessionSync(ev);
       break;
     case 'hello':
       if (Net.role === 'guest') Net.onHello(ev);
@@ -1957,6 +1985,7 @@ Net.beginMatch = function (role) {
 /* Host: a rival arrived - start the match, send the settings, count down. */
 Net.startHostMatch = function () {
   if (Net.active || !Net.waitingForRival) return;
+  Net.sessionId = Net.newSessionId();
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // the host deals the music seed: both peers play the same generative sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
@@ -1971,6 +2000,7 @@ Net.startHostMatch = function () {
 Net.onHello = function (ev) {
   clearTimeout(Net.joinTimer);
   if (ev && ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
+  if (ev && Net.validSessionId(ev.sid)) Net.sessionId = ev.sid;
   clearTimeout(Net.knockTimer); Net.knockTimer = 0; // the knock landed
   Net.matchStarted = false; // the next countdown begins a new match, including older hosts
   // A rematch hello may update the host's settings, but the guest's original
@@ -2236,6 +2266,11 @@ Net.pump = function (rdt) {
     if (G.state !== 'pause') Net.guestApply(rdt);
     return;
   }
+  Net.sessionAcc += rdt;
+  if (Net.sessionAcc >= NET_SESSION_SAVE_MS / 1000) {
+    Net.sessionAcc = 0;
+    Net.saveSessionCheckpoint();
+  }
   if (!Net.wire) return;
   // RTT probe: cheap, on the event channel, display-only
   Net.conn.pingAcc += rdt;
@@ -2334,7 +2369,7 @@ Net.guestApply = function (rdt) {
 Net.sendHello = function () {
   if (!Net.wire || !Net.active) return;
   const ev = { t:'hello', firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id,
-    player:Net.localPlayer(), mseed:Net.musicSeed >>> 0 };
+    sid:Net.sessionId, player:Net.localPlayer(), mseed:Net.musicSeed >>> 0 };
   Net.wire.sendEv(ev);
   void Net.spectatorSendEvent(ev); // the generative sequence seed, so guest music matches the host's
 };
