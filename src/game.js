@@ -44,6 +44,7 @@ const Settings = {
   orientation: 'auto', // 'auto' | 'landscape' | 'portrait' - persisted display preference
   camera: 'top', // 'top' | 'elevated' | 'surface' - 2.5D camera (v25)
   touchControl: 'direct', // 'direct' | 'stick' - direct manipulation stays the mobile default
+  stickReturn: 'triangle', // 'off' | 'triangle' - floating-stick release recovery
   keyboardFeel: 'balanced', // 'precise' | 'balanced' | 'fast' - digital target travel profile
   gamepadFeel: 'balanced', // 'precise' | 'balanced' | 'fast' - analog target travel profile
 };
@@ -69,6 +70,7 @@ function loadSettings() {
   if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
   if (!['direct', 'stick'].includes(Settings.touchControl)) Settings.touchControl = 'direct';
+  if (!['off', 'triangle'].includes(Settings.stickReturn)) Settings.stickReturn = 'triangle';
   if (!['precise', 'balanced', 'fast'].includes(Settings.keyboardFeel)) Settings.keyboardFeel = 'balanced';
   if (!['precise', 'balanced', 'fast'].includes(Settings.gamepadFeel)) Settings.gamepadFeel = 'balanced';
   // Audio sliders replace the old on/off preferences. Migrate old saves once,
@@ -2029,7 +2031,8 @@ const Highlights = {
 };
 
 const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
-const touchSticks = new Map(); // pointerId -> {side, ox, oy, x, y}; optional floating touch controls
+const touchSticks = new Map(); // pointerId -> dynamic-follow thumbstick session
+const touchReturns = [null, null]; // release recovery target per side; short-lived and player-cancellable
 let mouseHoverSide = null;     // desktop direct manipulation does not require holding a button
 
 function mkMallet(side) {
@@ -2049,6 +2052,7 @@ function mkMallet(side) {
 }
 function resetPositions() {
   const m1 = G.m1, m2 = G.m2;
+  touchReturns[0] = touchReturns[1] = null;
   m1.x = m1.tx = PX + 170; m1.y = m1.ty = CY;
   m2.x = m2.tx = PX + PW - 170; m2.y = m2.ty = CY;
   m1.vx = m1.vy = m2.vx = m2.vy = 0;
@@ -2326,7 +2330,7 @@ function pointerOwnsSide(side) {
   return false;
 }
 function controlInputActive(side, now = performance.now()) {
-  if (mouseHoverSide === side || pointerOwnsSide(side)) return true;
+  if (mouseHoverSide === side || pointerOwnsSide(side) || touchReturnActive(side, now)) return true;
   return now - ((G.inputDriveT && G.inputDriveT[side]) || 0) < 140;
 }
 function targetBoundsForSide(side, r = MALLET_R) {
@@ -2358,13 +2362,95 @@ function nudgeMalletTarget(m, sx, sy, speed, dt) {
 
 function touchStickVector(side) {
   for (const s of touchSticks.values()) {
-    if (s.side === side) return shapeAnalogInput(s.x, s.y, 0.10, 1.08);
+    // Small radial dead zone for thumb tremor, then a precision-first curve.
+    // Full throw still reaches 1.0, so fast attacks remain available.
+    if (s.side === side) return shapeAnalogInput(s.x, s.y, 0.08, 1.34);
   }
   return [0, 0];
 }
 function touchStickActive(side) {
   for (const s of touchSticks.values()) if (s.side === side) return true;
   return false;
+}
+function touchReturnActive(side, now = performance.now()) {
+  const r = touchReturns[side];
+  if (!r) return false;
+  if (now > r.until) { touchReturns[side] = null; return false; }
+  return true;
+}
+function cancelTouchReturn(side) {
+  if (side === 0 || side === 1) touchReturns[side] = null;
+}
+
+// A lightweight version of real air-hockey's floating-triangle principle:
+// sit forward of the goal and bias toward the current puck/goal lane. This
+// snapshots a RECOVERY point when the thumb is released; it never tracks the
+// puck continuously and therefore cannot become an automatic goalie.
+function touchTriangleHome(m) {
+  const p = G.puck || { x: CX, y: CY };
+  const goalX = m.side === 0 ? PX : PX + PW;
+  const dir = m.side === 0 ? 1 : -1;
+  const puckDepth = Math.abs(p.x - goalX);
+  const far = clamp(puckDepth / PW, 0, 1);
+  const depth = 170 + far * 82; // float slightly higher when the puck is farther away
+  const x = clamp(goalX + dir * depth,
+    m.side === 0 ? PX + m.r : CX + 8,
+    m.side === 0 ? CX - 8 : PX + PW - m.r);
+  // Approximate the goal-centre -> puck line while limiting lateral automation.
+  const track = clamp(depth / Math.max(depth, puckDepth), 0.16, 0.52);
+  const y = clamp(CY + (p.y - CY) * track, PY + m.r + 18, PY + PH - m.r - 18);
+  return { x, y };
+}
+function beginTouchReturn(side, now = performance.now()) {
+  if (Settings.stickReturn !== 'triangle' || (side !== 0 && side !== 1)) {
+    cancelTouchReturn(side); return;
+  }
+  const m = side === 0 ? G.m1 : G.m2;
+  if (!m) return;
+  const h = touchTriangleHome(m);
+  touchReturns[side] = { x:h.x, y:h.y, readyAt:now + 90, until:now + 1250 };
+  // Kill the stale attack target immediately; recovery grows from the actual
+  // mallet position instead of letting it finish a move after the thumb lifts.
+  m.tx = m.x; m.ty = m.y;
+  markControlDrive(side, now);
+}
+function touchReturnStep(m, dt, now = performance.now()) {
+  if (!m || !touchReturnActive(m.side, now)) return false;
+  const r = touchReturns[m.side];
+  if (now < r.readyAt) { markControlDrive(m.side, now); return true; }
+
+  const dx = r.x - m.x, dy = r.y - m.y;
+  const dist = hyp(dx, dy);
+  if (dist < 18) {
+    m.tx = r.x; m.ty = r.y;
+    touchReturns[m.side] = null;
+    markControlDrive(m.side, now);
+    return true;
+  }
+
+  // Do not let recovery assistance push through the puck toward our own goal.
+  // If the puck blocks the recovery segment, hold position until it clears or
+  // the short assist window expires.
+  const p = G.puck;
+  if (p) {
+    const seg2 = dx * dx + dy * dy;
+    if (seg2 > 1) {
+      const t = clamp(((p.x - m.x) * dx + (p.y - m.y) * dy) / seg2, 0, 1);
+      const px = m.x + dx * t, py = m.y + dy * t;
+      if (hyp(p.x - px, p.y - py) < m.r + p.r + 28) {
+        m.tx = m.x; m.ty = m.y;
+        markControlDrive(m.side, now);
+        return true;
+      }
+    }
+  }
+
+  const step = Math.min(dist, 1500 * dt);
+  m.tx = m.x + dx / dist * step;
+  m.ty = m.y + dy / dist * step;
+  clampMallet(m);
+  markControlDrive(m.side, now);
+  return true;
 }
 function setTouchStickVisual(side, cx, cy, x = 0, y = 0, radius = 58) {
   const el = document.getElementById('touchStick' + side);
@@ -2562,14 +2648,18 @@ function onPointerDown(e) {
   const m = side === 0 ? G.m1 : G.m2;
   mouseHoverSide = e.pointerType === 'mouse' ? side : mouseHoverSide;
 
-  // Floating-stick touch keeps the mallet where it is and treats the landing
-  // point as a temporary thumbstick origin. The stick follows the player's
-  // screen-space intent through the same 2D/2.5D mapping as keyboard/gamepad.
+  cancelTouchReturn(side);
+
+  // Dynamic-follow stick: the TRUE control origin is always exactly where the
+  // thumb lands. The old implementation clamped the origin inward near screen
+  // edges, so a tiny first move could become a huge false input.
   if (touch && Settings.touchControl === 'stick') {
-    const radius = clamp(Math.min(innerWidth, innerHeight) * 0.085, 48, 68);
-    const ox = clamp(e.clientX, radius + 8, Math.max(radius + 8, innerWidth - radius - 8));
-    const oy = clamp(e.clientY, radius + 8, Math.max(radius + 8, innerHeight - radius - 8));
-    touchSticks.set(e.pointerId, { side, ox, oy, x: 0, y: 0, radius });
+    const radius = clamp(Math.min(innerWidth, innerHeight) * 0.09, 50, 70);
+    const ox = e.clientX, oy = e.clientY;
+    touchSticks.set(e.pointerId, {
+      side, ox, oy, x:0, y:0, radius,
+      travel:radius * 0.82,
+    });
     m.tx = m.x; m.ty = m.y;
     setTouchStickVisual(side, ox, oy, 0, 0, radius);
     markControlDrive(side);
@@ -2609,13 +2699,26 @@ function onPointerMove(e) {
 
   const stick = touchSticks.get(e.pointerId);
   if (touch && stick) {
-    const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
-    const n = hyp(dx, dy);
+    let dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
+    let n = hyp(dx, dy);
     const max = stick.radius || 58;
-    const k = n > max && n > 1e-6 ? max / n : 1;
+    const travel = stick.travel || max * 0.82;
+
+    // Following joystick: once the thumb reaches full throw, drag the base
+    // behind it instead of letting the finger run farther and farther away.
+    // The player keeps full-speed intent while neutral/reversal remains one
+    // short thumb movement away.
+    if (n > travel && n > 1e-6) {
+      const excess = n - travel;
+      stick.ox += dx / n * excess;
+      stick.oy += dy / n * excess;
+      dx = e.clientX - stick.ox; dy = e.clientY - stick.oy;
+      n = hyp(dx, dy);
+    }
+    const k = n > travel && n > 1e-6 ? travel / n : 1;
     const kx = dx * k, ky = dy * k;
-    stick.x = clamp(kx / max, -1, 1);
-    stick.y = clamp(ky / max, -1, 1);
+    stick.x = clamp(kx / travel, -1, 1);
+    stick.y = clamp(ky / travel, -1, 1);
     setTouchStickVisual(side, stick.ox, stick.oy, kx, ky, max);
     markControlDrive(side);
   } else {
@@ -2628,10 +2731,14 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   const side = pointers.get(e.pointerId);
+  const hadStick = touchSticks.has(e.pointerId);
   pointers.delete(e.pointerId);
-  if (touchSticks.has(e.pointerId)) {
+  if (hadStick) {
     touchSticks.delete(e.pointerId);
-    if (side === 0 || side === 1) hideTouchStickVisual(side);
+    if (side === 0 || side === 1) {
+      hideTouchStickVisual(side);
+      beginTouchReturn(side);
+    }
   }
   try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
   if (e.pointerType === 'mouse') {
@@ -2646,6 +2753,7 @@ function onPointerLeave(e) {
 function resetTransientControls() {
   pointers.clear();
   touchSticks.clear();
+  touchReturns[0] = touchReturns[1] = null;
   mouseHoverSide = null;
   hideTouchStickVisual(0);
   hideTouchStickVisual(1);
