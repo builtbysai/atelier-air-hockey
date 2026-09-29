@@ -71,7 +71,6 @@ async function loadNetWorld() {
       calls.push(['driveMallet', m === G.m1 ? 'm1' : 'm2', Math.round(m.tx), Math.round(m.ty)]);
       m.x = m.tx; m.y = m.ty;
     },
-    PLAYER_CAP: 920,
     startCount() { calls.push('startCount'); G.state = 'count'; G.puck.x = 400; G.puck.y = 300; G.puck.vx = 0; G.puck.vy = 0; },
     showWin() { calls.push('showWin'); },
     beginGoalCeremony(scorer) { calls.push(['beginGoalCeremony', scorer]); G.state = 'goal'; },
