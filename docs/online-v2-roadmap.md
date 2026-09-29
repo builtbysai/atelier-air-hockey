@@ -1,7 +1,7 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was refreshed: `4e46e83a0f65`
+Current reference main commit when this roadmap was refreshed: `7b62e993079d`
 
 ## New-agent quick start
 
@@ -11,7 +11,7 @@ If you are taking over this work:
 2. Read this roadmap, then read `docs/online-v2-lag-compensation.md`.
 3. Read `src/net.js` before modifying transport or authority logic.
 4. Do **not** duplicate draft PR #88. It already contains ICE recovery / network migration.
-5. PR #89 (deterministic Network Lab), #93 (forced TURN verification), #95 (blackout recovery), #96 (exact latency matrix), #97 (lost-input recovery), #99 (score convergence), #100 (transport metrics), #101 (sequence tracing), #102 (focused Online test command), and #103 (prediction chaos metrics) are merged on `main`.
+5. The deterministic Network Lab and its hardening are merged on `main`, including exact latency, blackout, input recovery, score convergence, transport metrics, sequence tracing, prediction-chaos coverage, production-physics drift guards, additive-message compatibility, and executable lag-compensation contracts.
 6. When GitHub Actions return on October 2, validate #88 first, then run the merged Network Lab through the full suite.
 7. Only after the Network Lab is green should host-side lag compensation move from design into production code.
 8. Preserve host-authoritative score/goals, the reliable compatibility path, and short-lived server-issued TURN credentials.
@@ -22,7 +22,7 @@ Current staged head at this refresh:
 
 - PR #88 `feat/online-v2-ice-recovery`: `abf9cbf37d46784b3f8b54c0cd96c303ac89352a`
 
-Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102 and #103.
+Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102, #103, #107, #108, #109, #110 and #111.
 
 ## Goal
 
@@ -312,6 +312,10 @@ Next resilience target:
 
 Detailed design: `docs/online-v2-lag-compensation.md`
 
+The design now has an executable data contract in `tests/fixtures/online-v2-lag-compensation.json` plus `tests/net-lag-compensation-contract.test.mjs`. No production compensation is enabled.
+
+Key design correction from the current pass: the guest predicts against an extrapolated puck, so the host must not validate geometry only against the raw state sequence the guest referenced. That sequence is the lower bound; validation scans forward through the host's own bounded authoritative puck trajectory and selects the earliest plausible open-table intersection.
+
 Guest prediction improves perceived latency, but the authoritative host still evaluates the guest mallet against its current simulation state.
 
 Next fairness target:
@@ -357,6 +361,9 @@ Track:
 - selected ICE candidate route
 - bytes sent/received (virtual transport byte metrics merged)
 - reconnect time
+- lag-hint candidate contact age
+- distance from historical contact point to the host's current puck when the hint arrives
+- accepted/rejected lag-hint reason counts once the validator exists
 
 Acceptance invariants:
 
@@ -502,7 +509,7 @@ Do not stack another high-risk production protocol/physics change on top of unve
 
 Safe work:
 
-1. Use `npm run unit:online` for the focused Online V2 suite; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics, sequence tracing and prediction/reconciliation chaos coverage are already merged.
+1. Use `npm run unit:online` for the focused Online V2 suite; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics, sequence tracing, prediction/reconciliation chaos coverage, production-physics drift guards and lag-compensation contract tests are already merged.
 2. Keep PR #88 frozen as a draft; its static lifecycle/configuration review is complete enough to defer further production edits until the full suite and real-device migration run.
 3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
 4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
