@@ -874,7 +874,10 @@ function wireUI() {
   });
   window.addEventListener('blur', () => { keyDrive.clear(); pauseForFocusLoss(); });
   window.addEventListener('focus', () => recoverCanvasSurface());
-  window.addEventListener('pagehide', () => WakeSys.release());
+  window.addEventListener('pagehide', () => {
+    try { Net.saveSessionCheckpoint(); } catch (e) {}
+    WakeSys.release();
+  });
   canvas.addEventListener('contextlost', () => markCanvasContextLost());
   canvas.addEventListener('contextrestored', () => markCanvasContextRestored());
   canvas.addEventListener('pointerdown', onPointerDown);
@@ -1019,19 +1022,29 @@ function boot() {
   if ('requestIdleCallback' in window) requestIdleCallback(paintLater, { timeout: 800 }); else setTimeout(paintLater, 0);
   resetPositions();
   G.ai1 = mkBrain(0, 1); G.ai2 = mkBrain(1, 1);
+  // Deep links are explicit user intent and take precedence over a short-lived
+  // crash/reload checkpoint.
+  let explicitRoute = false;
   // deep links: ?table=mid&play , ?table=bil&2p , ?demo
   try {
     const q = new URLSearchParams(location.search);
     if (q.get('table') && THEMES[q.get('table')]) setTheme(q.get('table'), true);
     const joinCode = q.get('join') || q.get('room'); // ?room= is an alias for ?join=
-    if (joinCode) { Net.openLobby(); Net.join(joinCode); try { const u = new URL(location.href); u.searchParams.delete('join'); u.searchParams.delete('room'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {} }
-    else if (q.has('play') && tableUnlocked(G.themeId)) startGame('ai', G.difficulty);
-    else if (q.has('2p') && tableUnlocked(G.themeId)) startGame('2p');
-    else if (q.has('demo')) { G.idleT = 99; }
+    if (joinCode) {
+      explicitRoute = true;
+      Net.clearSessionCheckpoint();
+      Net.openLobby(); Net.join(joinCode);
+      try { const u = new URL(location.href); u.searchParams.delete('join'); u.searchParams.delete('room'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {}
+    }
+    else if (q.has('play') && tableUnlocked(G.themeId)) { explicitRoute = true; Net.clearSessionCheckpoint(); startGame('ai', G.difficulty); }
+    else if (q.has('2p') && tableUnlocked(G.themeId)) { explicitRoute = true; Net.clearSessionCheckpoint(); startGame('2p'); }
+    else if (q.has('demo')) { explicitRoute = true; Net.clearSessionCheckpoint(); G.idleT = 99; }
+    if (q.get('qa')) explicitRoute = true;
     applyVisualQaState(q.get('qa'));
   } catch (e) {}
   requestAnimationFrame(frame);
   requestAnimationFrame(keyboardGamepadDrive);
+  if (!explicitRoute) void Net.tryResumeSession();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('./sw.js')
       .then(reg => {
