@@ -2265,6 +2265,7 @@ function screenToRink(cx, cy) {
 }
 // ONLINE: scoreboard / win / ribbon labels by side (0 = left/host, 1 = right/guest)
 function onlineSideLabel(side) {
+  if (typeof Net !== 'undefined' && Net.role === 'spectator') return side === 0 ? 'P1' : 'P2';
   const amGuest = typeof Net !== 'undefined' && Net.role === 'guest';
   if (side === 0) return amGuest ? 'RIVAL' : 'YOU';
   return amGuest ? 'YOU' : 'RIVAL';
@@ -2400,6 +2401,7 @@ function onPointerDown(e) {
   // Side assignment uses the raw (unshifted) touch point so the vertical
   // offset can never drag a touch across the center line in portrait 2P.
   const raw = screenToRink(e.clientX, e.clientY);
+  if (G.mode === 'online' && Net.role === 'spectator') return;
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
     // ONLINE: exactly one local mallet - host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
@@ -3941,7 +3943,10 @@ function onGoal(scorer) {
 function goalIsYours(scorer) {
   if (G.mode === '2p') return true; // both ends are players - both celebrate
   if (G.mode === 'watch') return false; // exhibition has no human side
-  if (G.mode === 'online') return (Net.role === 'host') === (scorer === 0);
+  if (G.mode === 'online') {
+    if (Net.role === 'spectator') return false;
+    return (Net.role === 'host') === (scorer === 0);
+  }
   return scorer === 0;
 }
 function confettiColors() {
@@ -4447,7 +4452,7 @@ function frame(t) {
       // snaps when the serve goes live
       else if (G.mode === 'online') {
         if (Net.role === 'host') { driveMallet(G.m1, rdt, PLAYER_CAP); Net.driveRemoteMallet(rdt); }
-        else driveMallet(G.m2, rdt, PLAYER_CAP);
+        else if (Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
       }
       // EXHIBITION / SINGLE-PLAYER: AI mallets hold their reset spots during
       // the countdown - no perceiving, no thinking, no skating. (v24.2: the
@@ -4468,6 +4473,7 @@ function frame(t) {
       // (Math.max, never stacking). Never overlaps the ceremony (state
       // leaves 'play' first).
       if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
+      else if (G.mode === 'online' && Net.role === 'spectator') { /* snapshots drive the gallery view */ }
       else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
       updateParts(rdt);
       break;
