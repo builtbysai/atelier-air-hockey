@@ -124,8 +124,8 @@ test('migrated authority clamps incoming target to the remote player half', asyn
 
 test('game source routes online scoring and simulation through authority helpers', async () => {
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  assert.match(source,/G\.mode === 'online' && !Net\.isAuthority\(\)\) return;/);
-  assert.match(source,/if \(Net\.isAuthority\(\)\) \{/);
-  assert.match(source,/const local = Net\.localMallet\(\)/);
-  assert.match(source,/Net\.playerSide\(\) === scorer/);
+  assert.match(source,/G\.mode === 'online' && !onlineIsAuthority\(\)\) return;/);
+  assert.match(source,/if \(onlineIsAuthority\(\)\) \{/);
+  assert.match(source,/const local = onlineLocalMallet\(\)/);
+  assert.match(source,/onlinePlayerSide\(\) === scorer/);
 });
