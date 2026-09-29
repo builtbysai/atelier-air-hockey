@@ -2266,9 +2266,9 @@ function screenToRink(cx, cy) {
 // ONLINE: scoreboard / win / ribbon labels by side (0 = left/host, 1 = right/guest)
 function onlineSideLabel(side) {
   if (typeof Net !== 'undefined' && Net.role === 'spectator') return side === 0 ? 'P1' : 'P2';
-  const amGuest = typeof Net !== 'undefined' && Net.role === 'guest';
-  if (side === 0) return amGuest ? 'RIVAL' : 'YOU';
-  return amGuest ? 'YOU' : 'RIVAL';
+  if (typeof Net !== 'undefined' && (Net.side === 0 || Net.side === 1))
+    return side === Net.side ? 'YOU' : 'RIVAL';
+  return side === 0 ? 'P1' : 'P2';
 }
 // Scoreboard + match-point ribbon side labels, by mode. Exhibition (watch)
 // names both AIs - the left board is never "YOU" when no human is playing.
@@ -2405,7 +2405,7 @@ function onPointerDown(e) {
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
     // ONLINE: exactly one local mallet - host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
-    pointers.set(e.pointerId, Net.role === 'guest' ? 1 : 0);
+    pointers.set(e.pointerId, Net.side === 1 ? 1 : 0);
   } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
     const side = raw.x > CX ? 1 : 0;
     const taken = [...pointers.values()];
@@ -3792,7 +3792,7 @@ function startGame(mode, diff) {
   // the serve flavor once so local and online both use the same point
   rollServe(Math.random() < 0.5 ? 1 : -1);
   // ONLINE: the host's countdown mirrors to the guest so both start even
-  if (mode === 'online' && Net.role === 'host') Net.sendCountdown(true);
+  if (mode === 'online' && Net.isAuthority()) Net.sendCountdown(true);
 }
 function startWorkshop(id) {
   const d = WORKSHOP_DRILLS[id];
@@ -3900,7 +3900,7 @@ function onGoal(scorer) {
   }
   if (G.state !== 'play') return;
   // ONLINE: the host owns the simulation; a guest never scores locally.
-  if (G.mode === 'online' && Net.role !== 'host') return;
+  if (G.mode === 'online' && !Net.isAuthority()) return;
   if (G.mode === 'workshop') {
     const kmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
     Practice.onGoal(scorer, kmh);
@@ -3945,7 +3945,7 @@ function goalIsYours(scorer) {
   if (G.mode === 'watch') return false; // exhibition has no human side
   if (G.mode === 'online') {
     if (Net.role === 'spectator') return false;
-    return (Net.role === 'host') === (scorer === 0);
+    return Net.side === scorer;
   }
   return scorer === 0;
 }
@@ -4085,7 +4085,7 @@ function advanceAfterGoal() {
   if (keepOffer) Replay.keepOfferDuringCount(1.0);
   else Replay.discardPending();
   // ONLINE: the host's countdown mirrors to the guest so both start even
-  if (G.mode === 'online' && Net.role === 'host') Net.sendCountdown();
+  if (G.mode === 'online' && Net.isAuthority()) Net.sendCountdown();
 }
 function matchPersistsProgress(mode = G.mode) {
   // Exhibition is observational only. Keep this as the single contract used
@@ -4322,8 +4322,8 @@ function resumeFromFocusLoss() { // the veil's tap handler - a user gesture
 function restartMatch() {
   AudioSys.ui();
   if (G.mode === 'online') {
-    if (Net.role === 'host') Net.restartMatchAsHost();
-    else if (Net.wire) Net.wire.sendEv({ t: 'restart-req' });
+    if (Net.isAuthority()) Net.restartMatchAsAuthority();
+    else if (Net.wire) Net.wire.sendEv({ t:'restart-req' });
     return;
   }
   if (G.mode === 'workshop' && Practice.id) startWorkshop(Practice.id);
@@ -4381,11 +4381,11 @@ function playStep(rdt) {
       driveMallet(G.m1, sdt, PLAYER_CAP);
       driveMallet(G.m2, sdt, PLAYER_CAP);
     } else if (G.mode === 'online') {
-      // ONLINE: host-only branch - the guest never reaches playStep (see
-      // frame). The host drives m1; m2 follows the guest's input target over
-      // the wire - without this the remote mallet is a statue on the
-      // authoritative sim and the guest can never touch the puck.
-      driveMallet(G.m1, sdt, PLAYER_CAP);
+      // ONLINE: authority-only branch. The authority drives its own mallet;
+      // the rival mallet follows the latest remote target regardless of which
+      // player currently owns simulation authority.
+      const local = Net.localMallet();
+      if (local) driveMallet(local, sdt, PLAYER_CAP);
       Net.driveRemoteMallet(sdt);
     } else if (G.mode === 'workshop' && Practice.id === 'free') {
       const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
@@ -4459,8 +4459,14 @@ function frame(t) {
       // the host also folds the guest's input target into m2 so it never
       // snaps when the serve goes live
       else if (G.mode === 'online') {
-        if (Net.role === 'host') { driveMallet(G.m1, rdt, PLAYER_CAP); Net.driveRemoteMallet(rdt); }
-        else if (Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
+        if (Net.isAuthority()) {
+          const local = Net.localMallet();
+          if (local) driveMallet(local, rdt, PLAYER_CAP);
+          Net.driveRemoteMallet(rdt);
+        } else if (Net.isPlayer()) {
+          const local = Net.localMallet();
+          if (local) driveMallet(local, rdt, PLAYER_CAP);
+        }
       }
       // EXHIBITION / SINGLE-PLAYER: AI mallets hold their reset spots during
       // the countdown - no perceiving, no thinking, no skating. (v24.2: the
@@ -4480,7 +4486,10 @@ function frame(t) {
       // SMASH-tier mallet hits - are smaller beats that share this channel
       // (Math.max, never stacking). Never overlaps the ceremony (state
       // leaves 'play' first).
-      if (G.mode === 'online' && Net.role === 'guest') driveMallet(G.m2, rdt, PLAYER_CAP);
+      if (G.mode === 'online' && Net.isPlayer() && !Net.isAuthority()) {
+        const local = Net.localMallet();
+        if (local) driveMallet(local, rdt, PLAYER_CAP);
+      }
       else if (G.mode === 'online' && Net.role === 'spectator') { /* snapshots drive the gallery view */ }
       else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
       updateParts(rdt);
