@@ -364,8 +364,6 @@ Keep audiovisual effects outside the pure solver.
 
 Track the newest processed **hint** input sequence separately from `rtLastInputSeq`.
 
-Track the newest processed hint input sequence.
-
 A repeated hint for the same input must not cause a second impulse.
 
 Because the realtime lane is unordered, use the existing modular 16-bit sequence helper.
@@ -403,6 +401,15 @@ and schema/coverage checked by:
 `tests/net-lag-compensation-contract.test.mjs`
 
 The fixtures intentionally do **not** implement a second validator or physics solver. When the real host validator is built, its tests should run these same cases through the production function.
+
+The fixture also locks:
+
+- realtime type `4`
+- current realtime version `1`
+- exact 22-byte field offsets/sizes
+- little-endian integer/float encoding
+- 16-bit input/state sequence wraparound cases
+- acceptance when the matching input packet was lost, proving the hint stays self-contained
 
 Initial reason vocabulary:
 
