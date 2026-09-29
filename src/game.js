@@ -43,6 +43,9 @@ const Settings = {
   goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
   orientation: 'auto', // 'auto' | 'landscape' | 'portrait' - persisted display preference
   camera: 'top', // 'top' | 'elevated' | 'surface' - 2.5D camera (v25)
+  touchControl: 'direct', // 'direct' | 'stick' - direct manipulation stays the mobile default
+  keyboardFeel: 'balanced', // 'precise' | 'balanced' | 'fast' - digital target travel profile
+  gamepadFeel: 'balanced', // 'precise' | 'balanced' | 'fast' - analog target travel profile
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
@@ -65,6 +68,9 @@ function loadSettings() {
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
+  if (!['direct', 'stick'].includes(Settings.touchControl)) Settings.touchControl = 'direct';
+  if (!['precise', 'balanced', 'fast'].includes(Settings.keyboardFeel)) Settings.keyboardFeel = 'balanced';
+  if (!['precise', 'balanced', 'fast'].includes(Settings.gamepadFeel)) Settings.gamepadFeel = 'balanced';
   // Audio sliders replace the old on/off preferences. Migrate old saves once,
   // then keep the booleans as derived compatibility gates for existing audio paths.
   if (!Object.prototype.hasOwnProperty.call(stored, 'soundVolume')) Settings.soundVolume = stored.sound === false ? 0 : 100;
@@ -1635,6 +1641,7 @@ const G = {
   goalRewardLabel: '',       // earned shot craft: bank / counter / rally / rocket
   goalScorerLabel: '',       // YOU SCORE / ROOKIE SCORES / P1 SCORES
   goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
+  inputDriveT: [0, 0],        // most recent relative/hover control activity per player side
   pausedGoalCeremony: null,   // semantic goal payload held across pause/focus loss
   themeId: 'deco',          // current table id (setTheme) - feeds the tour tracker
 };
@@ -2022,6 +2029,8 @@ const Highlights = {
 };
 
 const pointers = new Map(); // pointerId -> side (0 left/player, 1 right)
+const touchSticks = new Map(); // pointerId -> {side, ox, oy, x, y}; optional floating touch controls
+let mouseHoverSide = null;     // desktop direct manipulation does not require holding a button
 
 function mkMallet(side) {
   return {
@@ -2263,6 +2272,113 @@ function screenToRink(cx, cy) {
   if (G.onlineFlip) x = VW - x; // ONLINE: invert the guest view mirror
   return { x, y };
 }
+
+// Relative controls (keyboard, gamepad, floating stick) are expressed in
+// screen space first, then projected into rink space. This is the single
+// mapping path for top-down, portrait and both 2.5D cameras, so "up" and
+// "right" always mean the same thing to the player even when the table view
+// changes. Direct mouse/touch continues to use screenToRink() above.
+function screenVectorToRink(m, sx, sy) {
+  if (!m) return [0, 0];
+  if (view.camera !== 'top' && view.cam) {
+    const p = camProject(view.cam, m.x, m.y, 0);
+    if (p) {
+      const q = camUnproject(view.cam, p.x + sx * 24, p.y + sy * 24);
+      const dx = q.x - m.x, dy = q.y - m.y, n = hyp(dx, dy);
+      if (n > 1e-6) {
+        const k = hyp(sx, sy) / n;
+        return [dx * k, dy * k];
+      }
+    }
+    return [0, 0];
+  }
+  let dx, dy;
+  if (view.portrait) { dx = -sy; dy = sx; }
+  else { dx = sx; dy = sy; }
+  if (G.onlineFlip) dx = -dx;
+  return [dx, dy];
+}
+
+const CONTROL_FEEL_SCALE = { precise: 0.80, balanced: 1, fast: 1.22 };
+function controlFeelScale(name) {
+  return CONTROL_FEEL_SCALE[name] || 1;
+}
+
+// Radial dead zone + rescale. Per-axis dead zones create a square response
+// and make diagonal shots feel slower; radial shaping preserves direction.
+function shapeAnalogInput(x, y, dead = 0.16, curve = 1.18) {
+  const mag = hyp(x, y);
+  if (!Number.isFinite(mag) || mag <= dead) return [0, 0];
+  const t = clamp((mag - dead) / Math.max(1e-6, 1 - dead), 0, 1);
+  const shaped = Math.pow(t, curve);
+  return [x / mag * shaped, y / mag * shaped];
+}
+
+function markControlDrive(side, now = performance.now()) {
+  if (side !== 0 && side !== 1) return;
+  if (!Array.isArray(G.inputDriveT)) G.inputDriveT = [0, 0];
+  G.inputDriveT[side] = now;
+  G.kbDriveT = now; // compatibility for older harnesses / diagnostics
+}
+
+function pointerOwnsSide(side) {
+  for (const s of pointers.values()) if (s === side) return true;
+  return false;
+}
+function controlInputActive(side, now = performance.now()) {
+  if (mouseHoverSide === side || pointerOwnsSide(side)) return true;
+  return now - ((G.inputDriveT && G.inputDriveT[side]) || 0) < 140;
+}
+function targetBoundsForSide(side, r = MALLET_R) {
+  return {
+    lo: side === 0 ? PX + r : CX + 8,
+    hi: side === 0 ? CX - 8 : PX + PW - r,
+    top: PY + r,
+    bottom: PY + PH - r,
+  };
+}
+
+// Advance a mallet target from a relative screen-space vector. The physical
+// mallet still passes through driveMallet() and PLAYER_CAP, so faster control
+// profiles never bypass the same physics/online fairness ceiling.
+function nudgeMalletTarget(m, sx, sy, speed, dt) {
+  if (!m || !sx && !sy || !(dt > 0)) return false;
+  const mag = clamp(hyp(sx, sy), 0, 1);
+  let [dx, dy] = screenVectorToRink(m, sx, sy);
+  const n = hyp(dx, dy);
+  if (n <= 1e-6) return false;
+  dx /= n; dy /= n;
+  const b = targetBoundsForSide(m.side, m.r || MALLET_R);
+  m.tx = clamp(m.tx + dx * speed * mag * dt, b.lo, b.hi);
+  m.ty = clamp(m.ty + dy * speed * mag * dt, b.top, b.bottom);
+  markControlDrive(m.side);
+  G.idleT = 0;
+  return true;
+}
+
+function touchStickVector(side) {
+  for (const s of touchSticks.values()) {
+    if (s.side === side) return shapeAnalogInput(s.x, s.y, 0.10, 1.08);
+  }
+  return [0, 0];
+}
+function touchStickActive(side) {
+  for (const s of touchSticks.values()) if (s.side === side) return true;
+  return false;
+}
+function setTouchStickVisual(side, cx, cy, x = 0, y = 0) {
+  const el = document.getElementById('touchStick' + side);
+  if (!el) return;
+  el.classList.remove('hidden');
+  el.style.left = cx + 'px';
+  el.style.top = cy + 'px';
+  el.style.setProperty('--stick-x', x + 'px');
+  el.style.setProperty('--stick-y', y + 'px');
+}
+function hideTouchStickVisual(side) {
+  const el = document.getElementById('touchStick' + side);
+  if (el) el.classList.add('hidden');
+}
 // ONLINE compatibility helpers: production net.js exposes explicit side and
 // authority helpers. Small headless/legacy harnesses may still expose only
 // the original host/guest role, so gameplay falls back without changing
@@ -2421,6 +2537,7 @@ function onPointerDown(e) {
   interacted = true;
   if (G.state === 'menu' || G.state === 'win' || G.state === 'replay') return; // buttons/replay own the UI
   if (G.mode === 'watch') return; // EXHIBITION: no human input - both mallets are AI-driven
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
   const touch = e.pointerType === 'touch';
   // Side assignment uses the raw (unshifted) touch point so the vertical
   // offset can never drag a touch across the center line in portrait 2P.
@@ -2441,21 +2558,89 @@ function onPointerDown(e) {
   }
   const side = pointers.get(e.pointerId);
   const m = side === 0 ? G.m1 : G.m2;
-  const r = touch ? touchTargetRink(side, e.clientX, e.clientY, raw) : raw;
-  m.tx = r.x; m.ty = r.y;
+  mouseHoverSide = e.pointerType === 'mouse' ? side : mouseHoverSide;
+
+  // Floating-stick touch keeps the mallet where it is and treats the landing
+  // point as a temporary thumbstick origin. The stick follows the player's
+  // screen-space intent through the same 2D/2.5D mapping as keyboard/gamepad.
+  if (touch && Settings.touchControl === 'stick') {
+    const radius = clamp(Math.min(innerWidth, innerHeight) * 0.085, 48, 68);
+    const ox = clamp(e.clientX, radius + 8, Math.max(radius + 8, innerWidth - radius - 8));
+    const oy = clamp(e.clientY, radius + 8, Math.max(radius + 8, innerHeight - radius - 8));
+    touchSticks.set(e.pointerId, { side, ox, oy, x: 0, y: 0, radius });
+    m.tx = m.x; m.ty = m.y;
+    setTouchStickVisual(side, ox, oy, 0, 0);
+    markControlDrive(side);
+  } else {
+    const r = touch ? touchTargetRink(side, e.clientX, e.clientY, raw) : raw;
+    m.tx = r.x; m.ty = r.y;
+    markControlDrive(side);
+  }
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
   G.idleT = 0;
 }
+
 function onPointerMove(e) {
-  if (!pointers.has(e.pointerId)) return;
   if (G.state === 'menu' || G.state === 'win' || G.state === 'replay') return;
+
+  // Mouse/trackpad is absolute direct manipulation: no click-and-drag is
+  // required. Limit hover-follow to the canvas so moving over pause/settings
+  // UI does not unexpectedly steer the mallet underneath the overlay.
+  if (!pointers.has(e.pointerId)) {
+    if (e.pointerType === 'mouse' && e.target === canvas &&
+        (G.state === 'play' || G.state === 'count') && G.mode !== 'watch' &&
+        !(G.mode === 'online' && Net.role === 'spectator')) {
+      const side = G.mode === 'online' ? (onlinePlayerSide() === 1 ? 1 : 0) : 0;
+      const m = side === 0 ? G.m1 : G.m2;
+      const r = screenToRink(e.clientX, e.clientY);
+      m.tx = r.x; m.ty = r.y;
+      mouseHoverSide = side;
+      markControlDrive(side);
+      G.idleT = 0;
+    }
+    return;
+  }
+
   const side = pointers.get(e.pointerId);
   const touch = e.pointerType === 'touch';
-  const r = touch ? touchTargetRink(side, e.clientX, e.clientY) : screenToRink(e.clientX, e.clientY);
   const m = side === 0 ? G.m1 : G.m2;
-  m.tx = r.x; m.ty = r.y;
+
+  const stick = touchSticks.get(e.pointerId);
+  if (touch && stick) {
+    const dx = e.clientX - stick.ox, dy = e.clientY - stick.oy;
+    const n = hyp(dx, dy);
+    const max = stick.radius || 58;
+    const k = n > max && n > 1e-6 ? max / n : 1;
+    const kx = dx * k, ky = dy * k;
+    stick.x = clamp(kx / max, -1, 1);
+    stick.y = clamp(ky / max, -1, 1);
+    setTouchStickVisual(side, stick.ox, stick.oy, kx, ky);
+    markControlDrive(side);
+  } else {
+    const r = touch ? touchTargetRink(side, e.clientX, e.clientY) : screenToRink(e.clientX, e.clientY);
+    m.tx = r.x; m.ty = r.y;
+    markControlDrive(side);
+  }
   G.idleT = 0;
 }
-function onPointerUp(e) { pointers.delete(e.pointerId); }
+
+function onPointerUp(e) {
+  const side = pointers.get(e.pointerId);
+  pointers.delete(e.pointerId);
+  if (touchSticks.has(e.pointerId)) {
+    touchSticks.delete(e.pointerId);
+    if (side === 0 || side === 1) hideTouchStickVisual(side);
+  }
+  try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+  if (e.pointerType === 'mouse') {
+    let overCanvas = false;
+    try { overCanvas = document.elementFromPoint(e.clientX, e.clientY) === canvas; } catch (err) {}
+    mouseHoverSide = overCanvas && (side === 0 || side === 1) ? side : null;
+  }
+}
+function onPointerLeave(e) {
+  if (e.pointerType === 'mouse' && !pointers.has(e.pointerId)) mouseHoverSide = null;
+}
 
 // ---------- physics ----------
 function puckSpeed() { return hyp(G.puck.vx, G.puck.vy); }
@@ -4412,8 +4597,7 @@ function playStep(rdt) {
       if (local) driveMallet(local, sdt, PLAYER_CAP);
       Net.driveRemoteMallet(sdt);
     } else if (G.mode === 'workshop' && Practice.id === 'free') {
-      const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
-      if (pointers.size > 0 || kbFresh) driveMallet(G.m1, sdt, PLAYER_CAP);
+      if (controlInputActive(0)) driveMallet(G.m1, sdt, PLAYER_CAP);
       else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
       Practice.preparePoint();
     } else if (G.mode === 'watch') {
@@ -4421,12 +4605,11 @@ function playStep(rdt) {
       aiDrive(G.ai1, sdt, G.m1);
       aiDrive(G.ai2, sdt, G.m2);
     } else {
-      // 1p: keyboard/gamepad also drive through tx/ty, so only pin the target
-      // to the current position when no input source is active. Pinning
-      // unconditionally wipes keyboard/gamepad targets every substep and
-      // makes keys appear dead unless a pointer is also down.
-      const kbFresh = performance.now() - (G.kbDriveT || 0) < 120;
-      if (pointers.size > 0 || kbFresh) driveMallet(G.m1, sdt, PLAYER_CAP);
+      // 1p: every local control path drives the same tx/ty target. Only pin
+      // the target when no pointer, hover, keyboard, gamepad or floating-stick
+      // source owns this side; otherwise direct mouse hover would stop short
+      // of the cursor as soon as pointermove events settle.
+      if (controlInputActive(0)) driveMallet(G.m1, sdt, PLAYER_CAP);
       else { G.m1.tx = G.m1.x; G.m1.ty = G.m1.y; driveMallet(G.m1, sdt, PLAYER_CAP); }
       aiDrive(G.ai2, sdt, G.m2);
     }
