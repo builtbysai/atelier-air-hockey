@@ -75,6 +75,32 @@ test('virtual network profiles are deterministic', () => {
   assert.deepEqual(a.report(), b.report());
 });
 
+test('virtual network reports deterministic byte, latency, and jitter metrics', () => {
+  const net = new VirtualNetwork({ seed:77, baseMs:40, jitterMs:0, loss:0, reorder:0 });
+  net.send(()=>{}, new ArrayBuffer(12), 'input');
+  net.send(()=>{}, new ArrayBuffer(56), 'state');
+  assert.equal(net.drain(), true);
+
+  const report = net.report();
+  assert.equal(report.bytesSent, 68);
+  assert.equal(report.bytesDelivered, 68);
+  assert.equal(report.bytesDropped, 0);
+  assert.equal(report.averageLatencyMs, 40);
+  assert.equal(report.minLatencyMs, 40);
+  assert.equal(report.maxLatencyMs, 40);
+  assert.equal(report.averageJitterMs, 0);
+});
+
+test('virtual network accounts for bytes dropped before queueing', () => {
+  const net = new VirtualNetwork({ seed:78, baseMs:40, loss:1 });
+  net.send(()=>{}, new ArrayBuffer(56), 'state');
+  const report = net.report();
+  assert.equal(report.bytesSent, 56);
+  assert.equal(report.bytesDelivered, 0);
+  assert.equal(report.bytesDropped, 56);
+  assert.equal(report.queued, 0);
+});
+
 for (const [name, profile] of Object.entries(NETWORK_PROFILES)) {
   test('realtime state converges under ' + name, async () => {
     const host = await loadNetWorld();
@@ -272,6 +298,8 @@ for (const delayMs of FIXED_LATENCY_MS) {
     // headroom for virtual-clock boundaries while still catching runaway queues.
     assert.ok(net.report().maxQueue <= 20,
       delayMs + 'ms: replaceable state queue unexpectedly grew ' + JSON.stringify(net.report()));
+    assert.equal(net.report().bytesDelivered, 120 * 56);
+    assert.equal(net.report().averageLatencyMs, delayMs);
   });
 
   test('fixed ' + delayMs + 'ms one-way latency preserves latest input ACK fence', async () => {
@@ -305,6 +333,8 @@ for (const delayMs of FIXED_LATENCY_MS) {
     // two directions worth of in-flight packets at the highest delay.
     assert.ok(net.report().maxQueue <= 40,
       delayMs + 'ms: input/ACK queue unexpectedly grew ' + JSON.stringify(net.report()));
+    assert.equal(net.report().bytesDelivered, 120 * (12 + 4));
+    assert.equal(net.report().averageLatencyMs, delayMs);
   });
 }
 
