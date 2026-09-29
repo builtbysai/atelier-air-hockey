@@ -1,7 +1,7 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was refreshed: `0ec851f65c18`
+Current reference main commit when this roadmap was refreshed: `01e51bb53776`
 
 ## New-agent quick start
 
@@ -20,9 +20,9 @@ If you are taking over this work:
 
 Current staged head at this refresh:
 
-- PR #88 `feat/online-v2-ice-recovery`: `f93d1be4f6631a6c6cafee25477463fd6ae84099`
+- PR #88 `feat/online-v2-ice-recovery`: `10fe9f951bf379e35d7bbba218e519db581b0a9a`
 
-Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96 and #97.
+Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100 and #101.
 
 ## Goal
 
@@ -236,7 +236,9 @@ Implemented:
 - 1 / 5 / 15 second total packet blackouts with fresh-state convergence
 - lost first guest-input recovery through the existing 500 ms stationary heartbeat
 - bounded in-flight queue assertions at high fixed latency
-- metrics for delivery, drops, reorder count and maximum queue depth
+- metrics for delivery, drops, reorder count, maximum queue depth, bytes, observed latency and delay variation
+- sequence tracing for realtime packet gaps plus stale/duplicate arrivals
+- score-convergence coverage for stale realtime state and repeated absolute goal delivery
 
 The merge does **not** mean the lab has been declared green. Run the full suite when Actions return before using its results to tune or enable lag compensation.
 
@@ -339,14 +341,14 @@ Track:
 
 - RTT
 - jitter
-- realtime packet gaps
-- stale/out-of-order packets
+- realtime packet gaps (test-harness sequence tracing merged)
+- stale/out-of-order packets (test-harness sequence tracing merged)
 - prediction count
 - reconciliation count
 - maximum correction distance
 - realtime channel buffered bytes
 - selected ICE candidate route
-- bytes sent/received
+- bytes sent/received (virtual transport byte metrics merged)
 - reconnect time
 
 Acceptance invariants:
@@ -493,7 +495,7 @@ Do not stack another high-risk production protocol/physics change on top of unve
 
 Safe work:
 
-1. Continue filling only meaningful Network Lab coverage gaps with test-only changes; exact latency, blackout convergence and lost-input heartbeat recovery are already merged.
+1. Use `npm run unit:online` for the focused Online V2 suite once this tooling lands; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics and sequence tracing are already covered.
 2. Review PR #88 statically, but keep its production recovery behavior staged until it can run through the full suite.
 3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
 4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
