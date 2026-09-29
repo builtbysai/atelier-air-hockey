@@ -111,6 +111,15 @@ const Net = {
   quickTimer: 0,
   quickTransition: false,
 
+  // ---- lightweight spectator room ----
+  spectatorRoom: null,
+  spectatorWire: null,
+  spectatorIds: new Set(),
+  spectatorAcc: 0,
+  spectatorToken: 0,
+  watchHostPeerId: null,
+  watchJoinTimer: 0,
+
   // ---- host-side ----
   remote: { tx: 0, ty: 0 },  // guest mallet target, from `in`
   snapAcc: 0,
@@ -249,6 +258,8 @@ const NET_RIVALS_KEY = 'atelier-ah-rivals-v1';
 const NET_QUICK_VERSION = 1;
 const NET_QUICK_SLOT_MS = 30000;
 const NET_QUICK_TIMEOUT_MS = 22000;
+const NET_SPECTATOR_LIMIT = 3;
+const NET_SPECTATOR_HZ = 20;
 
 Net.validIceServers = function (servers) {
   if (!Array.isArray(servers)) return [];
@@ -469,6 +480,220 @@ Net.quickStart = async function () {
     Net.uiShow('choose');
     Net.uiError(Net.connectionError(e, "Couldn't search for a rival. Check your connection and try again."));
   }
+};
+
+
+Net.closeSpectatorRoom = function () {
+  Net.spectatorToken++;
+  clearTimeout(Net.watchJoinTimer); Net.watchJoinTimer = 0;
+  try { if (Net.spectatorRoom) Net.spectatorRoom.leave(); } catch (e) {}
+  Net.spectatorRoom = null;
+  Net.spectatorWire = null;
+  Net.spectatorIds.clear();
+  Net.spectatorAcc = 0;
+  Net.watchHostPeerId = null;
+};
+
+Net.spectatorSendEvent = function (ev, target) {
+  const wire = Net.spectatorWire;
+  if (!wire || !wire.sendEv) return Promise.resolve();
+  try { return wire.sendEv(ev, target).catch(Net.logErr); }
+  catch (e) { Net.logErr(e); return Promise.resolve(); }
+};
+
+Net.spectatorSendState = function (target) {
+  const wire = Net.spectatorWire;
+  if (!wire || !wire.sendSt) return Promise.resolve();
+  try { return wire.sendSt(Net.encodeSnapshot(), target).catch(Net.logErr); }
+  catch (e) { Net.logErr(e); return Promise.resolve(); }
+};
+
+Net.spectatorHello = function (target) {
+  if (!Net.code) return Promise.resolve();
+  return Net.spectatorSendEvent({
+    t:'hello',
+    firstTo:Settings.firstTo,
+    pace:Settings.pace,
+    theme:THEME.id,
+    player:Net.localPlayer(),
+    mseed:Net.musicSeed >>> 0,
+  }, target);
+};
+
+Net.openSpectatorHost = async function () {
+  if (Net.role !== 'host' || !Net.code) return;
+  const token = ++Net.spectatorToken;
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.spectatorToken || Net.role !== 'host' || !Net.code) return;
+    const room = await Net.makeRoom(joinRoom, Net.code, {
+      prefix:'atelier-ah-watch-', lockPeer:false, passive:true,
+    });
+    if (token !== Net.spectatorToken || Net.role !== 'host') { try { room.leave(); } catch (e) {} return; }
+
+    const st = room.makeAction('wst');
+    const ev = room.makeAction('wev');
+    const send = (action, data, target) => {
+      const opts = target ? { target } : undefined;
+      return action.send(data, opts).catch(Net.logErr);
+    };
+    Net.spectatorRoom = room;
+    Net.spectatorWire = {
+      sendSt:(data, target) => send(st, data, target),
+      sendEv:(data, target) => send(ev, data, target),
+    };
+    Net.spectatorIds.clear();
+
+    room.onPeerJoin = id => {
+      if (Net.spectatorIds.size >= NET_SPECTATOR_LIMIT) {
+        try {
+          const pc = room.getPeers()[id];
+          if (pc && typeof pc.close === 'function') pc.close();
+        } catch (e) {}
+        return;
+      }
+      Net.spectatorIds.add(id);
+      void Net.spectatorHello(id);
+      if (Net.active) void Net.spectatorSendState(id);
+    };
+    room.onPeerLeave = id => Net.spectatorIds.delete(id);
+
+    // Passive rooms can wake with a peer already present before handlers are
+    // attached. Adopt those peers without allowing an unbounded watcher fanout.
+    for (const id of Object.keys(room.getPeers())) {
+      if (Net.spectatorIds.size >= NET_SPECTATOR_LIMIT) break;
+      Net.spectatorIds.add(id);
+      void Net.spectatorHello(id);
+      if (Net.active) void Net.spectatorSendState(id);
+    }
+  } catch (e) {
+    // Spectators are optional. A watcher-room failure must never disturb the
+    // actual two-player match.
+    Net.logErr(e);
+  }
+};
+
+Net.applyRemoteSnapshot = function (a) {
+  if (!Array.isArray(a) || a.length < 15 || !a.every(Number.isFinite)) return false;
+  const snap = Net.decodeSnapshot(a);
+  if (!Net.gview) {
+    Net.gview = { px:snap.px, py:snap.py, pvx:snap.pvx, pvy:snap.pvy };
+  } else {
+    const d = Math.hypot(snap.px - Net.gview.px, snap.py - Net.gview.py);
+    if (!Net.guestPrediction && d > 420) { Net.gview.px = snap.px; Net.gview.py = snap.py; }
+  }
+  Net.rsnap = snap;
+  Net.snapT = performance.now();
+  return true;
+};
+
+Net.onWatchSnapshot = function (a, peerId) {
+  if (Net.role !== 'spectator' || !Net.active) return;
+  if (Net.watchHostPeerId && peerId !== Net.watchHostPeerId) return;
+  if (!Net.watchHostPeerId) Net.watchHostPeerId = peerId;
+  Net.applyRemoteSnapshot(a);
+};
+
+Net.onWatchHello = function (ev, peerId) {
+  if (!ev || typeof ev !== 'object') return;
+  if (Net.watchHostPeerId && peerId !== Net.watchHostPeerId) return;
+  Net.watchHostPeerId = peerId;
+  clearTimeout(Net.watchJoinTimer); Net.watchJoinTimer = 0;
+  if (!Net.savedSettings) Net.savedSettings = { firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id };
+  if ([5,7,11].includes(+ev.firstTo)) Settings.firstTo = +ev.firstTo;
+  if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
+  if (ev.theme && THEMES[ev.theme]) setTheme(ev.theme, true);
+  if (Number.isFinite(+ev.mseed)) {
+    Net.musicSeed = (+ev.mseed) >>> 0;
+    try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  }
+  Net.rivalIdentity = Net.cleanPlayer(ev.player);
+  Net.beginMatch('spectator');
+  G.onlineFlip = false;
+  try { applySettingsToUI(); } catch (e) {}
+};
+
+Net.onWatchEvent = function (ev, peerId) {
+  if (!ev || typeof ev !== 'object' || typeof ev.t !== 'string') return;
+  if (ev.t === 'hello') { Net.onWatchHello(ev, peerId); return; }
+  if (Net.role !== 'spectator' || !Net.active || peerId !== Net.watchHostPeerId) return;
+  if (ev.t === 'goal' && Net.validGoalEvent(ev)) Net.guestGoal(ev);
+  else if (ev.t === 'pause') Net.applyRemotePause(true);
+  else if (ev.t === 'resume') Net.applyRemotePause(false);
+  else if (ev.t === 'countdown') {
+    if (Number.isInteger(ev.s0) && Number.isInteger(ev.s1)) G.score = [ev.s0, ev.s1];
+    G.gwNet = Number.isFinite(ev.gw) ? clamp(ev.gw, 150, 260) : G.gwNet;
+    if (ev.serveDir === 1 || ev.serveDir === -1) G.serveDir = ev.serveDir;
+    if (Number.isFinite(ev.svx) && Number.isFinite(ev.svy)) {
+      G.serveVX = clamp(ev.svx, -PUCK_MAX, PUCK_MAX);
+      G.serveVY = clamp(ev.svy, -PUCK_MAX, PUCK_MAX);
+    }
+    startCount();
+  } else if (ev.t === 'end') {
+    Net.leaveWatch();
+  }
+};
+
+Net.watch = async function (rawCode) {
+  const token = ++Net.opToken;
+  const code = (rawCode || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6);
+  if (code.length !== 6) { Net.uiError('That code needs 6 characters. Check it and try again.'); return; }
+  Net.closeSpectatorRoom();
+  Net.uiShow('watching', { code });
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return;
+    const room = await Net.makeRoom(joinRoom, code, { prefix:'atelier-ah-watch-', lockPeer:false });
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
+    const st = room.makeAction('wst');
+    const ev = room.makeAction('wev');
+    st.onMessage = (data, meta = {}) => { try { Net.onWatchSnapshot(data, meta.peerId); } catch (e) { Net.logErr(e); } };
+    ev.onMessage = (data, meta = {}) => { try { Net.onWatchEvent(data, meta.peerId); } catch (e) { Net.logErr(e); } };
+    room.onPeerJoin = id => { if (!Net.watchHostPeerId) Net.watchHostPeerId = id; };
+    room.onPeerLeave = id => {
+      if (id !== Net.watchHostPeerId) return;
+      Net.watchHostPeerId = null;
+      if (Net.role === 'spectator') {
+        Net.reconnecting = true;
+        Net.paintConn();
+      }
+    };
+    Net.spectatorRoom = room;
+    Net.code = code;
+    Net.role = 'spectator';
+    Net.active = false;
+    Net.watchJoinTimer = setTimeout(() => {
+      if (Net.role === 'spectator' && !Net.active) {
+        Net.closeSpectatorRoom();
+        Net.role = null;
+        Net.uiShow('choose');
+        Net.uiError("Couldn't open that table for viewing.");
+      }
+    }, 20000);
+  } catch (e) {
+    Net.closeSpectatorRoom();
+    Net.role = null;
+    Net.uiShow('choose');
+    Net.uiError(Net.connectionError(e, "Couldn't open that table for viewing."));
+  }
+};
+
+Net.leaveWatch = function () {
+  Net.closeSpectatorRoom();
+  Net.active = false;
+  Net.role = null;
+  Net.code = null;
+  Net.rsnap = null; Net.gview = null; Net.snapT = 0;
+  G.onlineFlip = false;
+  if (Net.savedSettings) {
+    Settings.firstTo = Net.savedSettings.firstTo;
+    Settings.pace = Net.savedSettings.pace;
+    if (Net.savedSettings.theme && THEMES[Net.savedSettings.theme]) setTheme(Net.savedSettings.theme, true);
+    Net.savedSettings = null;
+  }
+  G.mode = 'ai';
+  hideAll();
+  $('menu').classList.remove('hidden');
 };
 
 /* Wire Trystero 0.25 action objects to the game-facing Net interface. */
