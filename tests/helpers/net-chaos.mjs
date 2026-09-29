@@ -19,6 +19,14 @@ function clonePayload(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function payloadBytes(value) {
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  if (ArrayBuffer.isView(value)) return value.byteLength;
+  const json = JSON.stringify(value);
+  if (!json) return 0;
+  return typeof TextEncoder === 'function' ? new TextEncoder().encode(json).byteLength : json.length;
+}
+
 export class VirtualNetwork {
   constructor(profile = {}) {
     this.now = 0;
@@ -34,7 +42,13 @@ export class VirtualNetwork {
     this.burstLeft = 0;
     this.queue = [];
     this.order = 0;
-    this.metrics = { sent:0, delivered:0, dropped:0, reordered:0, burstDropped:0, maxQueue:0 };
+    this.metrics = {
+      sent:0, delivered:0, dropped:0, reordered:0, burstDropped:0, maxQueue:0,
+      bytesSent:0, bytesDelivered:0, bytesDropped:0,
+      latencyTotalMs:0, latencyMinMs:Infinity, latencyMaxMs:0,
+      jitterTotalMs:0, jitterSamples:0,
+    };
+    this.lastDeliveredLatencyMs = null;
   }
 
   shouldDrop() {
@@ -53,9 +67,12 @@ export class VirtualNetwork {
   }
 
   send(deliver, payload, tag = 'packet') {
+    const bytes = payloadBytes(payload);
     this.metrics.sent++;
+    this.metrics.bytesSent += bytes;
     if (this.shouldDrop()) {
       this.metrics.dropped++;
+      this.metrics.bytesDropped += bytes;
       return false;
     }
 
@@ -68,6 +85,8 @@ export class VirtualNetwork {
 
     this.queue.push({
       at: this.now + delay,
+      sentAt: this.now,
+      bytes,
       order: this.order++,
       deliver,
       payload: clonePayload(payload),
@@ -96,6 +115,16 @@ export class VirtualNetwork {
       this.now = item.at;
       item.deliver(item.payload, item.tag);
       this.metrics.delivered++;
+      this.metrics.bytesDelivered += item.bytes;
+      const latency = Math.max(0, item.at - item.sentAt);
+      this.metrics.latencyTotalMs += latency;
+      this.metrics.latencyMinMs = Math.min(this.metrics.latencyMinMs, latency);
+      this.metrics.latencyMaxMs = Math.max(this.metrics.latencyMaxMs, latency);
+      if (this.lastDeliveredLatencyMs !== null) {
+        this.metrics.jitterTotalMs += Math.abs(latency - this.lastDeliveredLatencyMs);
+        this.metrics.jitterSamples++;
+      }
+      this.lastDeliveredLatencyMs = latency;
     }
     this.now = end;
   }
@@ -114,6 +143,11 @@ export class VirtualNetwork {
   report() {
     const m = { ...this.metrics, queued:this.queue.length, nowMs:Math.round(this.now) };
     m.deliveryRate = m.sent ? m.delivered / m.sent : 1;
+    m.averageLatencyMs = m.delivered ? m.latencyTotalMs / m.delivered : 0;
+    m.minLatencyMs = m.delivered ? m.latencyMinMs : 0;
+    m.maxLatencyMs = m.delivered ? m.latencyMaxMs : 0;
+    m.averageJitterMs = m.jitterSamples ? m.jitterTotalMs / m.jitterSamples : 0;
+    delete m.latencyMinMs;
     return m;
   }
 }
