@@ -459,7 +459,7 @@ const NET_QUICK_RESERVE_MS = 4000;
 const NET_SPECTATOR_LIMIT = 3;
 const NET_SPECTATOR_HZ = 20;
 const NET_SESSION_KEY = 'atelier-ah-session-v1';
-const NET_SESSION_VERSION = 1;
+const NET_SESSION_VERSION = 2;
 const NET_SESSION_TTL_MS = 45000;
 const NET_SESSION_SAVE_MS = 500;
 const NET_AUTHORITY_VERSION = 1;
@@ -2789,7 +2789,7 @@ Net.advanceGuestPrediction = function (rdt) {
 
 /* ---------------- per-frame ---------------- */
 /* Host: snapshots at 60 Hz on the realtime lane, 30 Hz on the reliable
- * compatibility lane. Guest input uses the same adaptive cadence; visual
+ * reliable fallback lane. Guest input uses the same adaptive cadence; visual
  * dead reckoning still runs every frame. No-op unless a match is live. */
 Net.pump = function (rdt) {
   if (!Net.active) return;
