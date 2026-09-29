@@ -1,7 +1,7 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was refreshed: `7b62e993079d`
+Current reference main commit when this roadmap was refreshed: `ad32f0a5b987`
 
 ## New-agent quick start
 
@@ -22,7 +22,7 @@ Current staged head at this refresh:
 
 - PR #88 `feat/online-v2-ice-recovery`: `abf9cbf37d46784b3f8b54c0cd96c303ac89352a`
 
-Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102, #103, #107, #108, #109, #110 and #111.
+Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102, #103, #107, #108, #109, #110, #111 and #113.
 
 ## Goal
 
@@ -246,6 +246,7 @@ Implemented:
 - score-convergence coverage for stale realtime state and repeated absolute goal delivery
 - focused `npm run unit:online` command for every `tests/net-*.test.mjs` suite
 - prediction/reconciliation chaos coverage across clean / broadband / mobile / hotel Wi-Fi / brutal profiles
+- concise per-profile prediction baselines for estimated RTT, jitter, delivery, reordering, ACK/state fencing, correction distance, and predicted-vs-authoritative strike direction
 
 The merge does **not** mean the lab has been declared green. Run the full suite when Actions return before using its results to tune or enable lag compensation.
 
@@ -348,6 +349,7 @@ Still pending real or recovery-integrated validation:
 - Wi-Fi -> cellular style connection migration through PR #88
 - browser-level direct vs relayed route behavior
 - subjective prediction/reconciliation tuning from real-device measurements
+- comparison of deterministic #113 baselines against real-device measurements
 
 Track:
 
@@ -355,9 +357,11 @@ Track:
 - jitter
 - realtime packet gaps (test-harness sequence tracing merged)
 - stale/out-of-order packets (test-harness sequence tracing merged)
-- prediction count (deterministic chaos coverage merged)
-- reconciliation count (deterministic chaos coverage merged)
-- maximum correction distance (deterministic chaos coverage merged)
+- prediction count (deterministic chaos coverage merged; surfaced per profile by #113)
+- reconciliation count (deterministic chaos coverage merged; surfaced per profile by #113)
+- maximum correction distance (deterministic chaos coverage merged; surfaced per profile by #113)
+- predicted strike direction vs eventual authoritative direction (#113 baseline diagnostic)
+- ACK fence completion and advancement past the prediction's referenced host state (#113 baseline diagnostic)
 - realtime channel buffered bytes
 - selected ICE candidate route
 - bytes sent/received (virtual transport byte metrics merged)
@@ -510,7 +514,7 @@ Do not stack another high-risk production protocol/physics change on top of unve
 
 Safe work:
 
-1. Use `npm run unit:online` for the focused Online V2 suite; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics, sequence tracing, prediction/reconciliation chaos coverage, production-physics drift guards and lag-compensation contract tests are already merged.
+1. Use `npm run unit:online` for the focused Online V2 suite; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics, sequence tracing, prediction/reconciliation chaos coverage, per-profile prediction baseline diagnostics, production-physics drift guards and lag-compensation contract tests are already merged.
 2. Keep PR #88 frozen as a draft; its static lifecycle/configuration review is complete enough to defer further production edits until the full suite and real-device migration run.
 3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
 4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
@@ -520,6 +524,6 @@ Safe work:
 1. Run PR #88 through full CI + Visual QA; fix and merge if green.
 2. Run the merged Network Lab through full CI and confirm it is green.
 3. Run normal direct-preferred + forced TURN real-device tests using `docs/online-v2-turn-verification.md`.
-4. Then implement host tick/history contact compensation as the next production phase.
+4. Then implement the bounded state-sequence/history contact compensation plan as the next production phase.
 
 The lag-compensation design uses the existing host realtime state sequence as a lower-bound reference, a bounded host-authored history ring, and a separate additive type-4 contact hint. The host alone validates the trajectory and computes any future outcome.
