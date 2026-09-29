@@ -307,3 +307,39 @@ for (const delayMs of FIXED_LATENCY_MS) {
       delayMs + 'ms: input/ACK queue unexpectedly grew ' + JSON.stringify(net.report()));
   });
 }
+
+
+test('stationary input heartbeat recovers a target after its first realtime packet is lost', async () => {
+  const host = await loadNetWorld();
+  const guest = await loadNetWorld();
+  const net = connectRealtime(host, guest, NETWORK_PROFILES.clean);
+
+  guest.G.m2.tx = 610;
+  guest.G.m2.ty = 300;
+
+  // Lose the initial movement packet. sendInput still records the local target
+  // as sent, so delta suppression would otherwise keep the host stale forever.
+  net.loss = 1;
+  const firstSeq = guest.Net.sendInput();
+  assert.ok(Number.isInteger(firstSeq));
+  assert.equal(net.report().dropped, 1);
+  assert.notEqual(host.Net.remote.tx, 610);
+
+  // Before the heartbeat window expires, the unchanged target is suppressed.
+  net.loss = 0;
+  assert.equal(guest.Net.sendInput(), null);
+  assert.notEqual(host.Net.remote.tx, 610);
+
+  // Simulate the 500 ms heartbeat window elapsing. The same stationary target
+  // must be re-sent, accepted by the host, and cumulatively ACKed.
+  guest.Net.lastInT = -501;
+  const heartbeatSeq = guest.Net.sendInput();
+  assert.ok(Number.isInteger(heartbeatSeq));
+  assert.ok(guest.Net.seqNewer(heartbeatSeq, firstSeq));
+  assert.equal(net.drain(), true);
+
+  assert.equal(host.Net.remote.tx, 610);
+  assert.equal(host.Net.remote.ty, 300);
+  assert.equal(guest.Net.inputAcked(heartbeatSeq), true);
+  assert.equal(net.report().queued, 0);
+});
