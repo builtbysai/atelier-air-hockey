@@ -1,7 +1,7 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was refreshed: `aa9be00e7a68`
+Current reference main commit when this roadmap was refreshed: `4e46e83a0f65`
 
 ## New-agent quick start
 
@@ -20,7 +20,7 @@ If you are taking over this work:
 
 Current staged head at this refresh:
 
-- PR #88 `feat/online-v2-ice-recovery`: `86662b2697f222d87ae381b7edc43c3299262d0c`
+- PR #88 `feat/online-v2-ice-recovery`: `abf9cbf37d46784b3f8b54c0cd96c303ac89352a`
 
 Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102 and #103.
 
@@ -213,11 +213,16 @@ Staged work:
 - preserve the rest of the current RTCConfiguration while rotating ICE servers
 - call `RTCPeerConnection.restartIce()`
 - let Trystero's existing `negotiationneeded` signaling carry the restart
+- fence async refresh/recovery completion to the peer that started it
+- skip late restart if the browser naturally recovers during credential refresh
+- respect Trystero/browser `connecting` and ICE `checking` as recovery-in-progress
+- treat either WebRTC closed state as terminal
+- keep match/RTT UI resets independent from peer recovery lifecycle
 - cleanly remove listeners/timers when the peer/room is dropped
 - preserve the existing 15-second gameplay reconnect fallback
 - focused recovery tests included
 
-Do not duplicate this work. The branch is one commit directly on current `main`. Exact Trystero 0.25.4 source confirms a continuously `disconnected` peer gets a 5-second close timer and `onnegotiationneeded` creates/signals a new offer. `failed`/`closed` emit close immediately, so #88 is intentionally early disconnected-state recovery; Atelier's existing reconnect grace path remains the fallback. Full CI, Visual QA and real migration testing are still required before merge.
+Do not duplicate this work. The branch is frozen as one reviewable commit on the Online V2 mainline. Static review found nine lifecycle/configuration races and hardened them with focused tests. Exact Trystero 0.25.4 source confirms a continuously `disconnected` peer gets a 5-second close timer; `connecting`/`checking` clear that timer; `failed`/`closed` emit close immediately; and `onnegotiationneeded` creates/signals a new offer. #88 is intentionally early disconnected-state recovery, with Atelier's existing reconnect grace path as fallback. Do not add more production behavior before CI + real-device validation unless a clear correctness defect is discovered.
 
 ### PR #89 - deterministic Network Lab
 
@@ -498,7 +503,7 @@ Do not stack another high-risk production protocol/physics change on top of unve
 Safe work:
 
 1. Use `npm run unit:online` for the focused Online V2 suite; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics, sequence tracing and prediction/reconciliation chaos coverage are already merged.
-2. Review PR #88 statically, but keep its production recovery behavior staged until it can run through the full suite.
+2. Keep PR #88 frozen as a draft; its static lifecycle/configuration review is complete enough to defer further production edits until the full suite and real-device migration run.
 3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
 4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
 
