@@ -87,6 +87,7 @@ const Net = {
   authorityEpoch: 0,   // monotonic authority generation; higher epoch wins
   authorityRecovery: false,
   authoritySettleTimer: 0,
+  authorityPeerClaimSeen: false,
   peerAuthorityVersion: 0,
   authorityMigrationReady: false,
   active: false,       // true while a match owns the room
@@ -447,7 +448,7 @@ const NET_SESSION_VERSION = 1;
 const NET_SESSION_TTL_MS = 45000;
 const NET_SESSION_SAVE_MS = 500;
 const NET_AUTHORITY_VERSION = 1;
-const NET_AUTHORITY_SETTLE_MS = 120;
+const NET_AUTHORITY_HANDSHAKE_TIMEOUT_MS = 2500;
 const NET_AUTHORITY_RECOVERY_MS = 30000;
 
 Net.validIceServers = function (servers) {
@@ -1766,12 +1767,18 @@ Net.onAuthorityClaim = function (ev) {
       !Number.isInteger(ev.epoch) || ev.epoch < 1) return false;
 
   const incomingWins = Net.authorityTupleWins(ev.epoch, ev.side);
-  if (!incomingWins) return false;
+  // A losing claim is still a valid handshake message: it proves the peer
+  // has observed an authority epoch and can safely compare it with ours.
+  if (!incomingWins) return true;
+
+  // Never demote to a newer remote authority unless it also proves the
+  // authoritative state boundary it is claiming. A malformed/newer epoch
+  // must keep the table frozen rather than create an unverified split brain.
+  if (!ev.authority || !Net.adoptAuthoritySnapshot(ev.authority)) return false;
 
   const wasAuthority = Net.isAuthority();
   Net.authoritySide = ev.side;
   Net.authorityEpoch = ev.epoch;
-  if (ev.authority) Net.adoptAuthoritySnapshot(ev.authority);
 
   if (wasAuthority && !Net.isAuthority()) Net.closeSpectatorRoom();
   Net.rtLastInputSeq = null;
@@ -1818,6 +1825,7 @@ Net.beginAuthorityRecovery = function () {
     return;
   }
   Net.authorityRecovery = true;
+  Net.authorityPeerClaimSeen = false;
   if (!Net.isAuthority()) Net.promoteAuthority();
   clearTimeout(Net.disconnectTimer);
   Net.disconnectTimer = setTimeout(() => {
@@ -1831,9 +1839,10 @@ Net.beginAuthorityRecovery = function () {
 
 Net.finishAuthorityReconnect = function () {
   clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
-  if (!Net.active || !Net.peerId) return;
+  if (!Net.active || !Net.peerId || !Net.authorityPeerClaimSeen) return;
   Net.reconnecting = false;
   Net.authorityRecovery = false;
+  Net.authorityPeerClaimSeen = false;
   Net.setPauseNotice(false);
   const resumeUs = !Net.dropPaused && G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause';
   if (resumeUs) togglePause(false, true);
@@ -1853,7 +1862,16 @@ Net.finishAuthorityReconnect = function () {
 
 Net.scheduleAuthoritySettle = function () {
   clearTimeout(Net.authoritySettleTimer);
-  Net.authoritySettleTimer = setTimeout(() => Net.finishAuthorityReconnect(), NET_AUTHORITY_SETTLE_MS);
+  Net.authoritySettleTimer = setTimeout(() => {
+    Net.authoritySettleTimer = 0;
+    if (!Net.authorityRecovery || !Net.peerId || Net.authorityPeerClaimSeen) return;
+    // The reliable control channel should deliver the peer epoch quickly once
+    // the WebRTC transport is back. If it does not, fail closed: ending the
+    // match is safer than resuming two simulation authorities.
+    Net.authorityRecovery = false;
+    Net.reconnecting = false;
+    Net.onRivalLeft();
+  }, NET_AUTHORITY_HANDSHAKE_TIMEOUT_MS);
 };
 
 /* ---------------- room lifecycle ---------------- */
@@ -1884,7 +1902,7 @@ Net.dropRoom = function () {
   try { if (Net.room) Net.room.leave(); } catch (e) {}
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
   Net.side = null; Net.authoritySide = 0; Net.authorityEpoch = 0;
-  Net.authorityRecovery = false;
+  Net.authorityRecovery = false; Net.authorityPeerClaimSeen = false;
   Net.peerAuthorityVersion = 0; Net.authorityMigrationReady = false;
   clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
   Net.rivalIdentity = null;
@@ -1913,8 +1931,9 @@ Net.onPeerJoin = function (id) {
   if (wasReconnecting && Net.active) {
     if (Net.authorityRecovery) {
       // After the long disconnect window, both sides exchange authority
-      // epochs before either simulation resumes. This prevents a brief
-      // split-brain frame if the former host returns after promotion.
+      // epochs before either simulation resumes. Do not use a fixed delay:
+      // wait for a structurally valid peer claim on the reliable channel.
+      Net.authorityPeerClaimSeen = false;
       Net.sendAuthorityClaim();
       Net.scheduleAuthoritySettle();
       Net.paintConn();
@@ -2028,10 +2047,14 @@ Net.onEvent = function (ev, peerId) {
       // silence, so a long blip ends in a rematch, not a dead table
       else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
       break;
-    case 'authority':
-      Net.onAuthorityClaim(ev);
-      if (Net.authorityRecovery) Net.scheduleAuthoritySettle();
+    case 'authority': {
+      const validClaim = Net.onAuthorityClaim(ev);
+      if (validClaim && Net.authorityRecovery) {
+        Net.authorityPeerClaimSeen = true;
+        Net.finishAuthorityReconnect();
+      }
       break;
+    }
     case 'resume-knock':
       if (Net.isAuthority() && ev.v === NET_SESSION_VERSION &&
           ev.sid === Net.sessionId && Net.validSessionId(ev.sid)) {
