@@ -165,6 +165,60 @@ test('authority recovery stays frozen until a peer claim has been observed', asy
   assert.equal(Net.authorityPeerClaimSeen,false);
 });
 
+test('promoted guest checkpoint reloads as authority instead of reverting to original host ownership', async () => {
+  const {Net} = await loadNet();
+  Net.active=true; Net.role='guest'; Net.side=1;
+  Net.authoritySide=1; Net.authorityEpoch=2;
+  Net.authorityMigrationReady=true;
+  Net.code='ABC234';
+  Net.sessionId='abcdefghijklmnopqrstuvwx';
+  Net._localPlayer={id:'player-side-one',name:'P1'};
+
+  const checkpoint=Net.buildSessionCheckpoint();
+  assert.equal(checkpoint.role,'guest');
+  assert.equal(checkpoint.side,1);
+  assert.equal(checkpoint.authoritySide,1);
+  assert.equal(checkpoint.authorityEpoch,2);
+  assert.ok(checkpoint.authority, 'current authority must persist an authoritative resurrection checkpoint');
+
+  Net.readSessionCheckpoint=()=>checkpoint;
+  let authorityResume=0, guestResume=0;
+  Net.resumeAuthoritySession=async cp => { authorityResume++; assert.equal(cp,checkpoint); return true; };
+  Net.resumeGuestSession=async () => { guestResume++; return true; };
+  Net.active=false; Net.room=null;
+
+  assert.equal(await Net.tryResumeSession(),true);
+  assert.equal(authorityResume,1);
+  assert.equal(guestResume,0);
+});
+
+test('demoted original host checkpoint reloads as non-authority and must resync from the migrated peer', async () => {
+  const {Net} = await loadNet();
+  Net.active=true; Net.role='host'; Net.side=0;
+  Net.authoritySide=1; Net.authorityEpoch=2;
+  Net.authorityMigrationReady=true;
+  Net.code='XYZ678';
+  Net.sessionId='abcdefghijklmnopqrstuvwx';
+  Net._localPlayer={id:'player-side-zero',name:'P0'};
+
+  const checkpoint=Net.buildSessionCheckpoint();
+  assert.equal(checkpoint.role,'host');
+  assert.equal(checkpoint.side,0);
+  assert.equal(checkpoint.authoritySide,1);
+  assert.equal(checkpoint.authorityEpoch,2);
+  assert.equal(checkpoint.authority,null, 'non-authority must never resurrect from its own stale simulation state');
+
+  Net.readSessionCheckpoint=()=>checkpoint;
+  let authorityResume=0, guestResume=0;
+  Net.resumeAuthoritySession=async () => { authorityResume++; return true; };
+  Net.resumeGuestSession=async cp => { guestResume++; assert.equal(cp,checkpoint); return true; };
+  Net.active=false; Net.room=null;
+
+  assert.equal(await Net.tryResumeSession(),true);
+  assert.equal(authorityResume,0);
+  assert.equal(guestResume,1);
+});
+
 test('migrated authority clamps incoming target to the remote player half', async () => {
   const {Net} = await loadNet();
   Net.active=true; Net.role='guest'; Net.side=1;
