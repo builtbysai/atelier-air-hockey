@@ -41,15 +41,18 @@ assert.match(game, /querySelectorAll\('\[data-game-chrome\]'\)/,
 assert.doesNotMatch(template, /id="controls"/, 'controls must stay inside the single Preferences dialog');
 assert.match(template, /data-pref-tab="controls"/, 'Preferences must expose the Controls tab');
 assert.match(template, /id="focusov" data-persistent-overlay/, 'focus-loss veil must survive normal overlay cleanup');
-assert.match(template, /data-set="stickReturn" data-val="triangle"/,
-  'floating-stick triangle recovery must remain configurable');
-assert.match(game, /stickReturn: 'triangle'/, 'triangle recovery must remain the floating-stick default');
-assert.match(game, /const ox = e\.clientX, oy = e\.clientY/,
-  'floating-stick input origin must be the real touch-down point');
-assert.match(game, /stick\.ox \+= dx \/ n \* excess/,
-  'floating-stick base must follow thumb drift at full throw');
-assert.match(game, /function touchTriangleHome\(m\)/);
-assert.match(game, /function touchReturnStep\(m, dt, now = performance\.now\(\)\)/);
+assert.match(template, /data-set="touchOffset" data-val="medium"/,
+  'direct touch offset must remain configurable');
+assert.match(game, /touchOffset: 'medium'/, 'Medium must remain the direct-touch offset default');
+assert.match(game, /low:\s+\{ finger:50, mallet:1\.7 \}/);
+assert.match(game, /medium: \{ finger:72, mallet:2\.5 \}/);
+assert.match(game, /high:\s+\{ finger:94, mallet:3\.3 \}/);
+assert.match(game, /roomRatio \/ 2/,
+  'touch offset must continue fading near playable boundaries');
+assert.doesNotMatch(template, /touchStick|Floating stick|stickReturn/,
+  'retired floating-stick UI must not return');
+assert.doesNotMatch(ui, /touchStick|touchReturn|stickReturn/,
+  'retired floating-stick runtime must not return');
 const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
 assert.match(ambience, /Settings\.musicVolume <= 0/, 'room ambience must follow the Music control');
 assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shots must not leak onto the Sound bus');

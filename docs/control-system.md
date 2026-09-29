@@ -9,10 +9,9 @@ Atelier treats every control method as a way to produce the same mallet target. 
 | Platform | Default | Why |
 | --- | --- | --- |
 | Mouse / trackpad | Direct hover | Closest desktop equivalent to physically moving an air-hockey striker. No click is required. |
-| Touch | Direct drag | Highest positional and flick fidelity. Existing finger offset keeps the mallet visible. |
+| Touch | Direct drag + Medium offset | Fast, precise direct manipulation with the mallet kept visibly ahead of the finger. |
 | Keyboard | Balanced ramp | Quick taps give small defensive corrections; held input ramps into attack speed. |
 | Gamepad | Balanced analog | Left stick uses a radial dead zone and continuous magnitude. |
-| Touch alternate | Floating stick | Dynamic-follow relative control with precision near center, full-speed attack at the edge, and optional triangle recovery on release. |
 
 Controls are configured from **Preferences → Controls**. Mouse and trackpad remain direct because OS pointer sensitivity already supplies the appropriate device-level adjustment.
 
@@ -20,37 +19,35 @@ Controls are configured from **Preferences → Controls**. Mouse and trackpad re
 
 Absolute inputs (mouse and direct touch) convert screen positions through `screenToRink()`.
 
-Relative inputs (keyboard, gamepad, floating stick) start as screen-space directions and pass through `screenVectorToRink()`. Top-down portrait rotation, online mirroring, Elevated, and Surface cameras therefore share one direction mapping. The player's screen-right stays right and screen-up stays away from them regardless of presentation.
+Relative inputs (keyboard and gamepad) start as screen-space directions and pass through `screenVectorToRink()`. Top-down portrait rotation, online mirroring, Elevated, and Surface cameras therefore share one direction mapping. The player's screen-right stays right and screen-up stays away from them regardless of presentation.
 
 2.5D relative input projects the mallet to the screen, applies a small screen-space vector, then unprojects that point back to the table plane. This avoids hand-tuned camera-specific axis rules.
 
 ## Input behavior
 
 ### Touch direct
+Touch is intentionally a single direct-manipulation model. The retired relative-stick mode introduced target drift: the player's thumb controlled velocity relative to a separate origin while air hockey demands an immediate spatial relationship between hand and striker.
+
 - Pointer capture keeps a drag alive when the finger moves outside the canvas element.
-- A screen-space finger offset keeps the mallet visible.
-- The offset fades near playable boundaries so retreating from a rail never feels stuck.
+- The finger maps directly to the mallet target with a forward screen-space offset.
+- The offset points toward the opponent, so the hand trails the striker instead of covering the striker/puck contact point.
+- The offset is applied in screen space before unprojection, so Top-down, Portrait, Elevated, Surface, and online-mirrored views preserve the same visual relationship.
+- Near playable boundaries the offset fades continuously. Pulling away from a rail or center line therefore always pulls the mallet away too.
 - Same-screen two-player assigns each active touch to one side.
 
-### Floating touch stick
-- The input origin is the exact touch-down point. It is never clamped inward near a screen edge.
-- The radius adapts to screen size and the stick uses a small scaled radial dead zone with a precision-first response curve.
-- At full throw, the base follows thumb drift. This keeps neutral and reversal a short movement away instead of letting the finger run far beyond the stick.
-- Full throw has enough target speed to create a real attacking flick; small deflections remain proportionally slower for defense.
-- The vector is still screen-relative and flows through the shared 2D/2.5D mapping.
-- The outer ring highlights at full throw so maximum input is visible even without physical stick resistance.
+### Touch offset
+**Preferences → Controls → Touch offset** exposes `Low`, `Medium`, and `High`.
 
-### Floating-stick release assist
-**Preferences → Controls → Release assist** offers `Triangle` (default) or `Off`.
+The offset combines two constraints:
+1. a CSS-pixel thumb-clearance floor, because finger occlusion is a screen-space problem;
+2. a multiplier of the mallet's apparent screen radius, so the separation still looks proportional as table scale/camera depth changes.
 
-Triangle assist is deliberately limited:
-- On release, it snapshots one recovery target based on the current puck lane and the goal-centre-to-puck geometry used by floating-triangle air-hockey defense.
-- The target sits forward of the goal and floats slightly higher when the puck is farther away.
-- Recovery waits briefly, then moves at a controlled speed for at most about 1.25 seconds.
-- Any new touch, keyboard, or gamepad input cancels it immediately.
-- If the puck blocks the recovery path, the mallet holds rather than automatically pushing through the puck.
-- The recovery point does **not** continuously track the puck, predict shots, or choose bank-defense corners. It is control assistance, not an auto-goalie.
+Current profiles:
+- **Low**: closer/direct feel, about a 50 px minimum.
+- **Medium**: default, about a 72 px minimum.
+- **High**: maximum visibility, about a 94 px minimum.
 
+The values scale modestly with viewport size and cap at 126 CSS px. Changing the offset never changes mallet physics, max speed, collisions, puck transfer, or online authority.
 ### Mouse / trackpad
 - Moving over the game canvas directly targets the mallet without holding a button.
 - Clicking and dragging still works.
@@ -78,19 +75,18 @@ The network wire format is unchanged. Non-authority players still send only `tx,
 
 ## Interruption safety
 
-Blur, tab/background transitions, pointer cancellation, and focus loss clear held keys, active pointers, floating sticks, hover ownership, and transient input timestamps before the existing focus-loss pause takes over.
+Blur, tab/background transitions, pointer cancellation, and focus loss clear held keys, active pointers, hover ownership, and transient input timestamps before the existing focus-loss pause takes over.
 
 ## QA checklist
 
 - Direct mouse follows without a held button in Top-down, Elevated, and Surface.
 - Portrait and online-flipped relative controls remain screen-relative.
-- Touch direct can reach rails and center boundary without sticky offset behavior.
-- Floating stick begins exactly under the thumb, including touches near screen edges.
-- Long thumb drags pull the floating base along instead of increasing the neutral-return distance.
-- Full throw reaches attack speed; small throw remains precise; reversing direction does not require crossing an oversized stale origin.
-- Triangle release assist recovers briefly, cancels on manual input, and refuses to push through a blocking puck.
-- Release assist Off leaves the mallet at the released position.
+- Touch Low / Medium / High all keep the mallet ahead of the finger.
+- Medium provides visibly more puck-contact clearance than the previous one-diameter offset.
+- Touch can reach rails and the center boundary without a sticky offset dead zone.
+- Reversing direction moves the mallet immediately; there is no separate virtual origin to cross.
+- Same-screen two-player offsets each player toward their own opponent-facing direction.
+- Elevated and Surface touch offsets remain visually ahead of the finger through projection/unprojection.
 - Keyboard tap is precise; hold ramps faster; diagonals are not faster than cardinals.
 - Gamepad center is stable; diagonal magnitude is circular; Menu/Start pauses.
-- Same-screen two-player keeps independent touch / keyboard / gamepad ownership.
 - Guest online input remains local-feeling while authority, scoring, and physics stay host/authority-owned.
