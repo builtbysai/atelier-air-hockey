@@ -421,7 +421,8 @@ let keyLast = performance.now();
 function keyboardGamepadDrive(now) {
   const dt = Math.min(0.04, Math.max(0, (now - keyLast) / 1000)); keyLast = now;
   if (G.focusLost) { requestAnimationFrame(keyboardGamepadDrive); return; } // frozen: loop lives, nothing drives
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch') {
+  const spectator = G.mode === 'online' && typeof Net !== 'undefined' && Net.role === 'spectator';
+  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch' && !spectator) {
     const speed = 920;
     // Screen-space input -> rink-space. In 2.5D the camera is the transform,
     // so a key press is resolved through it: project the mallet to screen,
@@ -849,7 +850,9 @@ function wireUI() {
   });
   window.addEventListener('keydown', e => {
     if (G.focusLost) return; // veiled: no input accumulates behind the overlay
-    if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code) && (G.state === 'play' || G.state === 'count')) { keyDrive.add(e.code); e.preventDefault(); }
+    const spectator = G.mode === 'online' && typeof Net !== 'undefined' && Net.role === 'spectator';
+    if (!spectator && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code) &&
+        (G.state === 'play' || G.state === 'count')) { keyDrive.add(e.code); e.preventDefault(); }
   }, { passive: false });
   window.addEventListener('keyup', e => keyDrive.delete(e.code));
   // focus loss pauses everything: sim, net, and audio freeze; the veil (or
