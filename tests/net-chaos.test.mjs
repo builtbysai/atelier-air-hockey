@@ -238,3 +238,72 @@ test('latest guest input and cumulative ACK recover after packet blackout', asyn
     'new cumulative ACK should fence all lost inputs before the recovered target');
   assert.equal(net.report().queued, 0);
 });
+
+
+const FIXED_LATENCY_MS = [0, 30, 60, 100, 150, 250];
+
+for (const delayMs of FIXED_LATENCY_MS) {
+  test('fixed ' + delayMs + 'ms one-way latency converges to newest realtime state', async () => {
+    const host = await loadNetWorld();
+    const guest = await loadNetWorld();
+    const net = connectRealtime(host, guest, {
+      seed: 1000 + delayMs,
+      baseMs: delayMs,
+      jitterMs: 0,
+      loss: 0,
+      reorder: 0,
+    });
+
+    for (let i=0;i<120;i++) {
+      host.G.puck.x = 180 + i * 2.5;
+      host.G.puck.y = 300 + Math.sin(i / 10) * 35;
+      host.G.puck.vx = 650;
+      host.G.puck.vy = Math.cos(i / 10) * 140;
+      host.Net.sendRealtime(host.Net.encodeRealtimeState());
+      net.advance(1000 / 60);
+    }
+    assert.equal(net.drain(), true);
+
+    assert.equal(guest.Net.rtLastStateSeq, host.Net.rtStateSeq,
+      delayMs + 'ms: guest should finish on the newest host state');
+    assert.ok(Number.isFinite(guest.Net.rsnap?.px));
+    assert.equal(net.report().queued, 0);
+    // At 60 Hz a 250 ms one-way path has about 15 states in flight. Leave
+    // headroom for virtual-clock boundaries while still catching runaway queues.
+    assert.ok(net.report().maxQueue <= 20,
+      delayMs + 'ms: replaceable state queue unexpectedly grew ' + JSON.stringify(net.report()));
+  });
+
+  test('fixed ' + delayMs + 'ms one-way latency preserves latest input ACK fence', async () => {
+    const host = await loadNetWorld();
+    const guest = await loadNetWorld();
+    const net = connectRealtime(host, guest, {
+      seed: 2000 + delayMs,
+      baseMs: delayMs,
+      jitterMs: 0,
+      loss: 0,
+      reorder: 0,
+    });
+
+    let latestSeq = null;
+    for (let i=0;i<120;i++) {
+      const tx = 500 + (i % 120);
+      const ty = 220 + (i % 140);
+      const packet = guest.Net.encodeRealtimeInput(tx, ty);
+      latestSeq = guest.Net.rtInputSeq;
+      guest.Net.sendRealtime(packet);
+      net.advance(1000 / 60);
+    }
+    assert.equal(net.drain(), true);
+
+    assert.equal(host.Net.rtLastInputSeq, latestSeq,
+      delayMs + 'ms: host should accept the newest guest input');
+    assert.equal(guest.Net.inputAcked(latestSeq), true,
+      delayMs + 'ms: cumulative ACK should fence the newest delivered input');
+    assert.equal(net.report().queued, 0);
+    // Input and ACK traffic share the same virtual queue, so allow roughly
+    // two directions worth of in-flight packets at the highest delay.
+    assert.ok(net.report().maxQueue <= 40,
+      delayMs + 'ms: input/ACK queue unexpectedly grew ' + JSON.stringify(net.report()));
+  });
+}
