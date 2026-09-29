@@ -12,13 +12,13 @@ test('Workshop drills use the planned three-stage difficulty curve', () => {
   assert.match(game, /free:\s+\{ name:'Free Hit',[\s\S]*free:true/);
 });
 
-test('legacy cleared saves remain Stage 1 and Stage 1 still drives unlock gates', () => {
+test('Workshop stage state drives unlock gates directly', () => {
   const start = game.indexOf('const Workshop = {');
   const end = game.indexOf('// The first four rooms', start);
   const block = game.slice(start, end);
   assert.match(block, /stage\(id\)[\s\S]*Number\(this\.data\[id\]\)/);
   assert.match(block, /done\(id\) \{ return this\.stage\(id\) >= 1; \}/);
-  assert.match(block, /complete\(id\) \{ return this\.completeStage\(id, 1\); \}/);
+  assert.doesNotMatch(block, /\bcomplete\(id\)/, 'retired one-stage compatibility helper must stay removed');
   assert.match(game, /if \(g\.drill && Workshop\.done\(g\.drill\)\) return true;/);
 });
 
