@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-async function loadNet(fetchImpl) {
+async function loadNet(fetchImpl, href = 'https://builtbysai.com/atelier-air-hockey/') {
   const source = await readFile(new URL('../src/net.js', import.meta.url), 'utf8');
   const context = {
     console, Math, Date, Promise, URL, TextEncoder, Uint8Array,
     setTimeout, clearTimeout, performance,
+    location: new URL(href),
   };
   if (fetchImpl) context.fetch = fetchImpl;
   vm.createContext(context);
@@ -83,6 +84,48 @@ test('room creation passes issued Cloudflare ICE servers into Trystero', async (
   assert.equal(got, room);
   assert.equal(config.appId, 'atelier-air-hockey');
   assert.deepEqual(JSON.parse(JSON.stringify(config.turnConfig)), issued);
+});
+
+test('forced TURN diagnostic uses only relay ICE candidates', async () => {
+  const Net = await loadNet(undefined, 'https://builtbysai.com/atelier-air-hockey/?netRoute=turn');
+  const issued = [
+    { urls: ['stun:stun.cloudflare.com:3478'] },
+    {
+      urls: [
+        'turn:turn.cloudflare.com:3478?transport=udp',
+        'turns:turn.cloudflare.com:443?transport=tcp',
+      ],
+      username: 'u',
+      credential: 'p',
+    },
+  ];
+  Net.fetchIceServers = async () => issued;
+
+  let config = null;
+  await Net.makeRoom((cfg) => { config = cfg; return {}; }, 'ABCDEF');
+
+  assert.equal(config.turnConfig, undefined, 'forced mode must not inherit Trystero default STUN via turnConfig');
+  assert.equal(config.rtcConfig.iceTransportPolicy, 'relay');
+  assert.deepEqual(JSON.parse(JSON.stringify(config.rtcConfig.iceServers)), [
+    {
+      urls: [
+        'turn:turn.cloudflare.com:3478?transport=udp',
+        'turns:turn.cloudflare.com:443?transport=tcp',
+      ],
+      username: 'u',
+      credential: 'p',
+    },
+  ]);
+});
+
+test('forced TURN diagnostic fails closed instead of silently using direct P2P', async () => {
+  const Net = await loadNet(undefined, 'https://builtbysai.com/atelier-air-hockey/?netRoute=turn');
+  Net.fetchIceServers = async () => [{ urls: ['stun:stun.cloudflare.com:3478'] }];
+
+  await assert.rejects(
+    () => Net.makeRoom(() => ({}), 'ABCDEF'),
+    /TURN-only diagnostic requested but no TURN credentials are available/
+  );
 });
 
 test('Worker source keeps long-lived TURN credentials server-side', async () => {
