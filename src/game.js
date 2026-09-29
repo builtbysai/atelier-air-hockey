@@ -2366,12 +2366,14 @@ function touchStickActive(side) {
   for (const s of touchSticks.values()) if (s.side === side) return true;
   return false;
 }
-function setTouchStickVisual(side, cx, cy, x = 0, y = 0) {
+function setTouchStickVisual(side, cx, cy, x = 0, y = 0, radius = 58) {
   const el = document.getElementById('touchStick' + side);
   if (!el) return;
   el.classList.remove('hidden');
   el.style.left = cx + 'px';
   el.style.top = cy + 'px';
+  el.style.width = (radius * 2) + 'px';
+  el.style.height = (radius * 2) + 'px';
   el.style.setProperty('--stick-x', x + 'px');
   el.style.setProperty('--stick-y', y + 'px');
 }
@@ -2569,7 +2571,7 @@ function onPointerDown(e) {
     const oy = clamp(e.clientY, radius + 8, Math.max(radius + 8, innerHeight - radius - 8));
     touchSticks.set(e.pointerId, { side, ox, oy, x: 0, y: 0, radius });
     m.tx = m.x; m.ty = m.y;
-    setTouchStickVisual(side, ox, oy, 0, 0);
+    setTouchStickVisual(side, ox, oy, 0, 0, radius);
     markControlDrive(side);
   } else {
     const r = touch ? touchTargetRink(side, e.clientX, e.clientY, raw) : raw;
@@ -2614,7 +2616,7 @@ function onPointerMove(e) {
     const kx = dx * k, ky = dy * k;
     stick.x = clamp(kx / max, -1, 1);
     stick.y = clamp(ky / max, -1, 1);
-    setTouchStickVisual(side, stick.ox, stick.oy, kx, ky);
+    setTouchStickVisual(side, stick.ox, stick.oy, kx, ky, max);
     markControlDrive(side);
   } else {
     const r = touch ? touchTargetRink(side, e.clientX, e.clientY) : screenToRink(e.clientX, e.clientY);
@@ -2640,6 +2642,14 @@ function onPointerUp(e) {
 }
 function onPointerLeave(e) {
   if (e.pointerType === 'mouse' && !pointers.has(e.pointerId)) mouseHoverSide = null;
+}
+function resetTransientControls() {
+  pointers.clear();
+  touchSticks.clear();
+  mouseHoverSide = null;
+  hideTouchStickVisual(0);
+  hideTouchStickVisual(1);
+  if (Array.isArray(G.inputDriveT)) G.inputDriveT[0] = G.inputDriveT[1] = 0;
 }
 
 // ---------- physics ----------
