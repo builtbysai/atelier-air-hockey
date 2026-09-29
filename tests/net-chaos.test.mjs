@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';
+import vm from 'node:vm';\nimport { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
 import { VirtualNetwork, NETWORK_PROFILES } from './helpers/net-chaos.mjs';
 
 async function loadNetWorld() {
@@ -22,7 +22,7 @@ async function loadNetWorld() {
     Settings:{ firstTo:7, pace:'classic' },
     clamp:(v,a,b)=>Math.min(b,Math.max(a,v)),
     PX:60, PW:680, PY:80, PH:440, CX:400, CY:300,
-    PUCK_R:26, MALLET_R:46, PUCK_MAX:2000, SMACK_BONUS:0.34,
+    ...NET_TEST_PHYSICS,
     goalW:()=>200,
     $:()=>null,
   });
