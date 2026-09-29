@@ -198,6 +198,19 @@ test('fresh online countdown resets the guest match even during a restart', asyn
   assert.ok(calls.includes('freshBoard'));
 });
 
+test('repeated authoritative goal delivery is score-idempotent', async () => {
+  const { Net, G } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; Net.peerId = 'peer';
+  G.state = 'play'; G.score = [2, 2];
+
+  const goal = { t:'goal', scorer:0, s0:3, s1:2, matchEnd:false };
+  Net.onEvent(goal, 'peer');
+  Net.onEvent(goal, 'peer');
+
+  assert.deepEqual([...G.score], [3, 2],
+    'goal events carry absolute host scores and can never increment twice');
+});
+
 test('point countdown supplies the authoritative score when its goal event was lost', async () => {
   const { Net, G } = await loadNetWorld();
   Net.role = 'guest'; Net.active = true; Net.matchStarted = true;
