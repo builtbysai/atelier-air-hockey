@@ -2269,21 +2269,21 @@ function screenToRink(cx, cy) {
 // production semantics.
 function onlinePlayerSide() {
   if (typeof Net === 'undefined') return null;
-  if (typeof Net.playerSide === 'function') return onlinePlayerSide();
+  if (typeof Net.playerSide === 'function') return Net.playerSide();
   return Net.role === 'guest' ? 1 : Net.role === 'host' ? 0 : null;
 }
 function onlineIsAuthority() {
   if (typeof Net === 'undefined') return false;
-  if (typeof Net.isAuthority === 'function') return onlineIsAuthority();
+  if (typeof Net.isAuthority === 'function') return Net.isAuthority();
   return Net.role === 'host';
 }
 function onlineIsPlayer() {
   if (typeof Net === 'undefined') return false;
-  if (typeof Net.isPlayer === 'function') return onlineIsPlayer();
+  if (typeof Net.isPlayer === 'function') return Net.isPlayer();
   return Net.role === 'host' || Net.role === 'guest';
 }
 function onlineLocalMallet() {
-  if (typeof Net !== 'undefined' && typeof Net.localMallet === 'function') return onlineLocalMallet();
+  if (typeof Net !== 'undefined' && typeof Net.localMallet === 'function') return Net.localMallet();
   return onlinePlayerSide() === 1 ? G.m2 : onlinePlayerSide() === 0 ? G.m1 : null;
 }
 
