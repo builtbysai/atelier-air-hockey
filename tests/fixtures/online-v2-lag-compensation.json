@@ -1,0 +1,661 @@
+{
+  "version": 1,
+  "policy": {
+    "maxRewindMs": 180,
+    "maxInputLead": 32,
+    "contactTolerance": 12,
+    "speedTolerance": 1.1,
+    "railGuard": 52,
+    "guestBounds": {
+      "xMin": 728,
+      "xMax": 1194,
+      "yMin": 246,
+      "yMax": 794
+    }
+  },
+  "cases": [
+    {
+      "id": "valid-open-table-contact",
+      "expected": "accept",
+      "reason": "accepted",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 850,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      },
+      "matchingInputArrived": false
+    },
+    {
+      "id": "valid-wraparound-sequences",
+      "expected": "accept",
+      "reason": "accepted",
+      "matchingInputArrived": false,
+      "nowMs": 1000,
+      "lastInputSeq": 65534,
+      "lastHintSeq": 65533,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 850,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 0,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 1,
+        "stateSeq": 0,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "wraparound-replay",
+      "expected": "reject",
+      "reason": "duplicate-or-replay",
+      "matchingInputArrived": true,
+      "nowMs": 1000,
+      "lastInputSeq": 1,
+      "lastHintSeq": 1,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 850,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 0,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 65535,
+        "stateSeq": 0,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "missing-history",
+      "expected": "reject",
+      "reason": "missing-history",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": null,
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 299,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "stale-history",
+      "expected": "reject",
+      "reason": "stale",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 790,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "duplicate-hint",
+      "expected": "reject",
+      "reason": "duplicate-or-replay",
+      "nowMs": 1000,
+      "lastInputSeq": 121,
+      "lastHintSeq": 121,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "implausible-input-lead",
+      "expected": "reject",
+      "reason": "input-lead",
+      "nowMs": 1000,
+      "lastInputSeq": 100,
+      "lastHintSeq": 99,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 140,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "point-epoch-changed",
+      "expected": "reject",
+      "reason": "point-state",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 8,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "historical-state-not-live",
+      "expected": "reject",
+      "reason": "point-state",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "count",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "guest-crossed-center",
+      "expected": "reject",
+      "reason": "side-bounds",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 750,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 750,
+        "puckY": 520,
+        "puckVx": 300,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 710,
+        "malletY": 520,
+        "malletVx": 900,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "guest-speed-impossible",
+      "expected": "reject",
+      "reason": "velocity",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -4800,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "no-historical-overlap",
+      "expected": "reject",
+      "reason": "geometry",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 950,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "contact-separating",
+      "expected": "reject",
+      "reason": "separating",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 760,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": -800,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -100,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "newer-authoritative-touch",
+      "expected": "reject",
+      "reason": "superseded",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 13,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "near-top-rail",
+      "expected": "reject",
+      "reason": "unsafe-transition",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 250
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 250,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 250,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "current-goal-transition",
+      "expected": "reject",
+      "reason": "point-state",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "goal",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "malformed-hint",
+      "expected": "reject",
+      "reason": "malformed",
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 770,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": null,
+        "malletVy": 0
+      }
+    }
+  ],
+  "packet": {
+    "type": 4,
+    "version": 1,
+    "byteLength": 22,
+    "littleEndian": true,
+    "fields": [
+      {
+        "name": "type",
+        "offset": 0,
+        "size": 1,
+        "kind": "u8"
+      },
+      {
+        "name": "version",
+        "offset": 1,
+        "size": 1,
+        "kind": "u8"
+      },
+      {
+        "name": "inputSeq",
+        "offset": 2,
+        "size": 2,
+        "kind": "u16"
+      },
+      {
+        "name": "stateSeq",
+        "offset": 4,
+        "size": 2,
+        "kind": "u16"
+      },
+      {
+        "name": "malletX",
+        "offset": 6,
+        "size": 4,
+        "kind": "f32"
+      },
+      {
+        "name": "malletY",
+        "offset": 10,
+        "size": 4,
+        "kind": "f32"
+      },
+      {
+        "name": "malletVx",
+        "offset": 14,
+        "size": 4,
+        "kind": "f32"
+      },
+      {
+        "name": "malletVy",
+        "offset": 18,
+        "size": 4,
+        "kind": "f32"
+      }
+    ]
+  }
+}

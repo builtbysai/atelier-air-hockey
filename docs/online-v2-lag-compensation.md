@@ -1,7 +1,7 @@
 # Online V2 Host Lag Compensation Design
 
-Status: design only  
-Implementation should begin only after draft PR #89, the deterministic Network Lab, is runnable and green.
+Status: design + executable contract only  
+The deterministic Network Lab is merged, but production lag compensation must remain disabled until `npm run unit:online`, full CI/Visual QA, PR #88 migration validation, and the real-device direct/TURN pass are green.
 
 ## Problem
 
@@ -85,11 +85,11 @@ If later testing shows that 60 Hz temporal resolution is insufficient, add a 240
 
 ## Proposed contact hint packet
 
-New realtime message type:
+New additive realtime message type:
 
-`NET_RT_HIT_HINT`
+`NET_RT_HIT_HINT = 4`
 
-Suggested fixed binary shape:
+Fixed binary shape, little-endian where applicable:
 
 ```text
 byte 0      type
@@ -104,13 +104,40 @@ bytes 18-21 guest mallet vy            f32
 
 22 bytes total.
 
+### Protocol compatibility
+
+This is an **additive message type**, not a change to the existing state/input/ACK packet layouts.
+
+- keep the current realtime packet version for this additive type
+- old peers already ignore unknown realtime message types
+- a new guest may send a hint to an old host and it is harmlessly ignored
+- an old guest simply never sends hints to a new host
+- do not change the 12-byte input packet merely to carry lag-compensation data
+- bump the realtime protocol/version only if an existing packet layout or semantic contract becomes incompatible
+
+### Input sequence semantics
+
+The hint is self-contained evidence. Its `inputSeq` is a correlation/deduplication key for the local action that produced the prediction; it is **not proof that the separate input packet arrived**.
+
+This matters because input and hint packets share an unordered, zero-retransmit lane. Requiring both to arrive would make compensation unnecessarily fragile under packet loss.
+
+Rules:
+
+- validation may proceed even if the matching input packet was lost or arrives later
+- a hint never updates `rtLastInputSeq`
+- a hint never causes an input ACK
+- existing ACK semantics remain tied only to accepted realtime input packets
+- if the host has a recent input sequence, a hint may lead it only by a bounded modular amount
+- initial contract bound: `MAX_HINT_INPUT_LEAD = 32`
+- replay/stale hint ordering uses the existing wrap-safe 16-bit sequence comparison
+
 This packet is replaceable realtime evidence, not a reliable game event.
 
 A lost hint must not corrupt the match. It only means the host falls back to its ordinary current-state collision result.
 
 ## Host history ring
 
-When the host publishes each realtime state sequence, store a compact history item.
+When the host assigns/publishes each realtime state sequence, store a compact history item from the **same authoritative state used to encode that sequence**. The state sequence and history record must be created atomically from the caller's point of view; never attach a sequence to state sampled later.
 
 Suggested shape:
 
@@ -137,6 +164,8 @@ Recommended initial history:
 
 - 16 state snapshots
 - about 267 ms at 60 Hz
+- lookup by wrap-safe 16-bit state sequence
+- age from the stored host monotonic timestamp, never from sequence distance alone
 
 Maximum compensation window should initially be smaller:
 
@@ -161,11 +190,11 @@ A hint whose historical `pointSerial` differs from current is invalid.
 
 ### `touchSerial`
 
-Increment on every authoritative puck-mallet contact.
+Increment once per **authoritative leading-edge puck-mallet contact episode**, using the same notion of a new contact that drives hit feedback/Highlights. Do not increment on every 240 Hz overlap substep while a mallet is continuously touching/smothering the puck.
 
 Store it in history.
 
-If another authoritative touch happened after the claimed historical moment, do not apply an old compensated impulse on top of the newer touch.
+For v1, if current `touchSerial` differs from the referenced historical value, reject the hint. This intentionally treats any intervening authoritative touch as superseding authority, including a host collision that already recognized the same guest hit. In that case compensation is unnecessary anyway.
 
 This prevents a delayed guest claim from overwriting a legitimate later host save/strike.
 
@@ -175,21 +204,25 @@ A contact hint is accepted only if every gate passes.
 
 ### Gate 1: protocol and sequence
 
-- correct packet version
-- input sequence is plausible/current
+- exact 22-byte hint packet and correct packet version
+- all numeric fields finite
 - referenced host state sequence exists in the history ring
-- hint is not a duplicate/replay of one already processed
+- hint input sequence is not a duplicate/replay of the newest processed hint
+- if a recent host input sequence exists, the hint is no more than 32 modular input sequences ahead
+- the matching input packet does not need to have arrived
 
 ### Gate 2: age
 
 - history age <= compensation window
 - reject stale hints beyond the hard maximum
 
-Suggested start:
+Initial contract:
 
 `MAX_CONTACT_REWIND_MS = 180`
 
-Tune using the Network Lab.
+Compute age as `hostNow - history.time` using the host monotonic clock. Never estimate hint age as `sequenceDelta * 16.7` because send cadence, backpressure and scheduling can vary.
+
+Tune only after the Network Lab and real-device runs produce measurements.
 
 ### Gate 3: point/state continuity
 
@@ -219,7 +252,9 @@ Compare against:
 - `PLAYER_CAP`
 - small tolerance for sampling/rounding
 
-A useful initial tolerance is a percentage, not a huge fixed cheat window.
+Initial contract: reported mallet speed may not exceed `PLAYER_CAP * 1.10`.
+
+Use the production `PLAYER_CAP`; do not copy a numeric cap into network code. The Online test harness now has a contract that fails when production collision constants drift.
 
 ### Gate 6: historical contact geometry
 
@@ -229,11 +264,11 @@ Against the historical puck state:
 distance(puck, guestMallet) <= PUCK_R + MALLET_R + CONTACT_TOLERANCE
 ```
 
-Suggested initial tolerance:
+Initial contract:
 
-- 8 to 16 rink units
+- `CONTACT_TOLERANCE = 12` rink units
 
-Tune from chaos tests and real devices.
+This is deliberately small relative to the 72-unit puck+mallet radius sum. Tune from chaos tests and real devices.
 
 ### Gate 7: approaching contact
 
@@ -253,14 +288,21 @@ Reject if current authoritative state has a later touch serial than the referenc
 
 Initial implementation should be conservative and reject ambiguity.
 
-### Gate 9: no impossible current state
+### Gate 9: no impossible/ambiguous transition
 
 Do not apply compensation if:
 
 - goal already occurred
+- current or historical match state is not live play
 - puck is inside a goal transition
-- current puck is extremely far from the historical continuation
-- applying the correction would teleport through a rail/goal frame
+- the historical/current contact is too close to a rail/goal transition for the simple velocity-only correction to be unambiguous
+- current puck is physically inconsistent with the bounded historical window
+
+Initial conservative open-table guard:
+
+- `RAIL_GUARD = 2 * PUCK_R`
+
+A rejected hint falls back to ordinary host physics. V1 should prefer a false negative near rails over retroactively applying the wrong collision after a wall/goal interaction.
 
 ## How to apply an accepted contact
 
@@ -287,7 +329,7 @@ Do not initially rewind and replay the full 240 Hz world.
 
 ## Shared collision math
 
-Before implementation, extract the core mallet-puck impulse calculation into a side-effect-free helper.
+Before implementation, extract the **normal open-table** mallet-puck impulse calculation into a side-effect-free helper. Do not put glue escape, wrap-release, AI clear behavior, scoring, sound, particles, stats, or highlight side effects into the pure solver.
 
 For example:
 
@@ -304,12 +346,15 @@ solveMalletImpulse({
 
 It should return only physical results.
 
-Then both:
+Then all three paths:
 
-- normal authoritative `collideMallet`
-- lag-compensation validation
+- normal authoritative `collideMallet` normal-contact branch
+- existing guest contact prediction
+- lag-compensation validation/application
 
-use exactly the same restitution/smack/max-speed math.
+use the same restitution/smack/max-speed math for velocity.
+
+The current guest predictor duplicates this calculation in `src/net.js`; the production lag-compensation work should remove that drift rather than add a third copy. Keep the extraction behavior-preserving before enabling any compensation.
 
 Do not duplicate constants or create a second "network physics" model.
 
@@ -317,7 +362,7 @@ Keep audiovisual effects outside the pure solver.
 
 ## Contact-hint deduplication
 
-Track the newest processed hint input sequence.
+Track the newest processed **hint** input sequence separately from `rtLastInputSeq`.
 
 A repeated hint for the same input must not cause a second impulse.
 
@@ -344,6 +389,54 @@ No extra reliable acceptance message is required initially.
 The authoritative state itself is the result.
 
 A debug-only metric may count accepted/rejected hints.
+
+## Executable contract fixtures
+
+Before production code exists, the acceptance policy is captured as data in:
+
+`tests/fixtures/online-v2-lag-compensation.json`
+
+and schema/coverage checked by:
+
+`tests/net-lag-compensation-contract.test.mjs`
+
+The fixtures intentionally do **not** implement a second validator or physics solver. When the real host validator is built, its tests should run these same cases through the production function.
+
+The fixture also locks:
+
+- realtime type `4`
+- current realtime version `1`
+- exact 22-byte field offsets/sizes
+- little-endian integer/float encoding
+- 16-bit input/state sequence wraparound cases
+- acceptance when the matching input packet was lost, proving the hint stays self-contained
+
+Initial reason vocabulary:
+
+- `accepted`
+- `malformed`
+- `duplicate-or-replay`
+- `missing-history`
+- `stale`
+- `input-lead`
+- `point-state`
+- `side-bounds`
+- `velocity`
+- `geometry`
+- `separating`
+- `superseded`
+- `unsafe-transition`
+
+The fixture policy starts with:
+
+- max rewind: 180 ms
+- max hint lead over latest input: 32 sequences
+- contact tolerance: 12 rink units
+- speed tolerance: 10% over production `PLAYER_CAP`
+- rail/goal ambiguity guard: `2 * PUCK_R`
+- guest bounds: exactly the same bounds enforced by `clampMallet` / `Net.onInput`
+
+These are starting safety bounds, not promises about final game feel.
 
 ## Anti-cheat posture
 
@@ -440,17 +533,19 @@ The feature is an accuracy improvement, never a match-critical dependency.
 
 ## Rollout sequence
 
-1. Merge and run Network Lab PR #89.
-2. Measure current prediction under each network profile.
-3. Extract pure collision solver with existing physics behavior unchanged.
-4. Add host state history ring only.
-5. Add contact hint codec only.
-6. Add validation gates with compensation disabled and collect unit metrics.
-7. Enable compensated velocity application in tests.
-8. Tune age/geometry tolerance.
-9. Real-device test direct WebRTC.
-10. Real-device test forced TURN.
-11. Only then ship to production.
+1. Keep PR #88 recovery draft frozen until Actions + real-device migration validation.
+2. Run `npm run unit:online` and full CI/Visual QA when Actions return.
+3. Run the merged Network Lab and capture current prediction/reconciliation baselines.
+4. Run the real-device normal + forced-TURN verification pass.
+5. Extract one behavior-preserving pure normal-contact impulse solver; make authoritative collision and guest prediction share it.
+6. Add host state history/point/touch serials with compensation still disabled.
+7. Add the 22-byte type-4 hint codec; do not change existing input/state packet layouts.
+8. Implement the host validator returning debug rejection reasons and run the existing data fixtures through the **production** validator.
+9. Collect accepted/rejected metrics with velocity application still disabled.
+10. Enable compensated velocity application in tests only.
+11. Tune age/geometry bounds from Network Lab + device evidence.
+12. Re-run direct and forced-TURN real-device matches.
+13. Ship only if false misses improve without duplicate touches, score divergence, rail artifacts, or large correction regressions.
 
 ## Do not do yet
 
