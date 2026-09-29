@@ -4140,14 +4140,19 @@ function showWin() {
 
   let winnerName;
   if (G.mode === '2p') winnerName = you ? 'Player One' : 'Player Two';
-  else if (G.mode === 'online') winnerName = onlineSideLabel(G.winSide) === 'YOU' ? 'You' : 'Rival';
+  else if (G.mode === 'online') {
+    const label = onlineSideLabel(G.winSide);
+    winnerName = Net.role === 'spectator' ? (label === 'P1' ? 'Player One' : 'Player Two')
+      : label === 'YOU' ? 'You' : 'Rival';
+  }
   else if (G.mode === 'watch') winnerName = DIFFS[G.watch[G.winSide === 0 ? 'a' : 'b']].name;
   else winnerName = you ? 'You' : DIFFS[G.difficulty].name;
 
   const card = $('winov').querySelector('.win-card');
   if (card) {
     card.classList.remove('win-win', 'win-loss', 'win-neutral');
-    card.classList.add(humanWin ? 'win-win' : (G.mode === 'watch' ? 'win-neutral' : 'win-loss'));
+    card.classList.add(humanWin ? 'win-win'
+      : ((G.mode === 'watch' || (G.mode === 'online' && Net.role === 'spectator')) ? 'win-neutral' : 'win-loss'));
   }
 
   $('winTitle').textContent = winnerName + (winnerName === 'You' ? ' took the table.' : ' takes the table.');
@@ -4214,6 +4219,7 @@ function showWin() {
   const kicker = $('winKicker');
   if (kicker) {
     if (G.mode === 'watch') kicker.textContent = 'EXHIBITION · FULL TIME';
+    else if (G.mode === 'online' && Net.role === 'spectator') kicker.textContent = 'WATCHING · FULL TIME';
     else if (humanWin && firstTableWin) kicker.textContent = 'TABLE CONQUERED';
     else if (humanWin) kicker.textContent = 'FULL TIME · VICTORY';
     else kicker.textContent = 'FULL TIME';
@@ -4225,6 +4231,8 @@ function showWin() {
   const reelBtn = $('btnMatchReel');
   if (reelBtn) reelBtn.classList.toggle('hidden', !hasReel);
   const winReplay = $('btnWinReplay');
+  const rematch = $('btnRematch');
+  if (rematch) rematch.classList.toggle('hidden', G.mode === 'online' && Net.role === 'spectator');
   const hasReplay = Replay.hasPending();
   if (winReplay) winReplay.classList.toggle('hidden', hasReel || !hasReplay);
   const momentActions = $('winMomentActions');
@@ -4239,7 +4247,7 @@ function showWin() {
   const chord = (THEME.goalChord || [392, 523.25, 659.25, 783.99]).slice();
   if (humanWin && chord.length) chord.push(chord[0] * 2);
   AudioSys.goalChord(chord);
-  Haptics.fire(humanWin ? 'win' : 'loss');
+  if (!(G.mode === 'online' && Net.role === 'spectator')) Haptics.fire(humanWin ? 'win' : 'loss');
 }
 function togglePause(force, silent) {
   // ONLINE: silent=true applies a pause that arrived over the wire - it must
