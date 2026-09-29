@@ -936,6 +936,7 @@ function wireUI() {
   document.addEventListener('visibilitychange', () => {
     keyDrive.clear();
     if (document.hidden) {
+      resetTransientControls();
       WakeSys.release();
       pauseForFocusLoss();
     } else {
@@ -948,7 +949,8 @@ function wireUI() {
     }
   });
   window.addEventListener('blur', () => {
-    keyDrive.clear(); keyRamp[0] = keyRamp[1] = 0; mouseHoverSide = null;
+    keyDrive.clear(); keyRamp[0] = keyRamp[1] = 0;
+    resetTransientControls();
     pauseForFocusLoss();
   });
   window.addEventListener('focus', () => recoverCanvasSurface());
