@@ -92,6 +92,7 @@ test('former host adopts a higher guest authority epoch and converged state', as
   const {Net,G} = await loadNet();
   Net.active=true; Net.role='host'; Net.side=0;
   Net.authoritySide=0; Net.authorityEpoch=1;
+  Net.authorityMigrationReady=true;
   Net.sessionId='abcdefghijklmnopqrstuvwx';
   Net.reconnecting=true; Net.reconnectState='play'; Net.dropPaused=false;
   Net.closeSpectatorRoom=()=>{};
@@ -147,7 +148,7 @@ test('authority recovery stays frozen until a peer claim has been observed', asy
   Net.peerId='peer-zero';
   Net.reconnecting=true; Net.authorityRecovery=true;
   Net.authorityPeerClaimSeen=false;
-  Net.reconnectState='play'; Net.dropPaused=false;
+  Net.reconnectState=null; Net.dropPaused=false;
   Net.setPauseNotice=()=>{};
   Net.closeSpectatorRoom=()=>{};
   Net.saveSessionCheckpoint=()=>true;
