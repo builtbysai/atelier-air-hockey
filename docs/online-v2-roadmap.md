@@ -173,6 +173,46 @@ Already present before the above work:
 - Guest score/stat convergence.
 - Existing latency/reconnect unit coverage.
 
+## Work staged during the GitHub Actions outage
+
+These branches are implemented but deliberately **not merged** until the full test/visual suite can run again.
+
+### Draft PR #88 - ICE recovery / network migration
+
+Branch: `feat/online-v2-ice-recovery`
+
+Staged work:
+
+- monitor `connectionstatechange` and `iceconnectionstatechange`
+- brief debounce for transient disconnects
+- bounded recovery attempt budget
+- force-refresh short-lived Cloudflare ICE credentials
+- replace the active ICE server set with fresh credentials
+- call `RTCPeerConnection.restartIce()`
+- let Trystero's existing `negotiationneeded` signaling carry the restart
+- cleanly remove listeners/timers when the peer/room is dropped
+- preserve the existing 15-second gameplay reconnect fallback
+- focused recovery tests included
+
+Do not duplicate this work. First run its tests when Actions return, review any failures, then merge or revise.
+
+### Draft PR #89 - deterministic Network Lab
+
+Branch: `test/online-v2-network-lab`
+
+Staged test-only work:
+
+- seeded virtual clock/network
+- configurable latency and jitter
+- random loss and burst loss
+- packet reordering
+- clean / broadband / mobile / hotel Wi-Fi / brutal profiles
+- real binary realtime state traffic through the simulator
+- real guest input + cumulative ACK traffic through the simulator
+- metrics for delivery, drops, reorder count and maximum queue depth
+
+Do not tune prediction/lag-compensation constants against intuition while this lab is pending. Run the lab first after Actions return.
+
 ## Current known risks / unfinished areas
 
 ### 1. Live TURN credential path must be verified
@@ -395,12 +435,22 @@ Before changing Online code:
 
 ## Immediate next task
 
-Implement mobile network migration / ICE recovery in an isolated branch:
+### While Actions remain unavailable
 
-- monitor the current peer connection
-- attempt a bounded ICE restart on sustained disconnect
-- refresh short-lived ICE credentials when appropriate
-- cancel recovery cleanly when connection returns or the peer leaves
-- preserve the existing 15 second gameplay reconnect UX
-- add unit tests for state-machine behavior
-- leave the existing Trystero room/signaling model intact
+Do not stack another high-risk production protocol/physics change on top of unverified PRs #88/#89.
+
+Safe work:
+
+1. Review and harden documentation/tests.
+2. Prepare a real-device TURN verification checklist.
+3. Research and design the host lag-compensation packet/history format.
+4. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab can execute.
+
+### When Actions return
+
+1. Run PR #88 through full CI + Visual QA; fix and merge if green.
+2. Run PR #89 through full CI; fix and merge if green.
+3. Run forced direct + TURN real-device tests.
+4. Then implement host tick/history contact compensation as the next production phase.
+
+The lag-compensation design should add a bounded host tick reference to guest input, retain a small host history ring, and validate contact against recent history without allowing the guest to authoritatively declare hits or goals.
