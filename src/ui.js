@@ -336,6 +336,27 @@ function applySettingsToUI() {
     mv.setAttribute('aria-valuetext', Settings.musicVolume === 0 ? 'Muted' : Settings.musicVolume + ' percent');
   }
   if (mvv) mvv.textContent = audioValueText(Settings.musicVolume);
+
+  const touchCapable = (navigator.maxTouchPoints || 0) > 0 ||
+    (window.matchMedia && matchMedia('(pointer:coarse)').matches);
+  const touchRow = $('touchControlRow'), touchNote = $('touchControlNote');
+  if (touchRow) touchRow.classList.toggle('hidden', !touchCapable);
+  if (touchNote) {
+    touchNote.classList.toggle('hidden', !touchCapable);
+    touchNote.textContent = Settings.touchControl === 'stick'
+      ? 'Floating stick appears under your thumb. Better visibility, slightly less direct than dragging the mallet.'
+      : 'Direct keeps the mallet attached to your gesture and preserves the strongest flick control.';
+  }
+  const hint = $('hint');
+  if (hint) hint.textContent = Settings.touchControl === 'stick' ? 'Use the floating stick to move' : 'Drag to move your mallet';
+  const touchFoot = $('touchControlHint');
+  if (touchFoot) touchFoot.textContent = Settings.touchControl === 'stick'
+    ? 'Floating stick · Tap pause for match controls'
+    : 'Drag to move your mallet · Tap pause for match controls';
+  const helpTouch = $('helpTouchMove');
+  if (helpTouch) helpTouch.innerHTML = Settings.touchControl === 'stick'
+    ? '<b>Move your mallet</b> with the floating stick that appears under your thumb. Push farther for speed; release to stop.'
+    : '<b>Drag your mallet</b> directly across your half of the table. Flick quickly to <b>smash</b> the puck; ease it to deaden and control.';
 }
 
 
@@ -348,6 +369,12 @@ function openSettings(from = 'menu') {
 function closeSettings() {
   AudioSys.ui(); hideAll();
   $(settingsReturn === 'pause' ? 'pauseov' : 'menu').classList.remove('hidden');
+}
+function openControls() {
+  AudioSys.ui(); applySettingsToUI(); hideAll(); $('controls').classList.remove('hidden');
+}
+function closeControls() {
+  AudioSys.ui(); applySettingsToUI(); hideAll(); $('settings').classList.remove('hidden');
 }
 
 function openRules() {
@@ -417,69 +444,107 @@ function renderProgress() {
 function shareResult() { return ShareSys.shareResult(); }
 
 const keyDrive = new Set();
+const keyRamp = [0, 0];
+const gamepadButtonLatch = new Map();
 let keyLast = performance.now();
+
+function gamepadPressedOnce(pad, buttonIndex) {
+  if (!pad || !pad.buttons || !pad.buttons[buttonIndex]) return false;
+  const key = pad.index + ':' + buttonIndex;
+  const down = !!pad.buttons[buttonIndex].pressed;
+  const was = !!gamepadButtonLatch.get(key);
+  gamepadButtonLatch.set(key, down);
+  return down && !was;
+}
+
+function digitalControlVector(m, left, right, up, down, dt) {
+  if (!m) return [0, 0, 0];
+  const sx = (keyDrive.has(right) ? 1 : 0) - (keyDrive.has(left) ? 1 : 0);
+  const sy = (keyDrive.has(down) ? 1 : 0) - (keyDrive.has(up) ? 1 : 0);
+  const side = m.side === 1 ? 1 : 0;
+  if (!sx && !sy) {
+    keyRamp[side] = Math.max(0, keyRamp[side] - dt * 9);
+    return [0, 0, 0];
+  }
+  // Digital input needs both tiny defensive corrections and fast flicks.
+  // Ease from precision speed to attack speed over ~150 ms instead of making
+  // every key press an all-or-nothing full-speed shove.
+  keyRamp[side] = Math.min(1, keyRamp[side] + dt / 0.15);
+  const t = keyRamp[side];
+  const ease = t * t * (3 - 2 * t);
+  const speed = (760 + 1460 * ease) * controlFeelScale(Settings.keyboardFeel);
+  return [sx, sy, speed];
+}
+
 function keyboardGamepadDrive(now) {
   const dt = Math.min(0.04, Math.max(0, (now - keyLast) / 1000)); keyLast = now;
-  if (G.focusLost) { requestAnimationFrame(keyboardGamepadDrive); return; } // frozen: loop lives, nothing drives
+  if (G.focusLost) { requestAnimationFrame(keyboardGamepadDrive); return; }
+
+  let pads = [];
+  try { pads = navigator.getGamepads ? [...navigator.getGamepads()].filter(Boolean) : []; } catch (e) {}
+
+  // Standard gamepad affordances: Menu/Start pauses during a match and the
+  // primary button activates the main menu action. Edge latching prevents a
+  // held button from toggling every animation frame.
+  const primaryPad = pads[0];
+  if (primaryPad) {
+    if (gamepadPressedOnce(primaryPad, 9)) {
+      if (G.state === 'pause') togglePause();
+      else if (G.state === 'play' || G.state === 'count' || G.state === 'goal') togglePause(true);
+    }
+    if (gamepadPressedOnce(primaryPad, 0) && G.state === 'menu' &&
+        !$('menu').classList.contains('hidden') && $('btnStart')) {
+      $('btnStart').click();
+    }
+  }
+
   const spectator = G.mode === 'online' && typeof Net !== 'undefined' && Net.role === 'spectator';
   if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch' && !spectator) {
-    const speed = 920;
-    // Screen-space input -> rink-space. In 2.5D the camera is the transform,
-    // so a key press is resolved through it: project the mallet to screen,
-    // nudge in screen space, unproject back. Up moves away from the viewer,
-    // Right moves right on screen. (The camera already sits behind the
-    // viewer's own end, mirrored for the online guest, so no extra flip.)
-    // Top-down keeps the classic mapping: portrait rotates the rink 90°,
-    // onlineFlip mirrors x. (Matches the inverse of the render transform
-    // in screenToRink.)
-    const toRink = (m, sx, sy) => {
-      if (typeof view !== 'undefined' && view.camera !== 'top' && view.cam &&
-          typeof camProject === 'function' && typeof camUnproject === 'function') {
-        const p = camProject(view.cam, m.x, m.y, 0);
-        if (p) {
-          const q = camUnproject(view.cam, p.x + sx * 24, p.y + sy * 24);
-          const dx = q.x - m.x, dy = q.y - m.y, n = Math.hypot(dx, dy);
-          if (n > 1e-6) { const k = Math.hypot(sx, sy) / n; return [dx * k, dy * k]; }
-        }
-        return [0, 0];
-      }
-      let dx, dy;
-      if (typeof view !== 'undefined' && view.portrait) { dx = -sy; dy = sx; } // matches the true-rotation portrait matrix
-      else { dx = sx; dy = sy; }
-      if (G.onlineFlip) dx = -dx;
-      return [dx, dy];
-    };
-    const move = (m, left, right, up, down, lo, hi) => {
-      const sx = (keyDrive.has(right) ? 1 : 0) - (keyDrive.has(left) ? 1 : 0);
-      const sy = (keyDrive.has(down) ? 1 : 0) - (keyDrive.has(up) ? 1 : 0);
-      if (!sx && !sy) return;
-      let [dx, dy] = toRink(m, sx, sy);
-      const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
-      m.tx = clamp(m.tx + dx * speed * dt, lo, hi);
-      m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
-      G.kbDriveT = now; // keyboard drove a target this frame (see playStep)
-    };
     const ownsRight = G.mode === 'online' && onlinePlayerSide() === 1;
     const p1 = ownsRight ? G.m2 : G.m1;
-    const p1Lo = ownsRight ? CX + MALLET_R : PX + MALLET_R;
-    const p1Hi = ownsRight ? PX + PW - MALLET_R : CX - MALLET_R;
-    move(p1, 'KeyA', 'KeyD', 'KeyW', 'KeyS', p1Lo, p1Hi);
-    if (G.mode === '2p') move(G.m2, 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', CX + MALLET_R, PX + PW - MALLET_R);
-    try {
-      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-      const applyPad = (pad, m, lo, hi) => {
-        if (!pad) return;
-        const ax = Math.abs(pad.axes[0] || 0) > .18 ? pad.axes[0] : 0;
-        const ay = Math.abs(pad.axes[1] || 0) > .18 ? pad.axes[1] : 0;
-        if (ax || ay) {
-          let [dx, dy] = toRink(m, ax, ay);
-          m.tx = clamp(m.tx + dx * speed * dt, lo, hi); m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
-          G.kbDriveT = now; // gamepad drove a target this frame (see playStep)
-        }
-      };
-      applyPad(pads[0], p1, p1Lo, p1Hi);
-      if (G.mode === '2p' && pads[1]) applyPad(pads[1], G.m2, CX + MALLET_R, PX + PW - MALLET_R);
-    } catch (e) {}
+    const p2 = G.mode === '2p' ? G.m2 : null;
+
+    const driveTouchStick = m => {
+      if (!m || !touchStickActive(m.side)) return false;
+      const [sx, sy] = touchStickVector(m.side);
+      if (!sx && !sy) { markControlDrive(m.side); return true; }
+      const speed = 2360 * controlFeelScale('balanced');
+      nudgeMalletTarget(m, sx, sy, speed, dt);
+      return true;
+    };
+
+    const driveKeys = (m, left, right, up, down) => {
+      if (!m || touchStickActive(m.side)) return false;
+      const [sx, sy, speed] = digitalControlVector(m, left, right, up, down, dt);
+      if (!speed) return false;
+      return nudgeMalletTarget(m, sx, sy, speed, dt);
+    };
+
+    const drivePad = (pad, m) => {
+      if (!pad || !m || touchStickActive(m.side)) return false;
+      const [sx, sy] = shapeAnalogInput(pad.axes[0] || 0, pad.axes[1] || 0, 0.16, 1.16);
+      if (!sx && !sy) return false;
+      return nudgeMalletTarget(m, sx, sy, 2260 * controlFeelScale(Settings.gamepadFeel), dt);
+    };
+
+    // Floating touch has priority while a thumb is down. Keyboard and gamepad
+    // can otherwise coexist; both resolve through the same screen-vector map.
+    const p1Touch = driveTouchStick(p1);
+    if (!p1Touch) {
+      driveKeys(p1, 'KeyA', 'KeyD', 'KeyW', 'KeyS');
+      drivePad(pads[0], p1);
+    }
+
+    if (p2) {
+      const p2Touch = driveTouchStick(p2);
+      if (!p2Touch) {
+        driveKeys(p2, 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown');
+        drivePad(pads[1], p2);
+      }
+    }
+  } else {
+    keyRamp[0] = Math.max(0, keyRamp[0] - dt * 9);
+    keyRamp[1] = Math.max(0, keyRamp[1] - dt * 9);
   }
   requestAnimationFrame(keyboardGamepadDrive);
 }
@@ -744,6 +809,15 @@ function wireUI() {
   $('btnSettings').addEventListener('click', () => openSettings('menu'));
   $('btnPauseSettings').addEventListener('click', () => openSettings('pause'));
   $('settingsClose').addEventListener('click', closeSettings);
+  $('btnControlSettings').addEventListener('click', openControls);
+  $('controlsClose').addEventListener('click', closeControls);
+  $('controlsReset').addEventListener('click', () => {
+    AudioSys.init(); AudioSys.ui();
+    Settings.touchControl = 'direct';
+    Settings.keyboardFeel = 'balanced';
+    Settings.gamepadFeel = 'balanced';
+    saveSettings(); applySettingsToUI();
+  });
   const sv = $('soundVol');
   if (sv) sv.addEventListener('input', () => {
     AudioSys.init();
@@ -833,6 +907,7 @@ function wireUI() {
       if (G.state === 'replay') Replay.finish(true);
       else if (!$('confirmov').classList.contains('hidden')) settleConfirm(false);
       else if (!$('help').classList.contains('hidden')) $('helpClose').click();
+      else if (!$('controls').classList.contains('hidden')) $('controlsClose').click();
       else if (!$('settings').classList.contains('hidden')) $('settingsClose').click();
       else if (!$('rules').classList.contains('hidden')) $('rulesClose').click();
       else if (!$('workshop').classList.contains('hidden')) $('workshopClose').click();
@@ -861,6 +936,7 @@ function wireUI() {
   document.addEventListener('visibilitychange', () => {
     keyDrive.clear();
     if (document.hidden) {
+      resetTransientControls();
       WakeSys.release();
       pauseForFocusLoss();
     } else {
@@ -872,7 +948,11 @@ function wireUI() {
       UpdateSys.sync();
     }
   });
-  window.addEventListener('blur', () => { keyDrive.clear(); pauseForFocusLoss(); });
+  window.addEventListener('blur', () => {
+    keyDrive.clear(); keyRamp[0] = keyRamp[1] = 0;
+    resetTransientControls();
+    pauseForFocusLoss();
+  });
   window.addEventListener('focus', () => recoverCanvasSurface());
   window.addEventListener('pagehide', () => {
     try { Net.saveSessionCheckpoint(); } catch (e) {}
@@ -881,6 +961,7 @@ function wireUI() {
   canvas.addEventListener('contextlost', () => markCanvasContextLost());
   canvas.addEventListener('contextrestored', () => markCanvasContextRestored());
   canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointerleave', onPointerLeave);
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', onPointerUp);
