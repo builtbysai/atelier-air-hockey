@@ -187,24 +187,34 @@ function netGenCode() {
   return c;
 }
 
+Net.playerSide = function () {
+  if (Net.side === 0 || Net.side === 1) return Net.side;
+  if (Net.role === 'host') return 0;
+  if (Net.role === 'guest') return 1;
+  return null;
+};
+
 Net.isPlayer = function () {
-  return Net.side === 0 || Net.side === 1;
+  return Net.playerSide() !== null;
 };
 
 Net.isAuthority = function () {
-  return Net.active && Net.isPlayer() && Net.side === Net.authoritySide;
+  return Net.active && Net.isPlayer() && Net.playerSide() === Net.authoritySide;
 };
 
 Net.localMallet = function () {
-  return Net.side === 1 ? G.m2 : G.m1;
+  const side = Net.playerSide();
+  return side === 1 ? G.m2 : side === 0 ? G.m1 : null;
 };
 
 Net.remoteMallet = function () {
-  return Net.side === 1 ? G.m1 : G.m2;
+  const side = Net.playerSide();
+  return side === 1 ? G.m1 : side === 0 ? G.m2 : null;
 };
 
 Net.remoteSide = function () {
-  return Net.side === 0 ? 1 : Net.side === 1 ? 0 : null;
+  const side = Net.playerSide();
+  return side === 0 ? 1 : side === 1 ? 0 : null;
 };
 
 Net.authorityTupleWins = function (epoch, side) {
