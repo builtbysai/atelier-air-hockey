@@ -1916,7 +1916,8 @@ Net.onPeerJoin = function (id) {
 
   Net.reconnecting = false;
   Net.paintConn();
-  if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
+  if (!Net.active && Net.resumingSession && Net.wire && Net.isPlayer()) Net.knockBurst();
+  else if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
   else if (Net.role === 'guest' && !Net.active && Net.wire) Net.knockBurst();
 };
 // The "rival left" overlay is up and the room is still alive - a peer that
