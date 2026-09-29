@@ -105,6 +105,19 @@ test('Quick Match busy rejection releases the candidate and probes another visib
   Net.stopQuick();
 });
 
+test('stale Quick Match callbacks are ignored after matchmaking stops', async () => {
+  const { Net } = await loadNet();
+  Net.quickNonce = 10;
+  const sent = [];
+  Net.quickSend = async (_action, data, peerId) => { sent.push({data,peerId}); };
+
+  Net.stopQuick();
+  Net.quickHandleMessage({}, { t:'hello', v:1, nonce:20, player:{id:'b',name:'B'} }, 'peer-b');
+
+  assert.equal(Net.quickPeer, null);
+  assert.equal(sent.length, 0);
+});
+
 test('recent rivals stay local, dedupe, and keep newest first', async () => {
   const { Net } = await loadNet();
   Net.rivalIdentity = { id:'rival-1', name:'Jordan' };
