@@ -86,6 +86,28 @@ test('binary realtime input round-trips and rejects stale input', async () => {
   assert.equal(Net.decodeRealtimeInput(new DataView(packet)), null);
 });
 
+test('unknown additive realtime message types are backward-compatible no-ops', async () => {
+  for (const role of ['host', 'guest']) {
+    const { Net } = await loadNet();
+    Net.role = role;
+    Net.rtLastStateSeq = 41;
+    Net.rtLastInputSeq = 42;
+    Net.rtAckInputSeq = 43;
+
+    const futurePacket = new ArrayBuffer(22);
+    const v = new DataView(futurePacket);
+    v.setUint8(0, 4); // reserved by the lag-comp contract, unknown to current production
+    v.setUint8(1, 1);
+    v.setUint16(2, 44, true);
+    v.setUint16(4, 45, true);
+
+    assert.doesNotThrow(() => Net.onRealtimeMessage(futurePacket));
+    assert.equal(Net.rtLastStateSeq, 41);
+    assert.equal(Net.rtLastInputSeq, 42);
+    assert.equal(Net.rtAckInputSeq, 43);
+  }
+});
+
 test('realtime backpressure drops replaceable state instead of queueing it', async () => {
   const { Net } = await loadNet();
   let sends = 0;
