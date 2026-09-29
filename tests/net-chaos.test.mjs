@@ -33,16 +33,58 @@ async function loadNetWorld() {
   return { Net, G };
 }
 
+function newSequenceTrace() {
+  return {
+    state:{ received:0, last:null, gaps:0, stale:0 },
+    input:{ received:0, last:null, gaps:0, stale:0 },
+    ack:{ received:0, last:null, gaps:0, stale:0 },
+  };
+}
+
+function observeRealtimePacket(trace, data) {
+  if (!(data instanceof ArrayBuffer) || data.byteLength < 4) return;
+  const v = new DataView(data);
+  const type = v.getUint8(0);
+  const bucket = type === 1 ? trace.state : type === 2 ? trace.input : type === 3 ? trace.ack : null;
+  if (!bucket) return;
+
+  const seq = v.getUint16(2, true);
+  bucket.received++;
+  if (bucket.last === null) {
+    bucket.last = seq;
+    return;
+  }
+
+  const delta = (seq - bucket.last + 0x10000) & 0xffff;
+  if (delta > 0 && delta < 0x8000) {
+    if (delta > 1) bucket.gaps += delta - 1;
+    bucket.last = seq;
+  } else {
+    bucket.stale++;
+  }
+}
+
 function connectRealtime(host, guest, profile) {
   const net = new VirtualNetwork(profile);
+  net.trace = newSequenceTrace();
 
   const hostChannel = {
     readyState:'open', bufferedAmount:0,
-    send(data) { net.send(payload => guest.Net.onRealtimeMessage(payload), data, 'h->g'); },
+    send(data) {
+      net.send(payload => {
+        observeRealtimePacket(net.trace, payload);
+        guest.Net.onRealtimeMessage(payload);
+      }, data, 'h->g');
+    },
   };
   const guestChannel = {
     readyState:'open', bufferedAmount:0,
-    send(data) { net.send(payload => host.Net.onRealtimeMessage(payload), data, 'g->h'); },
+    send(data) {
+      net.send(payload => {
+        observeRealtimePacket(net.trace, payload);
+        host.Net.onRealtimeMessage(payload);
+      }, data, 'g->h');
+    },
   };
 
   host.Net.role = 'host';
@@ -61,6 +103,28 @@ function connectRealtime(host, guest, profile) {
 
   return net;
 }
+
+test('sequence trace records packet gaps, stale arrivals, and duplicates', () => {
+  const trace = newSequenceTrace();
+  const packet = seq => {
+    const buffer = new ArrayBuffer(56);
+    const v = new DataView(buffer);
+    v.setUint8(0, 1);
+    v.setUint8(1, 1);
+    v.setUint16(2, seq, true);
+    return buffer;
+  };
+
+  observeRealtimePacket(trace, packet(10));
+  observeRealtimePacket(trace, packet(12)); // forward gap: 11 missing
+  observeRealtimePacket(trace, packet(11)); // arrives late
+  observeRealtimePacket(trace, packet(12)); // duplicate
+
+  assert.equal(trace.state.received, 4);
+  assert.equal(trace.state.last, 12);
+  assert.equal(trace.state.gaps, 1);
+  assert.equal(trace.state.stale, 2);
+});
 
 test('virtual network profiles are deterministic', () => {
   const a = new VirtualNetwork(NETWORK_PROFILES.hotelWifi);
@@ -120,6 +184,9 @@ for (const [name, profile] of Object.entries(NETWORK_PROFILES)) {
     assert.ok(guest.Net.rtLastStateSeq !== null, name + ': guest received realtime state');
     assert.ok(guest.Net.rtLastStateSeq > 120, name + ': guest converged to recent sequence ' + guest.Net.rtLastStateSeq);
     assert.ok(Number.isFinite(guest.Net.rsnap?.px), name + ': decoded snapshot remains finite');
+    assert.ok(net.trace.state.received > 0, name + ': state trace observed packets');
+    assert.equal(net.trace.state.last, guest.Net.rtLastStateSeq,
+      name + ': trace and guest must agree on newest accepted state sequence');
 
     const report = net.report();
     assert.ok(report.delivered > 0);
@@ -143,6 +210,10 @@ for (const [name, profile] of Object.entries(NETWORK_PROFILES)) {
     assert.ok(host.Net.rtLastInputSeq !== null, name + ': host received guest input');
     assert.ok(guest.Net.rtAckInputSeq !== null, name + ': guest received cumulative ACK');
     assert.ok(guest.Net.inputAcked(1), name + ': cumulative ACK covers old input');
+    assert.equal(net.trace.input.last, host.Net.rtLastInputSeq,
+      name + ': trace and host must agree on newest accepted input sequence');
+    assert.equal(net.trace.ack.last, guest.Net.rtAckInputSeq,
+      name + ': trace and guest must agree on newest cumulative ACK sequence');
     assert.ok(net.report().queued === 0);
   });
 }
