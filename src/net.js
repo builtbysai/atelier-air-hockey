@@ -1687,7 +1687,8 @@ Net.tryResumeSession = async function () {
 Net.initRoom = function (room, role) {
   Net.dropRoom();
   Net.room = room;
-  Net.role = role; // provisional until the match starts
+  Net.role = role; // origin role remains stable across authority migration
+  Net.side = role === 'host' ? 0 : role === 'guest' ? 1 : null;
   Net.wire = Net.wireRoom(room, {
     onPeerJoin: (id) => Net.onPeerJoin(id),
     onPeerLeave: (id) => Net.onPeerLeave(id),
@@ -1709,6 +1710,9 @@ Net.dropRoom = function () {
   Net.setPauseNotice(false);
   try { if (Net.room) Net.room.leave(); } catch (e) {}
   Net.room = null; Net.wire = null; Net.role = null; Net.peerId = null; Net.handshakePeerId = null;
+  Net.side = null; Net.authoritySide = 0; Net.authorityEpoch = 0;
+  Net.authorityRecovery = false;
+  clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
   Net.rivalIdentity = null;
   Net.sessionId = null; Net.resumingSession = false;
   Net.active = false; Net.waitingForRival = false;
@@ -1996,6 +2000,7 @@ Net.resetConn = function () {
 /* ---------------- match flow ---------------- */
 Net.beginMatch = function (role) {
   Net.role = role;
+  Net.side = role === 'host' ? 0 : role === 'guest' ? 1 : null;
   Net.active = true;
   Net.matchStarted = true;
   Net.waitingForRival = false;
@@ -2038,6 +2043,7 @@ Net.beginMatch = function (role) {
 Net.startHostMatch = function () {
   if (Net.active || !Net.waitingForRival) return;
   Net.sessionId = Net.newSessionId();
+  Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
   Net.musicSeed = (Math.random() * 0xFFFFFFFF) >>> 0; // the host deals the music seed: both peers play the same generative sequence
   try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   Net.beginMatch('host');
@@ -2053,6 +2059,9 @@ Net.onHello = function (ev) {
   clearTimeout(Net.joinTimer);
   if (ev && ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
   if (ev && Net.validSessionId(ev.sid)) Net.sessionId = ev.sid;
+  Net.side = 1;
+  Net.authoritySide = ev && ev.authoritySide === 1 ? 1 : 0;
+  Net.authorityEpoch = ev && Number.isInteger(ev.authorityEpoch) ? Math.max(1, ev.authorityEpoch) : 1;
   clearTimeout(Net.knockTimer); Net.knockTimer = 0; // the knock landed
   Net.matchStarted = false; // the next countdown begins a new match, including older hosts
   // A rematch hello may update the host's settings, but the guest's original
@@ -2421,7 +2430,8 @@ Net.guestApply = function (rdt) {
 Net.sendHello = function () {
   if (!Net.wire || !Net.active) return;
   const ev = { t:'hello', firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id,
-    sid:Net.sessionId, player:Net.localPlayer(), mseed:Net.musicSeed >>> 0 };
+    sid:Net.sessionId, authoritySide:Net.authoritySide, authorityEpoch:Net.authorityEpoch,
+    player:Net.localPlayer(), mseed:Net.musicSeed >>> 0 };
   Net.wire.sendEv(ev);
   void Net.spectatorSendEvent(ev); // the generative sequence seed, so guest music matches the host's
 };
