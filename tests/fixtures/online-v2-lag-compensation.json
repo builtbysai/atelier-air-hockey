@@ -87,6 +87,154 @@
       }
     },
     {
+      "id": "valid-contact-after-referenced-state",
+      "expected": "accept",
+      "reason": "accepted",
+      "matchingInputArrived": false,
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 880,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 700,
+        "puckY": 520,
+        "puckVx": 900,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "trajectory": [
+        {
+          "seq": 300,
+          "timeMs": 900,
+          "pointSerial": 7,
+          "touchSerial": 12,
+          "state": "play",
+          "puckX": 700,
+          "puckY": 520,
+          "puckVx": 900,
+          "puckVy": 0,
+          "puckW": 0
+        },
+        {
+          "seq": 301,
+          "timeMs": 916.7,
+          "pointSerial": 7,
+          "touchSerial": 12,
+          "state": "play",
+          "puckX": 760,
+          "puckY": 520,
+          "puckVx": 895,
+          "puckVy": 0,
+          "puckW": 0
+        },
+        {
+          "seq": 302,
+          "timeMs": 933.4,
+          "pointSerial": 7,
+          "touchSerial": 12,
+          "state": "play",
+          "puckX": 820,
+          "puckY": 520,
+          "puckVx": 890,
+          "puckVy": 0,
+          "puckW": 0
+        }
+      ],
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "no-contact-along-authoritative-trajectory",
+      "expected": "reject",
+      "reason": "geometry",
+      "matchingInputArrived": true,
+      "nowMs": 1000,
+      "lastInputSeq": 120,
+      "lastHintSeq": 119,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 880,
+        "puckY": 350
+      },
+      "history": {
+        "seq": 300,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 700,
+        "puckY": 350,
+        "puckVx": 900,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "trajectory": [
+        {
+          "seq": 300,
+          "timeMs": 900,
+          "pointSerial": 7,
+          "touchSerial": 12,
+          "state": "play",
+          "puckX": 700,
+          "puckY": 350,
+          "puckVx": 900,
+          "puckVy": 0,
+          "puckW": 0
+        },
+        {
+          "seq": 301,
+          "timeMs": 916.7,
+          "pointSerial": 7,
+          "touchSerial": 12,
+          "state": "play",
+          "puckX": 760,
+          "puckY": 350,
+          "puckVx": 895,
+          "puckVy": 0,
+          "puckW": 0
+        },
+        {
+          "seq": 302,
+          "timeMs": 933.4,
+          "pointSerial": 7,
+          "touchSerial": 12,
+          "state": "play",
+          "puckX": 820,
+          "puckY": 350,
+          "puckVx": 890,
+          "puckVy": 0,
+          "puckW": 0
+        }
+      ],
+      "hint": {
+        "inputSeq": 121,
+        "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
       "id": "wraparound-replay",
       "expected": "reject",
       "reason": "duplicate-or-replay",
