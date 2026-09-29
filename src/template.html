@@ -29,6 +29,8 @@
 <body>
 <canvas id="game"></canvas>
 <div id="gameStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="touchStick0" class="touch-stick hidden" aria-hidden="true"><i></i></div>
+<div id="touchStick1" class="touch-stick hidden" aria-hidden="true"><i></i></div>
 
 <div id="topbar" class="hidden">
   <span class="connchip hidden" id="connChip" title="Connection quality"><i class="unknown"></i><em>–ms</em></span>
@@ -116,7 +118,7 @@
       </div>
     </div>
 
-    <div class="foot"><span class="desktop-controls">WASD / arrows to play · P pause · M mute all · Enter start</span><span class="touch-controls">Drag to move your mallet · Tap pause for match controls</span></div>
+    <div class="foot"><span class="desktop-controls">Move the mouse to play · WASD / arrows · P pause · M mute · Enter start</span><span class="touch-controls" id="touchControlHint">Drag to move your mallet · Tap pause for match controls</span></div>
     <div class="foot lobfoot"><button id="btnWorkshop">Workshop</button><button id="btnHelp">How to play</button><button id="btnSettings">Preferences</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><a href="https://builtbysai.com/" target="_blank" rel="noopener">Built by Sai</a><span class="ver">1.0.0</span></div>
   </div>
 </div>
@@ -173,12 +175,13 @@
 <div class="overlay hidden" id="help" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
   <div class="card">
     <h1 id="helpTitle">How to play</h1>
-    <p class="desktop-controls"><b>Move your mallet</b> with mouse, <b>WASD</b>, arrow keys, or a gamepad. Flick it to <b>smash</b> the puck; ease it to deaden and control.</p>
-    <p class="touch-controls"><b>Drag your mallet</b> directly across your half of the table. Flick quickly to <b>smash</b> the puck; ease it to deaden and control.</p>
+    <p class="desktop-controls"><b>Mouse or trackpad:</b> move the pointer and the mallet follows directly. No click needed. Fast pointer movement creates a harder strike.</p>
+    <p class="desktop-controls"><b>Keyboard or gamepad:</b> use WASD, arrow keys, or the left stick. Small taps make precise corrections; holding a direction builds speed.</p>
+    <p class="touch-controls" id="helpTouchMove"><b>Drag your mallet</b> directly across your half of the table. Flick quickly to <b>smash</b> the puck; ease it to deaden and control.</p>
     <p>Your mallet can't cross the center line. First to <b id="helpFirst">7</b> goals wins the table.</p>
     <p><b>Rally:</b> each return by the other side adds one. Repeated touches by the same mallet count once.</p>
     <p><b>Two players:</b> each takes an end. On touch screens, use two touches. On desktop, use WASD + arrow keys or two gamepads.</p>
-    <p class="desktop-controls"><b>Keys:</b> P pause · M mute all · Esc pause/resume.</p>
+    <p class="desktop-controls"><b>Shortcuts:</b> P pause · M mute all · Esc pause/resume. Gamepad Menu/Start also pauses.</p>
     <p style="text-align:center"><button class="btn" id="helpClose" style="width:auto;padding:10px 34px;margin:14px auto 0;">Back</button></p>
   </div>
 </div>
@@ -270,6 +273,10 @@
         <button data-set="haptics" data-val="true">On</button>
       </div>
     </div>
+    <button class="setting-link" id="btnControlSettings" type="button">
+      <span><strong>Controls</strong><small>Touch · keyboard · gamepad</small></span>
+      <em>Configure ›</em>
+    </button>
     <div class="seclabel">VIEW</div>
     <div class="setrow">
       <div class="setlabel">Camera</div>
@@ -289,6 +296,48 @@
     </div>
     <div class="setnote hidden" id="orientationNote"></div>
     <button class="btn primary" id="settingsClose" style="margin-top:16px">Done</button>
+  </div>
+</div>
+
+<div class="overlay hidden" id="controls" role="dialog" aria-modal="true" aria-labelledby="controlsTitle">
+  <div class="card controls-card">
+    <div class="kicker">INPUT</div>
+    <h1 id="controlsTitle">Controls</h1>
+    <p class="tagline">Choose how movement feels. Physics stay the same.</p>
+
+    <div class="setrow" id="touchControlRow">
+      <div class="setlabel">Touch</div>
+      <div class="seg">
+        <button data-set="touchControl" data-val="direct">Direct</button>
+        <button data-set="touchControl" data-val="stick">Floating stick</button>
+      </div>
+    </div>
+    <div class="setnote" id="touchControlNote">Direct keeps the mallet attached to your gesture and preserves the strongest flick control.</div>
+
+    <div class="setrow">
+      <div class="setlabel">Keyboard feel</div>
+      <div class="seg">
+        <button data-set="keyboardFeel" data-val="precise">Precise</button>
+        <button data-set="keyboardFeel" data-val="balanced">Balanced</button>
+        <button data-set="keyboardFeel" data-val="fast">Fast</button>
+      </div>
+    </div>
+    <div class="setnote">Keys ramp from fine movement into attack speed, so quick taps stay controllable.</div>
+
+    <div class="setrow">
+      <div class="setlabel">Gamepad feel</div>
+      <div class="seg">
+        <button data-set="gamepadFeel" data-val="precise">Precise</button>
+        <button data-set="gamepadFeel" data-val="balanced">Balanced</button>
+        <button data-set="gamepadFeel" data-val="fast">Fast</button>
+      </div>
+    </div>
+    <div class="setnote">Left stick uses a radial dead zone. Menu/Start pauses. Mouse and trackpad always use direct control.</div>
+
+    <div class="controls-actions">
+      <button class="btn" id="controlsReset" type="button">Reset controls</button>
+      <button class="btn primary" id="controlsClose" type="button">Done</button>
+    </div>
   </div>
 </div>
 
