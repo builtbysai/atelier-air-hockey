@@ -238,8 +238,10 @@ Net.authorityCheckpoint = function () {
     m1:Net.copyBodyState(G.m1),
     m2:Net.copyBodyState(G.m2),
     stats:Net.copyStatsState(G.stats),
-    state:G.state,
-    pausedFrom:G.pausedFrom || 'play',
+    state:(Net.reconnecting && G.state === 'pause' && !Net.dropPaused && Net.reconnectState)
+      ? Net.reconnectState : G.state,
+    pausedFrom:(Net.reconnecting && G.state === 'pause' && !Net.dropPaused && Net.reconnectState)
+      ? Net.reconnectState : (G.pausedFrom || 'play'),
     winSide:G.winSide | 0,
     gwNet:Number.isFinite(G.gwNet) ? G.gwNet : 0,
     countT:Number.isFinite(G.countT) ? G.countT : 0,
@@ -2484,6 +2486,7 @@ Net.restartMatchAsHost = function () {
 Net.leave = function () {
   if (Net.role === 'spectator') { Net.leaveWatch(); return; }
   if (Net.wire && Net.active) { try { Net.wire.sendEv({ t: 'leave' }); } catch (e) {} }
+  Net.clearSessionCheckpoint();
   Net.dropRoom();
   Net.code = null;
   Net.offerSent = false;
@@ -2509,6 +2512,8 @@ Net.onRivalLeft = function () {
   Net.matchStarted = false;
   Net.waitingForRival = false;
   Net.offerSent = false;
+  Net.resumingSession = false;
+  Net.clearSessionCheckpoint();
   clearCeremony();
   // freeze the sim behind the overlay (host: stop the clock; guest: stop
   // dead reckoning) so nothing keeps playing without a rival
