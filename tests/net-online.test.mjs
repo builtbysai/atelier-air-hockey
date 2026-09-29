@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -70,7 +71,6 @@ async function loadNetWorld() {
       calls.push(['driveMallet', m === G.m1 ? 'm1' : 'm2', Math.round(m.tx), Math.round(m.ty)]);
       m.x = m.tx; m.y = m.ty;
     },
-    PLAYER_CAP: 920,
     startCount() { calls.push('startCount'); G.state = 'count'; G.puck.x = 400; G.puck.y = 300; G.puck.vx = 0; G.puck.vy = 0; },
     showWin() { calls.push('showWin'); },
     beginGoalCeremony(scorer) { calls.push(['beginGoalCeremony', scorer]); G.state = 'goal'; },
@@ -81,7 +81,7 @@ async function loadNetWorld() {
     pointers: { clear() {} },
     goalW: () => 200,
     CX: 400, PX: 60, PW: 680, PY: 80, PH: 440, CY: 300,
-    PUCK_R: 26, MALLET_R: 46, PUCK_MAX: 2000,
+    ...NET_TEST_PHYSICS,
   };
   vm.createContext(context);
   vm.runInContext(source + '\nthis.__Net = Net;', context, { filename: 'src/net.js' });

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
 import { VirtualNetwork, NETWORK_PROFILES } from './helpers/net-chaos.mjs';
 
 async function loadWorld(clock) {
@@ -23,8 +24,7 @@ async function loadWorld(clock) {
     G,
     Settings:{ firstTo:7, pace:'classic' },
     PX:60, PW:680, PY:80, PH:440, CY:300,
-    PUCK_R:26, MALLET_R:46, PUCK_MAX:2000, SMACK_BONUS:0.34,
-    PLAYER_CAP:920,
+    ...NET_TEST_PHYSICS,
     goalW:()=>200,
     paceDamp:()=>0.07,
     paceWall:()=>0.92,

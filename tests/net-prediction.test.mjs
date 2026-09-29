@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
 
 async function loadWorld() {
   const source = await readFile(new URL('../src/net.js', import.meta.url), 'utf8');
@@ -21,7 +22,7 @@ async function loadWorld() {
     G,
     Settings: { firstTo: 7 },
     PX: 60, PW: 680, PY: 80, PH: 440, CY: 300,
-    PUCK_R: 26, MALLET_R: 46, PUCK_MAX: 2000, SMACK_BONUS: 0.34,
+    ...NET_TEST_PHYSICS,
     goalW: () => 200,
     paceDamp: () => 0.07,
     paceWall: () => 0.92,
