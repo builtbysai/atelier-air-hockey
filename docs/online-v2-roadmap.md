@@ -258,6 +258,8 @@ Next resilience target:
 
 ### 4. Host-side contact lag compensation
 
+Detailed design: `docs/online-v2-lag-compensation.md`
+
 Guest prediction improves perceived latency, but the authoritative host still evaluates the guest mallet against its current simulation state.
 
 Next fairness target:
