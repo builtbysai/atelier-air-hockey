@@ -140,6 +140,7 @@ const Net = {
   rtInputSeq: 0,
   rtLastStateSeq: null,
   rtLastInputSeq: null,
+  rtAckInputSeq: null,
   rtDropped: 0
 };
 
@@ -168,6 +169,7 @@ const NET_RT_PROTOCOL = 'atelier-rt-v1';
 const NET_RT_VERSION = 1;
 const NET_RT_STATE = 1;
 const NET_RT_INPUT = 2;
+const NET_RT_ACK = 3;
 const NET_RT_MAX_BUFFERED = 32 * 1024;
 
 Net.validIceServers = function (servers) {
@@ -564,7 +566,7 @@ Net.seqNewer = function (next, previous) {
 Net.closeRealtime = function () {
   const ch = Net.rtChannel;
   Net.rtChannel = null; Net.rtPc = null; Net.rtReady = false;
-  Net.rtLastStateSeq = null; Net.rtLastInputSeq = null;
+  Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null;
   try { if (ch && ch.readyState !== 'closed') ch.close(); } catch (e) {}
 };
 
@@ -650,6 +652,29 @@ Net.decodeRealtimeInput = function (v) {
   return [v.getFloat32(4, true), v.getFloat32(8, true)];
 };
 
+Net.encodeRealtimeAck = function (seq) {
+  const buffer = new ArrayBuffer(4);
+  const v = new DataView(buffer);
+  v.setUint8(0, NET_RT_ACK); v.setUint8(1, NET_RT_VERSION);
+  v.setUint16(2, seq & 0xffff, true);
+  return buffer;
+};
+
+Net.onRealtimeAck = function (v) {
+  if (v.byteLength !== 4 || v.getUint8(1) !== NET_RT_VERSION) return false;
+  const seq = v.getUint16(2, true);
+  if (!Net.seqNewer(seq, Net.rtAckInputSeq)) return false;
+  Net.rtAckInputSeq = seq;
+  return true;
+};
+
+/* True once a cumulative host acknowledgement has reached this input
+ * sequence. Uses modular 16-bit ordering so long matches survive wraparound. */
+Net.inputAcked = function (seq) {
+  if (seq === null || seq === undefined || Net.rtAckInputSeq === null) return false;
+  return seq === Net.rtAckInputSeq || Net.seqNewer(Net.rtAckInputSeq, seq);
+};
+
 Net.onRealtimeMessage = function (data) {
   if (!(data instanceof ArrayBuffer) || data.byteLength < 4) return;
   const v = new DataView(data);
@@ -659,7 +684,14 @@ Net.onRealtimeMessage = function (data) {
     if (a) Net.onSnapshot(a, Net.peerId);
   } else if (type === NET_RT_INPUT && Net.role === 'host') {
     const a = Net.decodeRealtimeInput(v);
-    if (a) Net.onInput(a, Net.peerId);
+    if (a) {
+      Net.onInput(a, Net.peerId);
+      // ACKs are cumulative and replaceable: if one is lost, the next input
+      // produces a newer ACK. Old clients ignore this unknown message type.
+      Net.sendRealtime(Net.encodeRealtimeAck(Net.rtLastInputSeq));
+    }
+  } else if (type === NET_RT_ACK && Net.role === 'guest') {
+    Net.onRealtimeAck(v);
   }
 };
 
@@ -1011,7 +1043,7 @@ Net.beginMatch = function (role) {
   Net.lastIn = null; Net.lastInT = 0;
   Net.snapAcc = 0; Net.inAcc = 0;
   Net.rtStateSeq = 0; Net.rtInputSeq = 0;
-  Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtDropped = 0;
+  Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null; Net.rtDropped = 0;
   Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
 };
 
