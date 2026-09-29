@@ -783,7 +783,7 @@ const AudioSys = {
   // jazz-room bass plucks, poolside laps, a concrete-hall wash, felt hush,
   // loft murmur swells with the odd glass clink, machiya rain and wood
   // creaks. Levels sit well under SFX. The bed rides the music bus, so it
-  // follows the Music toggle - Sound off leaves it playing. The bed only
+  // follows the Music volume - muting Sound Effects leaves it playing. The bed only
   // ever exists after init(), which runs solely on real user input
   // (autoplay-safe). Switching rooms crossfades the bed instead of clicking.
   ambKey: null, amb: null, ambTimer: null,
@@ -993,7 +993,7 @@ const ROOM_AMB = {
 // the timer's own firing time, so tab jank can't drift the beat. The RNG is
 // seeded per table (mulberry32), so each room's music is a stable identity
 // across sessions, not a shuffle. Music rides AudioSys.musicBus - the Sound
-// toggle (sfxBus) never touches it, and Music off never touches SFX.
+// Sound Effects volume never touches it, and Music volume never touches SFX.
 // Euclidean onset pattern: k hits spread as evenly as possible over n steps,
 // rotated by rot. Bjorklund's algorithm, the same math behind the tresillo
 // E(3,8) = [x..x..x.] and the cinquillo E(5,8). Used for bass lines and percussion.
@@ -1152,7 +1152,7 @@ const MusicSys = {
     this.key = this.pendingKey = (MUSIC[G.themeId] ? G.themeId : 'deco');
     this.start();
   },
-  syncEnabled() { // the settings toggle calls here
+  syncEnabled() { // the Music slider calls here
     if (Settings.musicVolume > 0) { if (this.ac() && !this.timer) this.start(); }
     else this.stop();
   },
@@ -1243,7 +1243,7 @@ const MusicSys = {
     const ac = this.ac();
     const musicG = ac.createGain(); musicG.gain.value = 0.0001; // per-room level
     const duckG = ac.createGain(); duckG.gain.value = 1;         // goal-ceremony dip
-    musicG.connect(duckG); duckG.connect(AudioSys.musicBus);      // music rides its own bus - the Sound toggle never touches it
+    musicG.connect(duckG); duckG.connect(AudioSys.musicBus);      // music rides its own bus - Sound Effects volume never touches it
     // one shared feedback delay as cheap space for plucks and shimmer
     const dly = ac.createDelay(1); dly.delayTime.value = 0.34;
     const fb = ac.createGain(); fb.gain.value = 0.32;
@@ -2314,28 +2314,18 @@ function nudgeMalletTarget(m, sx, sy, speed, dt) {
   return true;
 }
 
-// ONLINE compatibility helpers: production net.js exposes explicit side and
-// authority helpers. Small headless/legacy harnesses may still expose only
-// the original host/guest role, so gameplay falls back without changing
-// production semantics.
+// ONLINE helpers use the current net.js side/authority API directly.
 function onlinePlayerSide() {
-  if (typeof Net === 'undefined') return null;
-  if (typeof Net.playerSide === 'function') return Net.playerSide();
-  return Net.role === 'guest' ? 1 : Net.role === 'host' ? 0 : null;
+  return typeof Net === 'undefined' ? null : Net.playerSide();
 }
 function onlineIsAuthority() {
-  if (typeof Net === 'undefined') return false;
-  if (typeof Net.isAuthority === 'function') return Net.isAuthority();
-  return Net.role === 'host';
+  return typeof Net !== 'undefined' && Net.isAuthority();
 }
 function onlineIsPlayer() {
-  if (typeof Net === 'undefined') return false;
-  if (typeof Net.isPlayer === 'function') return Net.isPlayer();
-  return Net.role === 'host' || Net.role === 'guest';
+  return typeof Net !== 'undefined' && Net.isPlayer();
 }
 function onlineLocalMallet() {
-  if (typeof Net !== 'undefined' && typeof Net.localMallet === 'function') return Net.localMallet();
-  return onlinePlayerSide() === 1 ? G.m2 : onlinePlayerSide() === 0 ? G.m1 : null;
+  return typeof Net === 'undefined' ? null : Net.localMallet();
 }
 
 // ONLINE: scoreboard / win / ribbon labels by player side.
