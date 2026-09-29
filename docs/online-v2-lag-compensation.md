@@ -1,7 +1,7 @@
 # Online V2 Host Lag Compensation Design
 
 Status: design + executable contract only  
-The deterministic Network Lab is merged, but production lag compensation must remain disabled until `npm run unit:online`, full CI/Visual QA, PR #88 migration validation, and the real-device direct/TURN pass are green.
+The deterministic Network Lab, ICE/network migration recovery, Quick Match, spectators, session resurrection, and authority migration are merged. Production lag compensation must remain disabled until the integrated `main` passes `npm run unit:online`, full CI/Visual QA, the Network Lab, and the real-device direct/TURN/migration matrix.
 
 ## Problem
 
@@ -15,7 +15,7 @@ The fix must improve fairness without letting the guest declare an authoritative
 
 ## Decision
 
-Use a **bounded host-validated contact hint**, not full rollback.
+Use a **bounded current-authority-validated contact hint**, not full rollback.
 
 The guest may tell the host:
 
@@ -23,7 +23,7 @@ The guest may tell the host:
 - which input sequence caused the local predicted contact
 - the guest mallet pose at that contact
 
-The host decides whether that contact was physically plausible against recent authoritative history.
+The current authority decides whether that contact was physically plausible against recent authoritative history.
 
 If valid, and if no newer authoritative touch/goal invalidates it, the host may apply a compensated collision impulse.
 
@@ -146,7 +146,7 @@ This packet is replaceable realtime evidence, not a reliable game event.
 
 A lost hint must not corrupt the match. It only means the host falls back to its ordinary current-state collision result.
 
-## Host history ring
+## Current-authority history ring
 
 When the host assigns/publishes each realtime state sequence, store a compact history item from the **same authoritative state used to encode that sequence**. The state sequence and history record must be created atomically from the caller's point of view; never attach a sequence to state sampled later.
 
@@ -194,6 +194,34 @@ For contact validation, the referenced sample is the **start** of a short author
 - samples remain outside the conservative rail/goal ambiguity guard
 
 The host's current authoritative puck state may be used as the final trajectory endpoint if it satisfies the same continuity gates.
+
+
+## Authority migration and resurrection rules
+
+Lag compensation must follow **authority ownership**, not the historical host/guest role.
+
+When authority changes sides, or an authoritative session is resurrected after reload:
+
+- clear the local lag-history ring
+- clear processed-hint dedupe state
+- clear any pending compensated-contact candidate
+- start fresh local `pointSerial` / `touchSerial` tracking for compensation purposes
+- do not import speculative guest prediction as authority history
+- do not manufacture historical samples from the single migration/resurrection snapshot
+- keep compensation disabled until the new authority has published enough of its own consecutive live-play state samples to validate a bounded trajectory
+
+Recommended initial warm-up gate:
+
+- require at least **3 consecutive current-authority history samples**
+- every sample must belong to the same live-play point/touch continuity
+- the referenced state sequence in a hint must exist in history created by the **current authority epoch**
+- if the authority changes again, reset the warm-up immediately
+
+The realtime state sequence intentionally remains continuous across authority migration. That is useful for packet ordering, but sequence continuity alone is **not** proof that a state belongs to the current authority's validation history.
+
+A stale hint that references a pre-migration sequence therefore fails with `missing-history` rather than being interpreted against reconstructed or inherited history.
+
+The 30 Hz reliable compatibility path is unaffected. Contact hints are optional realtime evidence; when the realtime lane is unavailable, ordinary authoritative collision behavior remains the fallback.
 
 ## Authoritative serials
 
@@ -575,19 +603,20 @@ The feature is an accuracy improvement, never a match-critical dependency.
 
 ## Rollout sequence
 
-1. Keep PR #88 recovery draft frozen until Actions + real-device migration validation.
-2. Run `npm run unit:online` and full CI/Visual QA when Actions return.
-3. Run the merged Network Lab and capture current prediction/reconciliation baselines.
-4. Run the real-device normal + forced-TURN verification pass.
+1. Validate the integrated `main`: `npm run unit:online`, full test/build, and Visual QA.
+2. Run the merged Network Lab and capture current prediction/reconciliation baselines.
+3. Run the real-device normal, forced-TURN, Wi-Fi/cellular migration, resurrection, spectator, Quick Match, and authority-migration matrix.
+4. Fix any integration defects before changing collision behavior.
 5. Extract one behavior-preserving pure normal-contact impulse solver; make authoritative collision and guest prediction share it.
-6. Add host state history/point/touch serials with compensation still disabled.
-7. Add the 22-byte type-4 hint codec; do not change existing input/state packet layouts.
-8. Implement the host validator returning debug rejection reasons and run the existing data fixtures through the **production** validator.
-9. Collect accepted/rejected metrics with velocity application still disabled.
-10. Enable compensated velocity application in tests only.
-11. Tune age/geometry bounds from Network Lab + device evidence.
-12. Re-run direct and forced-TURN real-device matches.
-13. Ship only if false misses improve without duplicate touches, score divergence, rail artifacts, or large correction regressions.
+6. Add current-authority state history plus point/touch serials with compensation still disabled.
+7. Add explicit history reset/warm-up behavior for authority migration and authoritative session resurrection.
+8. Add the 22-byte type-4 hint codec; do not change existing input/state packet layouts.
+9. Implement the current-authority validator returning debug rejection reasons and run the existing data fixtures through the **production** validator.
+10. Collect accepted/rejected metrics with velocity application still disabled.
+11. Enable compensated velocity application in tests only.
+12. Tune age/geometry bounds from Network Lab + device evidence.
+13. Re-run direct and forced-TURN real-device matches, including authority migration during a point.
+14. Ship only if false misses improve without duplicate touches, score divergence, rail artifacts, migration artifacts, or large correction regressions.
 
 ## Do not do yet
 
