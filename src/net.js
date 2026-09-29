@@ -517,6 +517,7 @@ Net.spectatorHello = function (target) {
     theme:THEME.id,
     player:Net.localPlayer(),
     mseed:Net.musicSeed >>> 0,
+    gw:Math.round(goalW()),
   }, target);
 };
 
@@ -603,6 +604,7 @@ Net.onWatchHello = function (ev, peerId) {
   if ([5,7,11].includes(+ev.firstTo)) Settings.firstTo = +ev.firstTo;
   if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
   if (ev.theme && THEMES[ev.theme]) setTheme(ev.theme, true);
+  G.gwNet = Number.isFinite(ev.gw) ? clamp(ev.gw, 150, 260) : 0;
   if (Number.isFinite(+ev.mseed)) {
     Net.musicSeed = (+ev.mseed) >>> 0;
     try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
@@ -645,23 +647,32 @@ Net.watch = async function (rawCode) {
     if (token !== Net.opToken) return;
     const room = await Net.makeRoom(joinRoom, code, { prefix:'atelier-ah-watch-', lockPeer:false });
     if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return; }
+    Net.spectatorRoom = room;
+    Net.code = code;
+    Net.role = 'spectator';
+    Net.active = false;
     const st = room.makeAction('wst');
     const ev = room.makeAction('wev');
     st.onMessage = (data, meta = {}) => { try { Net.onWatchSnapshot(data, meta.peerId); } catch (e) { Net.logErr(e); } };
     ev.onMessage = (data, meta = {}) => { try { Net.onWatchEvent(data, meta.peerId); } catch (e) { Net.logErr(e); } };
-    room.onPeerJoin = id => { if (!Net.watchHostPeerId) Net.watchHostPeerId = id; };
+    room.onPeerJoin = id => {
+      if (!Net.watchHostPeerId) Net.watchHostPeerId = id;
+      if (id === Net.watchHostPeerId) {
+        clearTimeout(Net.watchJoinTimer); Net.watchJoinTimer = 0;
+        Net.reconnecting = false;
+      }
+    };
     room.onPeerLeave = id => {
       if (id !== Net.watchHostPeerId) return;
       Net.watchHostPeerId = null;
       if (Net.role === 'spectator') {
         Net.reconnecting = true;
-        Net.paintConn();
+        clearTimeout(Net.watchJoinTimer);
+        Net.watchJoinTimer = setTimeout(() => {
+          if (Net.role === 'spectator' && !Net.watchHostPeerId) Net.leaveWatch();
+        }, Net.RECONNECT_GRACE_MS);
       }
     };
-    Net.spectatorRoom = room;
-    Net.code = code;
-    Net.role = 'spectator';
-    Net.active = false;
     Net.watchJoinTimer = setTimeout(() => {
       if (Net.role === 'spectator' && !Net.active) {
         Net.closeSpectatorRoom();
@@ -813,7 +824,12 @@ Net.uiShow = function (mode, data) {
     B.innerHTML = '<div class="online-matchpulse pulse">WAITING FOR THE TABLE</div>' +
       '<p class="online-note">Spectators can watch, never affect play.</p>';
     setBtn(P, null);
-    setBtn(Q, 'Cancel', () => { Net.opToken++; Net.leaveWatch(); Net.uiShow('choose'); });
+    setBtn(Q, 'Cancel', () => {
+      Net.opToken++;
+      Net.closeSpectatorRoom();
+      Net.role = null; Net.code = null; Net.active = false;
+      Net.uiShow('choose');
+    });
   } else if (mode === 'join') {
     T.textContent = 'Join a table';
     S.textContent = 'Enter the 6-character code from your rival.';
