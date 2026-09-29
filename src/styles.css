@@ -12,42 +12,6 @@
     transition:background .4s;
   }
   #game{ position:fixed; inset:0; display:block; touch-action:none; }
-  /* Optional floating touch control. The origin appears under the thumb and
-     the knob shows the exact screen-space vector before it is projected into
-     the current 2D/2.5D camera. Pointer events stay on the canvas. */
-  .touch-stick{
-    --stick-x:0px; --stick-y:0px;
-    position:fixed; z-index:26; width:116px; height:116px;
-    transform:translate(-50%,-50%); pointer-events:none;
-    border:1px solid color-mix(in srgb,var(--title) 34%,transparent);
-    border-radius:50%;
-    background:radial-gradient(circle at center,
-      color-mix(in srgb,var(--ghost) 22%,transparent) 0 34%,
-      transparent 35% 67%,
-      color-mix(in srgb,var(--ghost) 18%,transparent) 68% 100%);
-    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--title) 10%,transparent), 0 8px 24px rgba(0,0,0,.16);
-    backdrop-filter:blur(1px); -webkit-backdrop-filter:blur(1px);
-    opacity:.84;
-  }
-  .touch-stick::after{
-    content:""; position:absolute; left:50%; top:50%; width:5px; height:5px;
-    transform:translate(-50%,-50%); border-radius:50%; background:var(--sub); opacity:.7;
-  }
-  .touch-stick i{
-    position:absolute; left:50%; top:50%; width:46px; height:46px;
-    transform:translate(calc(-50% + var(--stick-x)),calc(-50% + var(--stick-y)));
-    border-radius:50%; border:1px solid color-mix(in srgb,var(--title) 76%,transparent);
-    background:color-mix(in srgb,var(--btnbg) 74%,var(--panel)); opacity:.96;
-    box-shadow:0 5px 18px rgba(0,0,0,.30);
-    will-change:transform;
-  }
-  .touch-stick.full{
-    border-color:color-mix(in srgb,var(--btnbg) 74%,var(--title));
-    opacity:.96;
-  }
-  .touch-stick.full i{
-    box-shadow:0 5px 18px rgba(0,0,0,.30),0 0 0 5px color-mix(in srgb,var(--btnbg) 18%,transparent);
-  }
   .hidden{ display:none !important; }
   .sr-only{
     position:absolute !important; width:1px !important; height:1px !important;
