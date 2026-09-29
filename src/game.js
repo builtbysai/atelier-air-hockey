@@ -72,6 +72,10 @@ function loadSettings() {
     ? clamp(Math.round(+Settings.soundVolume), 0, 100) : 100;
   Settings.musicVolume = Number.isFinite(+Settings.musicVolume)
     ? clamp(Math.round(+Settings.musicVolume), 0, 100) : 70;
+
+  // Version zero keeps one current settings schema. Re-save the normalized
+  // object so stale fields from test builds disappear immediately.
+  saveSettings();
 }
 // Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -777,7 +781,7 @@ const AudioSys = {
   // jazz-room bass plucks, poolside laps, a concrete-hall wash, felt hush,
   // loft murmur swells with the odd glass clink, machiya rain and wood
   // creaks. Levels sit well under SFX. The bed rides the music bus, so it
-  // follows the Music toggle - Sound off leaves it playing. The bed only
+  // follows the Music volume - muting SFX leaves it playing. The bed only
   // ever exists after init(), which runs solely on real user input
   // (autoplay-safe). Switching rooms crossfades the bed instead of clicking.
   ambKey: null, amb: null, ambTimer: null,
@@ -2005,7 +2009,7 @@ function resetPositions() {
   G.trail.length = 0; G.stallT = 0; G.lastTouch = -1;
   G.stallX = CX; G.stallY = CY; G.anchorT = 0;
   G.puckSq = 1; G.puckSqV = 0;
-  // v24.2: park the AI brains in guard with latches cleared, so a point never
+  // Park the AI brains in guard with latches cleared, so a point never
   // starts with a stale windup/strike/threat carried over from the last one
   for (const b of [G.ai1, G.ai2]) {
     if (!b) continue;
@@ -2925,7 +2929,7 @@ function mkBrain(side, diffIdx) {
     counterCommitted: false,
     concededLane: 0, concededLaneY: CY, concededLaneRepeat: 0,
     lastReadKeeper: false, // whether the current attack intentionally read the defender
-    // commitment hysteresis (v24): sticky latches with deadbands so the AI
+    // Commitment hysteresis: sticky latches with deadbands so the AI
     // can't dither between strike/defend/reposition when the puck sits on a
     // decision boundary - the feint-loop fix. behindH: mallet truly behind
     // the puck on LIVE geometry (not delayed perception). sideH: puck
@@ -3081,13 +3085,13 @@ function aiThink(b, dt, m) {
   const foeGoalX = b.side === 0 ? PX + PW : PX;
   const puckOnMySide = b.side === 0 ? s.x < CX : s.x > CX;
   const puckSpeed = hyp(s.vx, s.vy);
-  // HYSTERESIS LATCHES (v24) - see mkBrain. The raw signals flicker when
+  // HYSTERESIS LATCHES - see mkBrain. The raw signals flicker when
   // the puck sits on a boundary (center line, threat speed, behind margin);
   // a latch only flips once the puck is clearly across its band, so the
   // brain can't shuttle guard<->engage<->defend every few ticks.
   const dirS0 = b.side === 1 ? 1 : -1; // +1 points at my own goal (right)
   // threat: on at 500 u/s inbound (delayed perception - a human needs a beat
-  // to notice), off at 350 or once it leaves my side. v24.2: the OFF edge
+  // to notice), off at 350 or once it leaves my side. The OFF edge
   // reads the LIVE puck, not the delayed ghost. The old code kept defend
   // latched on a stale inbound read after the puck bounced off the rail or
   // was deflected away - the AI would then lunge at a puck that was moving
@@ -3126,7 +3130,7 @@ function aiThink(b, dt, m) {
     setTx(blockX, pr.y + steerY);
   };
 
-  // Own-goal guard (v19): never plow through a slow puck that sits between
+  // Own-goal guard: never plow through a slow puck that sits between
   // the mallet and your own net - that shove is the #1 measured own-goal
   // mechanism (AI own-goal rate was ~22% before this fix). Detour around it
   // to the goal side first. Skipped for live threats (defend handles those)
@@ -3160,7 +3164,7 @@ function aiThink(b, dt, m) {
 
   switch (b.state) {
     case 'guard': {
-      // v24.2: don't skate home through a live puck. If the puck blocks the
+      // Don't skate home through a live puck. If the puck blocks the
       // path and isn't coming at my net, hold until it clears - driving
       // through from the wrong side shoves it home (measured own-goal
       // mechanism; the stale-threat defend fix funnels these here). Slow
@@ -3196,7 +3200,7 @@ function aiThink(b, dt, m) {
       break;
     }
     case 'around': {
-      // OWN-GOAL DETOUR (v19): a slow puck sits between the mallet and my
+      // OWN-GOAL DETOUR: a slow puck sits between the mallet and my
       // net - driving through it shoves it in. Two beats: sidestep clear
       // (backing away can never touch it), then cross to its goal side so
       // the next touch clears it AWAY from the net.
@@ -3216,7 +3220,7 @@ function aiThink(b, dt, m) {
     case 'defend': {
       aimDefense();
       // if the puck sits in reach (smothered block, loose puck), take it.
-      // v24.2: this reads LIVE geometry and is checked BEFORE the guard
+      // This reads LIVE geometry and is checked BEFORE the guard
       // fallback. The old order fell through to guard on the delayed `seen`
       // read, so after a block the AI would skate home for a beat and then
       // come back - the visible "backing away from a hittable puck".
@@ -3243,7 +3247,7 @@ function aiThink(b, dt, m) {
       if (!b.behindH) {
         const wy = clamp(s.y + (m.y <= s.y ? -180 : 180), PY + MALLET_R, PY + PH - MALLET_R);
         const wx = s.x + dirS * 70;
-        // v24.2: swing wide WITHOUT crossing the puck. Driving straight at
+        // Swing wide WITHOUT crossing the puck. Driving straight at
         // (wx, wy) can cut through a puck sitting between the mallet and the
         // waypoint - a wrong-side touch that shoves it toward your own net
         // (measured own-goal mechanism). If the live puck blocks the straight
@@ -3385,7 +3389,7 @@ function aiThink(b, dt, m) {
       break;
     }
   }
-  // Crease caution (v19): on the wrong side of the puck while positioning,
+  // Crease caution: on the wrong side of the puck while positioning,
   // the mallet is capped to a soft speed - a fast wrong-side touch is
   // exactly how own goals happen; a soft touch never is. aiDrive applies it.
   // Defend/strike stay uncapped: blocks and lunges need full speed.
@@ -4008,7 +4012,7 @@ function onGoal(scorer) {
   // match-point lift: the music gains its pulse layer when someone is one away
   MusicSys.setIntensity(G.score[0] >= Settings.firstTo - 1 || G.score[1] >= Settings.firstTo - 1 ? 1 : 0);
   if (G.mode !== 'online' && G.stats) {
-    // streaks + worst-deficit tracking for the v23 fun pass (host-owned in
+    // Streaks + worst-deficit tracking for match awards (host-owned in
     // online play would desync the guest's view, so guests never track)
     const st = G.stats;
     st.streak[scorer]++; st.streak[1 - scorer] = 0;
@@ -4560,7 +4564,7 @@ function frame(t) {
         }
       }
       // EXHIBITION / SINGLE-PLAYER: AI mallets hold their reset spots during
-      // the countdown - no perceiving, no thinking, no skating. (v24.2: the
+      // the countdown - no perceiving, no thinking, no skating. (The
       // old code ran aiDrive here, so the AI would drift, pre-aim, and even
       // start its attack decision before the puck was live.)
       else if (G.mode === 'watch') { /* both AI mallets hold */ }
