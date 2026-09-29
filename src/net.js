@@ -1276,7 +1276,6 @@ Net.create = async function (forcedCode) {
     Net.code = code;
     Net.waitingForRival = true;
     Net.uiShow('waiting', { code });
-    void Net.openSpectatorHost();
   } catch (e) {
     Net.uiShow('choose');
     Net.uiError(Net.connectionError(e, "Couldn't reach the lobby. Check your connection and try again."));
@@ -2515,6 +2514,10 @@ Net.startHostMatch = function () {
   startCount();
   rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
   Net.sendCountdown(true);
+  // The watcher room belongs to the live simulation authority. Opening it
+  // while merely waiting in the lobby is a no-op because isAuthority()
+  // intentionally requires an active match.
+  void Net.openSpectatorHost();
 };
 
 /* Guest: the host's settings win. Stash our own, apply theirs, wait. */
@@ -3035,6 +3038,9 @@ Net.restartMatchAsHost = function () {
   startCount();
   rollServe(Math.random() < 0.5 ? 1 : -1); // host rolls the serve once
   Net.sendCountdown(true);
+  // onRivalLeft closes the watcher room. A late rival re-knock starts a new
+  // authoritative match, so publish a fresh watcher room with it.
+  void Net.openSpectatorHost();
 };
 
 /* ---------------- leave / disconnect ---------------- */
