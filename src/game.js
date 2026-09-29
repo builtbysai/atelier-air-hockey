@@ -2266,8 +2266,8 @@ function screenToRink(cx, cy) {
 // ONLINE: scoreboard / win / ribbon labels by side (0 = left/host, 1 = right/guest)
 function onlineSideLabel(side) {
   if (typeof Net !== 'undefined' && Net.role === 'spectator') return side === 0 ? 'P1' : 'P2';
-  if (typeof Net !== 'undefined' && (Net.side === 0 || Net.side === 1))
-    return side === Net.side ? 'YOU' : 'RIVAL';
+  if (typeof Net !== 'undefined' && typeof Net.playerSide === 'function' && Net.playerSide() !== null)
+    return side === Net.playerSide() ? 'YOU' : 'RIVAL';
   return side === 0 ? 'P1' : 'P2';
 }
 // Scoreboard + match-point ribbon side labels, by mode. Exhibition (watch)
@@ -2405,7 +2405,7 @@ function onPointerDown(e) {
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
     // ONLINE: exactly one local mallet - host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
-    pointers.set(e.pointerId, Net.side === 1 ? 1 : 0);
+    pointers.set(e.pointerId, Net.playerSide() === 1 ? 1 : 0);
   } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
     const side = raw.x > CX ? 1 : 0;
     const taken = [...pointers.values()];
@@ -3945,7 +3945,7 @@ function goalIsYours(scorer) {
   if (G.mode === 'watch') return false; // exhibition has no human side
   if (G.mode === 'online') {
     if (Net.role === 'spectator') return false;
-    return Net.side === scorer;
+    return Net.playerSide() === scorer;
   }
   return scorer === 0;
 }
