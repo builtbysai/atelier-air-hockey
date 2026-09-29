@@ -25,7 +25,7 @@
         "pointSerial": 7,
         "touchSerial": 12,
         "state": "play",
-        "puckX": 770,
+        "puckX": 850,
         "puckY": 520
       },
       "history": {
@@ -43,6 +43,79 @@
       "hint": {
         "inputSeq": 121,
         "stateSeq": 300,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      },
+      "matchingInputArrived": false
+    },
+    {
+      "id": "valid-wraparound-sequences",
+      "expected": "accept",
+      "reason": "accepted",
+      "matchingInputArrived": false,
+      "nowMs": 1000,
+      "lastInputSeq": 65534,
+      "lastHintSeq": 65533,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 850,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 0,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 1,
+        "stateSeq": 0,
+        "malletX": 865,
+        "malletY": 520,
+        "malletVx": -1200,
+        "malletVy": 0
+      }
+    },
+    {
+      "id": "wraparound-replay",
+      "expected": "reject",
+      "reason": "duplicate-or-replay",
+      "matchingInputArrived": true,
+      "nowMs": 1000,
+      "lastInputSeq": 1,
+      "lastHintSeq": 1,
+      "current": {
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 850,
+        "puckY": 520
+      },
+      "history": {
+        "seq": 0,
+        "timeMs": 900,
+        "pointSerial": 7,
+        "touchSerial": 12,
+        "state": "play",
+        "puckX": 800,
+        "puckY": 520,
+        "puckVx": 500,
+        "puckVy": 0,
+        "puckW": 0
+      },
+      "hint": {
+        "inputSeq": 65535,
+        "stateSeq": 0,
         "malletX": 865,
         "malletY": 520,
         "malletVx": -1200,
@@ -528,5 +601,61 @@
         "malletVy": 0
       }
     }
-  ]
+  ],
+  "packet": {
+    "type": 4,
+    "version": 1,
+    "byteLength": 22,
+    "littleEndian": true,
+    "fields": [
+      {
+        "name": "type",
+        "offset": 0,
+        "size": 1,
+        "kind": "u8"
+      },
+      {
+        "name": "version",
+        "offset": 1,
+        "size": 1,
+        "kind": "u8"
+      },
+      {
+        "name": "inputSeq",
+        "offset": 2,
+        "size": 2,
+        "kind": "u16"
+      },
+      {
+        "name": "stateSeq",
+        "offset": 4,
+        "size": 2,
+        "kind": "u16"
+      },
+      {
+        "name": "malletX",
+        "offset": 6,
+        "size": 4,
+        "kind": "f32"
+      },
+      {
+        "name": "malletY",
+        "offset": 10,
+        "size": 4,
+        "kind": "f32"
+      },
+      {
+        "name": "malletVx",
+        "offset": 14,
+        "size": 4,
+        "kind": "f32"
+      },
+      {
+        "name": "malletVy",
+        "offset": 18,
+        "size": 4,
+        "kind": "f32"
+      }
+    ]
+  }
 }
