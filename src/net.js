@@ -117,6 +117,7 @@ const Net = {
   quickPeer: null,
   quickNonce: 0,
   quickTimer: 0,
+  quickPeerTimer: 0,
   quickTransition: false,
 
   // ---- lightweight spectator room ----
@@ -441,6 +442,7 @@ const NET_RIVALS_KEY = 'atelier-ah-rivals-v1';
 const NET_QUICK_VERSION = 1;
 const NET_QUICK_SLOT_MS = 30000;
 const NET_QUICK_TIMEOUT_MS = 22000;
+const NET_QUICK_RESERVE_MS = 4000;
 const NET_SPECTATOR_LIMIT = 3;
 const NET_SPECTATOR_HZ = 20;
 const NET_SESSION_KEY = 'atelier-ah-session-v1';
@@ -569,6 +571,7 @@ Net.makeRoom = async function (joinRoom, code, options = {}) {
 
 Net.stopQuick = function () {
   clearTimeout(Net.quickTimer); Net.quickTimer = 0;
+  clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
   const entries = Net.quickEntries.slice();
   Net.quickEntries.length = 0;
   for (const entry of entries) {
@@ -592,6 +595,39 @@ Net.quickHello = function (action, peerId) {
   }, peerId);
 };
 
+Net.quickProbePeers = function (excludePeerId = null) {
+  if (!Net.quickNonce || Net.quickTransition) return;
+  for (const entry of Net.quickEntries) {
+    if (!entry || !entry.room || !entry.action || typeof entry.room.getPeers !== 'function') continue;
+    let peers = {};
+    try { peers = entry.room.getPeers() || {}; } catch (e) { continue; }
+    for (const id of Object.keys(peers)) {
+      if (id && id !== excludePeerId) void Net.quickHello(entry.action, id);
+    }
+  }
+};
+
+Net.quickReleasePeer = function (peerId) {
+  if (peerId && Net.quickPeer !== peerId) return false;
+  clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
+  const released = Net.quickPeer;
+  Net.quickPeer = null;
+  Net.rivalIdentity = null;
+  if (!Net.quickTransition) Net.quickProbePeers(released || peerId || null);
+  return !!released;
+};
+
+Net.quickLockPeer = function (peerId) {
+  if (!peerId || Net.quickTransition) return false;
+  if (Net.quickPeer && Net.quickPeer !== peerId) return false;
+  Net.quickPeer = peerId;
+  clearTimeout(Net.quickPeerTimer);
+  Net.quickPeerTimer = setTimeout(() => {
+    if (!Net.quickTransition && Net.quickPeer === peerId) Net.quickReleasePeer(peerId);
+  }, NET_QUICK_RESERVE_MS);
+  return true;
+};
+
 Net.quickBecomeHost = async function (action, peerId) {
   if (Net.quickTransition || Net.quickPeer !== peerId) return;
   Net.quickTransition = true;
@@ -605,31 +641,43 @@ Net.quickHandleMessage = function (action, data, peerId) {
   if (!data || typeof data !== 'object' || !peerId || data.v !== NET_QUICK_VERSION || Net.quickTransition) return;
   const remoteNonce = Number(data.nonce);
   if (data.t === 'hello') {
-    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0 || Net.quickPeer) return;
+    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0) return;
     const player = Net.cleanPlayer(data.player);
-    // Lower nonce proposes. This deterministic asymmetry prevents both peers
-    // from opening competing private tables after simultaneous discovery.
+    if (Net.quickPeer && Net.quickPeer !== peerId) return;
+    // Lower nonce proposes. Lock the candidate before sending so one client
+    // can never reserve several rivals at once when a lobby wakes up in a burst.
     if (Net.quickNonce < remoteNonce) {
-      void Net.quickSend(action, { t:'reserve', v:NET_QUICK_VERSION, nonce:Net.quickNonce, player:Net.localPlayer() }, peerId);
-    } else if (player && Net.quickNonce > remoteNonce) {
-      // Remember the candidate only as presentation context. The private room
-      // handshake will confirm their identity again.
+      if (!Net.quickLockPeer(peerId)) return;
       Net.rivalIdentity = player;
+      void Net.quickSend(action, { t:'reserve', v:NET_QUICK_VERSION, nonce:Net.quickNonce, player:Net.localPlayer() }, peerId);
+    } else if (Net.quickNonce > remoteNonce && !Net.quickPeer) {
+      Net.rivalIdentity = player;
+      // Echo our hello so a lower-nonce peer can retry after a prior candidate
+      // was busy or disappeared without waiting for another room announcement.
+      void Net.quickHello(action, peerId);
     }
   } else if (data.t === 'reserve') {
-    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0 || remoteNonce >= Net.quickNonce || Net.quickPeer) return;
-    Net.quickPeer = peerId;
+    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0 || remoteNonce >= Net.quickNonce) return;
+    if (Net.quickPeer && Net.quickPeer !== peerId) {
+      void Net.quickSend(action, { t:'busy', v:NET_QUICK_VERSION, nonce:Net.quickNonce }, peerId);
+      return;
+    }
+    if (!Net.quickLockPeer(peerId)) return;
     Net.rivalIdentity = Net.cleanPlayer(data.player);
     void Net.quickSend(action, { t:'accept', v:NET_QUICK_VERSION, nonce:Net.quickNonce, player:Net.localPlayer() }, peerId);
   } else if (data.t === 'accept') {
-    if (Net.quickPeer || !Number.isSafeInteger(remoteNonce) || remoteNonce <= Net.quickNonce) return;
-    Net.quickPeer = peerId;
+    if (Net.quickPeer !== peerId || !Number.isSafeInteger(remoteNonce) || remoteNonce <= Net.quickNonce) return;
+    clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
     Net.rivalIdentity = Net.cleanPlayer(data.player);
     void Net.quickBecomeHost(action, peerId);
+  } else if (data.t === 'busy') {
+    if (!Number.isSafeInteger(remoteNonce) || remoteNonce <= 0 || Net.quickPeer !== peerId) return;
+    Net.quickReleasePeer(peerId);
   } else if (data.t === 'match') {
     if (Net.quickPeer !== peerId || typeof data.code !== 'string') return;
     const code = data.code.toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6);
     if (code.length !== 6) return;
+    clearTimeout(Net.quickPeerTimer); Net.quickPeerTimer = 0;
     Net.quickTransition = true;
     Net.stopQuick();
     void Net.join(code);
@@ -655,6 +703,20 @@ Net.quickStart = async function () {
         try { Net.quickHandleMessage(action, data, meta.peerId); } catch (e) { Net.logErr(e); }
       };
       room.onPeerJoin = id => { void Net.quickHello(action, id); };
+      room.onPeerLeave = id => {
+        if (id !== Net.quickPeer || Net.quickTransition) return;
+        let stillPresent = false;
+        for (const existing of Net.quickEntries) {
+          try {
+            if (existing && existing.room && existing.room.getPeers &&
+                Object.prototype.hasOwnProperty.call(existing.room.getPeers() || {}, id)) {
+              stillPresent = true;
+              break;
+            }
+          } catch (e) {}
+        }
+        if (!stillPresent) Net.quickReleasePeer(id);
+      };
       const entry = { room, action };
       Net.quickEntries.push(entry);
       for (const id of Object.keys(room.getPeers())) void Net.quickHello(action, id);
