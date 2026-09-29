@@ -117,8 +117,15 @@ const Net = {
 
   // ---- plumbing ----
   _trystero: null,     // cached dynamic import
+  _iceServers: null,   // cached short-lived Cloudflare ICE credentials
+  _iceFetchedAt: 0,
   joinTimer: 0,
-  offerSent: false     // rematch offer already sent this win screen
+  offerSent: false,    // rematch offer already sent this win screen
+
+  // ---- RTC path diagnostics (display/debug only for now) ----
+  rtcAcc: 0,
+  rtcStatsPending: false,
+  rtc: { route: 'unknown', protocol: '', localType: '', remoteType: '', availableOut: 0 }
 };
 
 /* Unambiguous code alphabet: no 0/O, 1/I/L. */
@@ -138,12 +145,52 @@ const NET_RELAYS = [
   'wss://yabu.me/v2',
   'wss://purplerelay.com',
 ];
-const NET_TURN_URLS = [
-  'turn:staticauth.openrelay.metered.ca:80',
-  'turn:staticauth.openrelay.metered.ca:443',
-  'turn:staticauth.openrelay.metered.ca:80?transport=tcp',
-  'turns:staticauth.openrelay.metered.ca:443?transport=tcp',
-];
+const NET_TURN_ENDPOINT = 'https://atelier-turn-credentials.saihanswissle.workers.dev/ice';
+const NET_STUN_FALLBACK = [{ urls: ['stun:stun.cloudflare.com:3478'] }];
+const NET_ICE_CACHE_MS = 60 * 60 * 1000;
+
+Net.validIceServers = function (servers) {
+  if (!Array.isArray(servers)) return [];
+  return servers.flatMap(server => {
+    if (!server || typeof server !== 'object') return [];
+    const raw = Array.isArray(server.urls) ? server.urls : [server.urls];
+    const urls = raw.filter(url => typeof url === 'string' && /^(?:stun|turn|turns):/i.test(url));
+    if (!urls.length) return [];
+    const clean = { urls };
+    if (typeof server.username === 'string') clean.username = server.username;
+    if (typeof server.credential === 'string') clean.credential = server.credential;
+    return [clean];
+  });
+};
+
+/* TURN credentials are short-lived and minted by our Cloudflare Worker.
+ * The long-lived Cloudflare TURN key never ships to the browser. If the
+ * credential service is unavailable, keep direct P2P alive with Cloudflare
+ * STUN instead of making Online mode fail closed. */
+Net.fetchIceServers = async function () {
+  const now = Date.now();
+  if (Net._iceServers && now - Net._iceFetchedAt < NET_ICE_CACHE_MS) return Net._iceServers;
+  if (typeof fetch !== 'function') return NET_STUN_FALLBACK;
+  try {
+    const response = await fetch(NET_TURN_ENDPOINT, {
+      method: 'POST',
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error('TURN credential service returned ' + response.status);
+    const payload = await response.json();
+    const servers = Net.validIceServers(payload && payload.iceServers);
+    if (!servers.length) throw new Error('TURN credential service returned no ICE servers');
+    Net._iceServers = servers;
+    Net._iceFetchedAt = now;
+    return servers;
+  } catch (e) {
+    Net.logErr(e);
+    return NET_STUN_FALLBACK;
+  }
+};
 
 /* Dynamic import - the only network touch, and only after Online is used. */
 Net.trystero = async function () {
@@ -153,28 +200,16 @@ Net.trystero = async function () {
   return Net._trystero;
 };
 
-/* TURN credential, computed locally (TURN REST shared-secret scheme - the
- * "secret" is public by design, nothing sensitive ships). 24h TTL. */
-Net.turnCredential = async function () {
-  const exp = Math.floor(Date.now() / 1000) + 24 * 3600;
-  const username = exp + ':' + Math.random().toString(36).slice(2, 10);
-  const key = await crypto.subtle.importKey(
-    'raw', new TextEncoder().encode('openrelayprojectsecret'),
-    { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(username));
-  const bytes = new Uint8Array(sig);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return { username, password: btoa(bin) };
-};
-
 Net.makeRoom = async function (joinRoom, code) {
-  const turn = await Net.turnCredential();
+  const iceServers = await Net.fetchIceServers();
   return joinRoom(
     {
       appId: 'atelier-air-hockey',
       relayConfig: { urls: NET_RELAYS, redundancy: 5 },
-      turnConfig: [{ urls: NET_TURN_URLS, username: turn.username, credential: turn.password }],
+      // Trystero concatenates turnConfig onto its default STUN list. The
+      // Cloudflare response includes both STUN and TURN entries, which is
+      // valid RTCIceServer input despite this historical option name.
+      turnConfig: iceServers,
     },
     'atelier-ah-' + code,
     {
@@ -740,12 +775,61 @@ Net.paintConn = function () {
   if (rtt < 0 || stale || !Number.isFinite(rtt)) { dot.className = 'unknown'; label.textContent = '–ms'; return; }
   dot.className = rtt < 120 ? 'good' : rtt < 300 ? 'fair' : 'poor';
   label.textContent = rtt + 'ms';
+  const route = Net.rtc.route === 'relay' ? 'Relayed' : Net.rtc.route === 'nearby' ? 'Nearby' :
+    Net.rtc.route === 'direct' ? 'Direct' : 'Connection';
+  const protocol = Net.rtc.protocol ? ' · ' + Net.rtc.protocol.toUpperCase() : '';
+  chip.title = route + protocol + ' · ' + rtt + ' ms';
+};
+
+Net.peerConnection = function () {
+  try {
+    if (!Net.room || !Net.peerId || typeof Net.room.getPeers !== 'function') return null;
+    return Net.room.getPeers()[Net.peerId] || null;
+  } catch (e) { return null; }
+};
+
+Net.sampleRtcStats = async function () {
+  if (Net.rtcStatsPending) return;
+  const pc = Net.peerConnection();
+  if (!pc || typeof pc.getStats !== 'function') return;
+  Net.rtcStatsPending = true;
+  try {
+    const report = await pc.getStats();
+    let selected = null, transport = null;
+    report.forEach(stat => {
+      if (stat.type === 'transport' && stat.selectedCandidatePairId) transport = stat;
+      if (stat.type === 'candidate-pair' && stat.state === 'succeeded' && stat.nominated) selected = stat;
+    });
+    if (transport && report.get) selected = report.get(transport.selectedCandidatePairId) || selected;
+    if (!selected || !report.get) return;
+    const local = report.get(selected.localCandidateId);
+    const remote = report.get(selected.remoteCandidateId);
+    const localType = local && local.candidateType || '';
+    const remoteType = remote && remote.candidateType || '';
+    let route = 'direct';
+    if (localType === 'relay' || remoteType === 'relay') route = 'relay';
+    else if (localType === 'host' && remoteType === 'host') route = 'nearby';
+    Net.rtc = {
+      route,
+      protocol: (local && local.protocol) || '',
+      localType,
+      remoteType,
+      availableOut: Number.isFinite(selected.availableOutgoingBitrate) ? selected.availableOutgoingBitrate : 0,
+    };
+    Net.paintConn();
+  } catch (e) {
+    Net.logErr(e);
+  } finally {
+    Net.rtcStatsPending = false;
+  }
 };
 
 Net.resetConn = function () {
   Net.conn.rtt = -1; Net.conn.pingId = 0; Net.conn.pending = {};
   Net.conn.pingAcc = 0; Net.conn.paintAcc = 0; Net.conn.lastPongT = 0;
   Net.conn.salt = Math.random().toString(36).slice(2, 10);
+  Net.rtcAcc = 0; Net.rtcStatsPending = false;
+  Net.rtc = { route: 'unknown', protocol: '', localType: '', remoteType: '', availableOut: 0 };
   Net.paintConn();
 };
 
@@ -929,6 +1013,10 @@ Net.pump = function (rdt) {
   // repaint the chip ~1Hz so staleness shows promptly even with no traffic
   Net.conn.paintAcc += rdt;
   if (Net.conn.paintAcc >= 1) { Net.conn.paintAcc = 0; Net.paintConn(); }
+  // Inspect the selected ICE path occasionally. This is diagnostics only in
+  // the foundation pass; adaptive netcode will consume it in Online V2.
+  Net.rtcAcc += rdt;
+  if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; void Net.sampleRtcStats(); }
   if (Net.role === 'host') {
     Net.snapAcc += rdt;
     if (Net.snapAcc >= 1 / 30 && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
