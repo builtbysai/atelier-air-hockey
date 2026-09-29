@@ -1,5 +1,5 @@
 /* ============================================================
-   ATELIER AIR HOCKEY - engine v2
+   ATELIER AIR HOCKEY - engine
    Rebuilt from research: Brunswick 1969 roots, near-zero-friction
    puck glide, velocity-transfer striking, human-like AI, and the
    full juice canon (hit-stop, trauma shake + rotation, particles,
@@ -13,9 +13,7 @@ const VW = 1440, VH = 1040;          // view space
 const PX = 200, PY = 200, PW = 1040, PH = 640;  // playfield
 const CX = PX + PW / 2, CY = PY + PH / 2;
 const PUCK_R = 26, MALLET_R = 46, RAIL = 26;
-// Goal-mouth presets (v20): adjustable in Settings → Goal mouth. Standard is
-// the new default - narrower than the old fixed 230 (36% of the wall was
-// swallowing deflections). The host's choice rides the countdown event
+// Adjustable goal-mouth presets. Standard avoids overly generous deflections. The host's choice rides the countdown event
 // online; guests apply it as a match-scoped override (G.gwNet).
 const GOAL_PRESETS = { narrow: 170, standard: 200, wide: 230 };
 function goalW() {
@@ -27,25 +25,20 @@ const TAU = Math.PI * 2;
 
 // ---------- user settings (persisted) ----------
 const Settings = {
-  shake: 'full',      // 'off' | 'subtle' | 'full'
-  sound: true,        // compatibility gate, derived from soundVolume
-  soundVolume: 100,   // 0-100 - 0 is muted, 100 preserves today's calibrated SFX level
-  masterMuted: false, // derived: true only when BOTH visible audio sliders are at 0
-  soundBeforeMute: 100, // remembered mix used by the global mute button
-  music: true,        // compatibility gate, derived from musicVolume
-  musicVolume: 70,    // 0-100 - whole music/ambience bus; 70 is the calibrated unity point
-  musicBeforeMute: 70, // remembered mix used by the global mute button
+  shake: 'full',            // 'off' | 'subtle' | 'full'
+  soundVolume: 100,         // 0-100
+  musicVolume: 70,          // 0-100; 70 is the calibrated music unity point
   haptics: true,
-  firstTo: 7,         // 5 | 7 | 11
-  pace: 'classic',     // 'casual' | 'classic' | 'lightning'
-  effects: 'full',     // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics
-  instantReplay: 'goals', // 'goals' | 'off' - local goal replays only
-  goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
-  orientation: 'auto', // 'auto' | 'landscape' | 'portrait' - persisted display preference
-  camera: 'top', // 'top' | 'elevated' | 'surface' - 2.5D camera (v25)
-  touchOffset: 'medium', // 'low' | 'medium' | 'high' - screen-space finger/striker separation
-  keyboardFeel: 'balanced', // 'precise' | 'balanced' | 'fast' - digital target travel profile
-  gamepadFeel: 'balanced', // 'precise' | 'balanced' | 'fast' - analog target travel profile
+  firstTo: 7,               // 5 | 7 | 11
+  pace: 'classic',          // 'casual' | 'classic' | 'lightning'
+  effects: 'full',          // 'full' | 'subtle' | 'minimal'
+  instantReplay: 'goals',   // 'goals' | 'off'
+  goalW: 'standard',        // 'narrow' | 'standard' | 'wide'
+  orientation: 'auto',      // 'auto' | 'landscape' | 'portrait'
+  camera: 'top',            // 'top' | 'elevated' | 'surface'
+  touchOffset: 'medium',    // 'low' | 'medium' | 'high'
+  keyboardFeel: 'balanced', // 'precise' | 'balanced' | 'fast'
+  gamepadFeel: 'balanced',  // 'precise' | 'balanced' | 'fast'
 };
 // prefers-reduced-motion: detected at boot; userShake remembers whether the
 // player explicitly chose a shake level (their choice always wins).
@@ -59,7 +52,10 @@ function loadSavedObject(key) {
 function loadSettings() {
   const stored = loadSavedObject('atelier-ah-settings');
   PRM.userShake = Object.prototype.hasOwnProperty.call(stored, 'shake');
-  for (const k of Object.keys(Settings)) if (stored[k] !== undefined) Settings[k] = stored[k];
+  for (const key of Object.keys(Settings)) {
+    if (stored[key] !== undefined) Settings[key] = stored[key];
+  }
+
   if (![5, 7, 11].includes(Settings.firstTo)) Settings.firstTo = 7;
   if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
@@ -68,41 +64,14 @@ function loadSettings() {
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
-  // Migrate the retired floating-stick preference. Players who chose it were
-  // explicitly asking for less hand occlusion, so move them to High offset.
-  if (!Object.prototype.hasOwnProperty.call(stored, 'touchOffset'))
-    Settings.touchOffset = stored.touchControl === 'stick' ? 'high' : 'medium';
   if (!['low', 'medium', 'high'].includes(Settings.touchOffset)) Settings.touchOffset = 'medium';
   if (!['precise', 'balanced', 'fast'].includes(Settings.keyboardFeel)) Settings.keyboardFeel = 'balanced';
   if (!['precise', 'balanced', 'fast'].includes(Settings.gamepadFeel)) Settings.gamepadFeel = 'balanced';
-  // Audio sliders replace the old on/off preferences. Migrate old saves once,
-  // then keep the booleans as derived compatibility gates for existing audio paths.
-  if (!Object.prototype.hasOwnProperty.call(stored, 'soundVolume')) Settings.soundVolume = stored.sound === false ? 0 : 100;
-  if (!Number.isFinite(Settings.soundVolume)) Settings.soundVolume = 100;
-  else Settings.soundVolume = clamp(Math.round(Settings.soundVolume), 0, 100);
-  if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
-  else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
-  // The old UI stored a separate Music Off toggle alongside a remembered
-  // volume. Respect that explicit choice when moving to the slider-only model.
-  if (stored.music === false) Settings.musicVolume = 0;
 
-  if (!Number.isFinite(Settings.soundBeforeMute)) Settings.soundBeforeMute = 100;
-  else Settings.soundBeforeMute = clamp(Math.round(Settings.soundBeforeMute), 0, 100);
-  if (!Number.isFinite(Settings.musicBeforeMute)) Settings.musicBeforeMute = 70;
-  else Settings.musicBeforeMute = clamp(Math.round(Settings.musicBeforeMute), 0, 100);
-
-  // v1 stored a third independent masterMuted gate while leaving the two
-  // sliders visually unchanged. Migrate that state into the slider model so
-  // every audio control now tells the same truth.
-  if (stored.masterMuted === true && (Settings.soundVolume > 0 || Settings.musicVolume > 0)) {
-    Settings.soundBeforeMute = Settings.soundVolume;
-    Settings.musicBeforeMute = Settings.musicVolume;
-    Settings.soundVolume = 0;
-    Settings.musicVolume = 0;
-  }
-  Settings.sound = Settings.soundVolume > 0;
-  Settings.music = Settings.musicVolume > 0;
-  Settings.masterMuted = !Settings.sound && !Settings.music;
+  Settings.soundVolume = Number.isFinite(+Settings.soundVolume)
+    ? clamp(Math.round(+Settings.soundVolume), 0, 100) : 100;
+  Settings.musicVolume = Number.isFinite(+Settings.musicVolume)
+    ? clamp(Math.round(+Settings.musicVolume), 0, 100) : 70;
 }
 // Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -348,8 +317,7 @@ const Workshop = {
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
-  // Stored drill values are completed stage numbers. Legacy saves used 1,
-  // which naturally migrates to Stage 1 without losing unlock progress.
+  // Stored drill values are completed stage numbers.
   stage(id) {
     const n = Number(this.data[id]);
     if (!Number.isFinite(n) || n <= 0) return 0;
@@ -364,9 +332,6 @@ const Workshop = {
     this.data[id] = next; this.save();
     return true;
   },
-  // Compatibility for older callers: "complete" still means the first clear,
-  // which is the stage that unlocks the same route as before.
-  complete(id) { return this.completeStage(id, 1); },
   best(id) {
     const n = Number(this.data._best && this.data._best[id]);
     return Number.isFinite(n) && n > 0 ? n : 0;
@@ -643,24 +608,19 @@ let interacted = false; // set on first real pointer input (gates vibrate)
 
 // ---------- procedural audio ----------
 const AudioSys = {
-  ctx: null, sfxBus: null, musicBus: null, muted: false,
+  ctx: null, sfxBus: null, musicBus: null,
+  beforeMute: null,
   init() {
     if (this.ctx) { this._ensureAmbience(); MusicSys.prime(); return; }
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
-      // Three gain stages: sfxBus (Sound Effects), musicBus (Music, including
-      // room ambience), and a shared masterBus. Global mute now drives the two
-      // visible sliders to zero, so the bus gate and the UI can never disagree.
       this.sfxBus = this.ctx.createGain();
       this.musicBus = this.ctx.createGain();
-      this.masterBus = this.ctx.createGain();
-      this.sfxBus.connect(this.masterBus);
-      this.musicBus.connect(this.masterBus);
-      this.masterBus.connect(this.ctx.destination);
-      this.syncMute(); // honor the persisted sound setting (boot w/ sound off)
-      this.syncMusic(); // and the persisted music setting (boot w/ music off)
-      this.syncMaster(); // and the persisted master mute (boot w/ all muted)
+      this.sfxBus.connect(this.ctx.destination);
+      this.musicBus.connect(this.ctx.destination);
+      this.syncMute();
+      this.syncMusic();
     } catch (e) { /* silent */ }
     this._ensureAmbience();
     MusicSys.prime(); // generative music also waits for the first user gesture
@@ -674,11 +634,10 @@ const AudioSys = {
   // (browser policy) instead of throwing an unhandled rejection.
   suspend() { try { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
   resume() { try { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
-  toggle() { this.muted = !this.muted; this.syncMute(); return this.muted; },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
   // pitchMul climbs ~3% per rally hit so long rallies audibly tighten.
   hit(power, pitchMul = 1) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t = this.ctx.currentTime, vr = (1 + rnd(-0.05, 0.05)) * pitchMul;
     const p = clamp(power, 0, 1);
     // transient
@@ -702,7 +661,7 @@ const AudioSys = {
   },
   // mallet whoosh: fast flicks get an airy sweep before the clack lands
   whoosh(power) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t = this.ctx.currentTime, p = clamp(power, 0, 1);
     const len = Math.floor(this.ctx.sampleRate * 0.16);
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -718,7 +677,7 @@ const AudioSys = {
   },
   // save thud: a soft low knock for goal-line blocks - felt, not announced
   thud() {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t = this.ctx.currentTime;
     const o = this.ctx.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(120, t);
@@ -731,7 +690,7 @@ const AudioSys = {
   },
   // post ping: the goal frame rings when the puck kisses it
   ping() {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t = this.ctx.currentTime;
     [622, 933].forEach((f, i) => {
       const o = this.ctx.createOscillator(); o.type = 'square'; o.frequency.value = f * (1 + rnd(-0.01, 0.01));
@@ -745,7 +704,7 @@ const AudioSys = {
   // goal-frame clank: a heavier metallic knock than the post ping - the
   // whole frame takes the hit, so it answers low and long instead of bright
   clank(power) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t = this.ctx.currentTime, p = clamp(power, 0.15, 1);
     // hollow low partials: inharmonic so it reads as bent metal, not a bell
     [208, 311, 517].forEach((f, i) => {
@@ -766,7 +725,7 @@ const AudioSys = {
     src.start(t, rnd(1.2)); src.stop(t + 0.1);
   },
   rail(power) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t = this.ctx.currentTime, p = clamp(power, 0, 1);
     const o = this.ctx.createOscillator(); o.type = 'square';
     o.frequency.value = 130 * (1 + rnd(-0.05, 0.05));
@@ -778,7 +737,7 @@ const AudioSys = {
     o.start(t); o.stop(t + 0.1);
   },
   goalChord(notes, energy = 1) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t0 = this.ctx.currentTime, e = clamp(energy, 0.35, 1.15);
     notes.forEach((f, i) => {
       const t = t0 + i * 0.09;
@@ -802,7 +761,7 @@ const AudioSys = {
     src.start(t0);
   },
   blip(f, dur = 0.09, vol = 0.3) {
-    if (!this.ctx || this.muted) return;
+    if (!this.ctx || Settings.soundVolume <= 0) return;
     const t = this.ctx.currentTime;
     const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f;
     const g = this.ctx.createGain();
@@ -830,45 +789,35 @@ const AudioSys = {
   syncMute() {
     if (!this.sfxBus) return;
     const v = clamp(Settings.soundVolume, 0, 100) / 100;
-    this.sfxBus.gain.value = (this.muted || v <= 0) ? 0 : 0.5 * Math.pow(v, 1.5);
-  }, // SFX/UI only - 100 preserves the previous calibrated 0.5 gain
+    this.sfxBus.gain.value = v <= 0 ? 0 : 0.5 * Math.pow(v, 1.5);
+  },
   syncMusic() {
     if (!this.musicBus) return;
     const v = clamp(Settings.musicVolume, 0, 100) / 70;
-    this.musicBus.gain.value = (!Settings.music || v <= 0) ? 0 : Math.min(2, Math.pow(v, 1.5));
-  }, // whole music + ambience bus; 70 is unity
-  syncPreferenceState() {
-    Settings.sound = Settings.soundVolume > 0;
-    Settings.music = Settings.musicVolume > 0;
-    Settings.masterMuted = !Settings.sound && !Settings.music;
-    this.muted = !Settings.sound;
+    this.musicBus.gain.value = v <= 0 ? 0 : Math.min(2, Math.pow(v, 1.5));
   },
-  syncMaster() { if (this.masterBus) this.masterBus.gain.value = Settings.masterMuted ? 0 : 1; },
-  setMasterMuted(m) {
-    const mute = !!m;
-    const wasMuted = Settings.soundVolume <= 0 && Settings.musicVolume <= 0;
+  allMuted() {
+    return Settings.soundVolume <= 0 && Settings.musicVolume <= 0;
+  },
+  setAllMuted(muted) {
+    const mute = !!muted;
+    const wasMuted = this.allMuted();
     if (mute && !wasMuted) {
-      // Snapshot the exact mix, including an intentionally-zero channel.
-      Settings.soundBeforeMute = Settings.soundVolume;
-      Settings.musicBeforeMute = Settings.musicVolume;
+      this.beforeMute = { sound:Settings.soundVolume, music:Settings.musicVolume };
       Settings.soundVolume = 0;
       Settings.musicVolume = 0;
     } else if (!mute && wasMuted) {
-      let sound = clamp(Math.round(Number(Settings.soundBeforeMute) || 0), 0, 100);
-      let music = clamp(Math.round(Number(Settings.musicBeforeMute) || 0), 0, 100);
-      // If both sliders were manually dragged to zero before any mute snapshot,
-      // restore the calibrated defaults rather than making "unmute" a no-op.
+      let sound = clamp(Math.round(Number(this.beforeMute?.sound) || 0), 0, 100);
+      let music = clamp(Math.round(Number(this.beforeMute?.music) || 0), 0, 100);
       if (sound <= 0 && music <= 0) { sound = 100; music = 70; }
       Settings.soundVolume = sound;
       Settings.musicVolume = music;
     }
-    this.syncPreferenceState();
-    try { saveSettings(); } catch (e) {}
+    saveSettings();
     this.syncMute();
     this.syncMusic();
-    this.syncMaster();
     MusicSys.syncEnabled();
-    return Settings.masterMuted;
+    return this.allMuted();
   },
   _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
     if (this._nb) return this._nb;
@@ -932,7 +881,7 @@ const AudioSys = {
     }, 1500);
   },
   _ambTick() { // every ~1.1s: roll the room's sparse events
-    if (!this.amb || !this.ctx || !Settings.music || Settings.musicVolume <= 0 || this.ctx.state !== 'running') return;
+    if (!this.amb || !this.ctx || Settings.musicVolume <= 0 || this.ctx.state !== 'running') return;
     const a = this.amb, cfg = a.cfg, t = this.ctx.currentTime;
     // the loft murmurs: slow random swells on the bed
     if (cfg.bed.swell) a.g.gain.setTargetAtTime(cfg.bed.g * rnd(0.7, 1.3), t, 1.2);
@@ -1188,12 +1137,12 @@ const MusicSys = {
   applyVolume() { AudioSys.syncMusic(); },
   // --- lifecycle ---
   prime() { // first-user-gesture path, via AudioSys.init()
-    if (!Settings.music || !this.ac()) return;
+    if (Settings.musicVolume <= 0 || !this.ac()) return;
     this.key = this.pendingKey = (MUSIC[G.themeId] ? G.themeId : 'deco');
     this.start();
   },
   syncEnabled() { // the settings toggle calls here
-    if (Settings.music) { if (this.ac() && !this.timer) this.start(); }
+    if (Settings.musicVolume > 0) { if (this.ac() && !this.timer) this.start(); }
     else this.stop();
   },
   setTable(id) { // from setTheme: always records; crossfades when audible
@@ -1251,7 +1200,7 @@ const MusicSys = {
   },
   start() {
     const ac = this.ac();
-    if (!ac || this.timer || !Settings.music) return;
+    if (!ac || this.timer || Settings.musicVolume <= 0) return;
     try { ac.resume(); } catch (e) {}
     this.key = this.pendingKey;
     this.buildBus();
@@ -1574,10 +1523,6 @@ const Haptics = {
   },
   cancel() { try { if (navigator.vibrate) navigator.vibrate(0); } catch (e) {} },
 };
-// Compatibility helper for older call sites/tests; new gameplay code should
-// prefer semantic Haptics.fire(name).
-function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
-
 // ---------- game state ----------
 // whiff: per-strike chance the AI swings clean through (a human error, never a
 // superhuman stat - it only ever makes rivals weaker). windup: telegraph time.
@@ -1618,7 +1563,7 @@ const G = {
   trauma: 0,
   countT: 0, countN: 3, goalT: 0, goalSlowT: 0, goalSide: 0,
   stallT: 0, stallX: CX, stallY: CY, anchorT: 0, lastTouch: -1,
-  idleT: 0, demo: false, gwNet: 0, // gwNet: online guest's match-scoped goal-width override (v20)
+  idleT: 0, demo: false, gwNet: 0, // online guest's match-scoped goal-width override
   serveDir: 1,
   pausedFrom: 'play',
   focusLost: false,     // focus-loss freeze: sim+net hold, audio suspended, veil up
@@ -2321,7 +2266,6 @@ function markControlDrive(side, now = performance.now()) {
   if (side !== 0 && side !== 1) return;
   if (!Array.isArray(G.inputDriveT)) G.inputDriveT = [0, 0];
   G.inputDriveT[side] = now;
-  G.kbDriveT = now; // compatibility for older harnesses / diagnostics
 }
 
 function pointerOwnsSide(side) {
@@ -2359,34 +2303,10 @@ function nudgeMalletTarget(m, sx, sy, speed, dt) {
   return true;
 }
 
-// ONLINE compatibility helpers: production net.js exposes explicit side and
-// authority helpers. Small headless/legacy harnesses may still expose only
-// the original host/guest role, so gameplay falls back without changing
-// production semantics.
-function onlinePlayerSide() {
-  if (typeof Net === 'undefined') return null;
-  if (typeof Net.playerSide === 'function') return Net.playerSide();
-  return Net.role === 'guest' ? 1 : Net.role === 'host' ? 0 : null;
-}
-function onlineIsAuthority() {
-  if (typeof Net === 'undefined') return false;
-  if (typeof Net.isAuthority === 'function') return Net.isAuthority();
-  return Net.role === 'host';
-}
-function onlineIsPlayer() {
-  if (typeof Net === 'undefined') return false;
-  if (typeof Net.isPlayer === 'function') return Net.isPlayer();
-  return Net.role === 'host' || Net.role === 'guest';
-}
-function onlineLocalMallet() {
-  if (typeof Net !== 'undefined' && typeof Net.localMallet === 'function') return Net.localMallet();
-  return onlinePlayerSide() === 1 ? G.m2 : onlinePlayerSide() === 0 ? G.m1 : null;
-}
-
 // ONLINE: scoreboard / win / ribbon labels by player side.
 function onlineSideLabel(side) {
   if (typeof Net !== 'undefined' && Net.role === 'spectator') return side === 0 ? 'P1' : 'P2';
-  const localSide = onlinePlayerSide();
+  const localSide = Net.playerSide();
   if (localSide !== null) return side === localSide ? 'YOU' : 'RIVAL';
   return side === 0 ? 'P1' : 'P2';
 }
@@ -2536,7 +2456,7 @@ function onPointerDown(e) {
   if (G.mode === 'online' && !pointers.has(e.pointerId)) {
     // ONLINE: exactly one local mallet - host plays m1, guest plays m2. No AI.
     if (pointers.size > 0) return;
-    pointers.set(e.pointerId, onlinePlayerSide() === 1 ? 1 : 0);
+    pointers.set(e.pointerId, Net.playerSide() === 1 ? 1 : 0);
   } else if (G.mode === '2p' && !pointers.has(e.pointerId)) {
     const side = raw.x > CX ? 1 : 0;
     const taken = [...pointers.values()];
@@ -2567,7 +2487,7 @@ function onPointerMove(e) {
     if (e.pointerType === 'mouse' && e.target === canvas &&
         (G.state === 'play' || G.state === 'count') && G.mode !== 'watch' &&
         !(G.mode === 'online' && Net.role === 'spectator')) {
-      const side = G.mode === 'online' ? (onlinePlayerSide() === 1 ? 1 : 0) : 0;
+      const side = G.mode === 'online' ? (Net.playerSide() === 1 ? 1 : 0) : 0;
       const m = side === 0 ? G.m1 : G.m2;
       const r = screenToRink(e.clientX, e.clientY);
       m.tx = r.x; m.ty = r.y;
@@ -3966,7 +3886,7 @@ function startGame(mode, diff) {
   // the serve flavor once so local and online both use the same point
   rollServe(Math.random() < 0.5 ? 1 : -1);
   // ONLINE: the host's countdown mirrors to the guest so both start even
-  if (mode === 'online' && onlineIsAuthority()) Net.sendCountdown(true);
+  if (mode === 'online' && Net.isAuthority()) Net.sendCountdown(true);
 }
 function startWorkshop(id) {
   const d = WORKSHOP_DRILLS[id];
@@ -4074,7 +3994,7 @@ function onGoal(scorer) {
   }
   if (G.state !== 'play') return;
   // ONLINE: the host owns the simulation; a guest never scores locally.
-  if (G.mode === 'online' && !onlineIsAuthority()) return;
+  if (G.mode === 'online' && !Net.isAuthority()) return;
   if (G.mode === 'workshop') {
     const kmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
     Practice.onGoal(scorer, kmh);
@@ -4119,7 +4039,7 @@ function goalIsYours(scorer) {
   if (G.mode === 'watch') return false; // exhibition has no human side
   if (G.mode === 'online') {
     if (Net.role === 'spectator') return false;
-    return onlinePlayerSide() === scorer;
+    return Net.playerSide() === scorer;
   }
   return scorer === 0;
 }
@@ -4259,7 +4179,7 @@ function advanceAfterGoal() {
   if (keepOffer) Replay.keepOfferDuringCount(1.0);
   else Replay.discardPending();
   // ONLINE: the host's countdown mirrors to the guest so both start even
-  if (G.mode === 'online' && onlineIsAuthority()) Net.sendCountdown();
+  if (G.mode === 'online' && Net.isAuthority()) Net.sendCountdown();
 }
 function matchPersistsProgress(mode = G.mode) {
   // Exhibition is observational only. Keep this as the single contract used
@@ -4496,7 +4416,7 @@ function resumeFromFocusLoss() { // the veil's tap handler - a user gesture
 function restartMatch() {
   AudioSys.ui();
   if (G.mode === 'online') {
-    if (onlineIsAuthority()) Net.restartMatchAsAuthority();
+    if (Net.isAuthority()) Net.restartMatchAsAuthority();
     else if (Net.wire) Net.wire.sendEv({ t:'restart-req' });
     return;
   }
@@ -4557,7 +4477,7 @@ function playStep(rdt) {
       // ONLINE: authority-only branch. The authority drives its own mallet;
       // the rival mallet follows the latest remote target regardless of which
       // player currently owns simulation authority.
-      const local = onlineLocalMallet();
+      const local = Net.localMallet();
       if (local) driveMallet(local, sdt, PLAYER_CAP);
       Net.driveRemoteMallet(sdt);
     } else if (G.mode === 'workshop' && Practice.id === 'free') {
@@ -4630,12 +4550,12 @@ function frame(t) {
       // the host also folds the guest's input target into m2 so it never
       // snaps when the serve goes live
       else if (G.mode === 'online') {
-        if (onlineIsAuthority()) {
-          const local = onlineLocalMallet();
+        if (Net.isAuthority()) {
+          const local = Net.localMallet();
           if (local) driveMallet(local, rdt, PLAYER_CAP);
           Net.driveRemoteMallet(rdt);
-        } else if (onlineIsPlayer()) {
-          const local = onlineLocalMallet();
+        } else if (Net.isPlayer()) {
+          const local = Net.localMallet();
           if (local) driveMallet(local, rdt, PLAYER_CAP);
         }
       }
@@ -4657,8 +4577,8 @@ function frame(t) {
       // SMASH-tier mallet hits - are smaller beats that share this channel
       // (Math.max, never stacking). Never overlaps the ceremony (state
       // leaves 'play' first).
-      if (G.mode === 'online' && onlineIsPlayer() && !onlineIsAuthority()) {
-        const local = onlineLocalMallet();
+      if (G.mode === 'online' && Net.isPlayer() && !Net.isAuthority()) {
+        const local = Net.localMallet();
         if (local) driveMallet(local, rdt, PLAYER_CAP);
       }
       else if (G.mode === 'online' && Net.role === 'spectator') { /* snapshots drive the gallery view */ }
