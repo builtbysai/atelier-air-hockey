@@ -1857,31 +1857,39 @@ Net.onPeerJoin = function (id) {
   if (!Net.acceptPeer(id)) return;
   const wasReconnecting = Net.reconnecting;
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
-  Net.reconnecting = false;
-  Net.paintConn();
   // The negotiated lane is created only after Trystero has established the
   // underlying RTCPeerConnection. Old peers simply never open the matching
   // channel, so the reliable path remains active.
   Net.ensureRealtimeChannel();
+
   if (wasReconnecting && Net.active) {
-    // The rival is back inside the grace window: both sides resume their
-    // own retained state. A manual pause from before the drop is kept.
-    // The 'resume' event goes out only when WE are resuming from the
-    // drop-induced pause - never clobber the rival's own manual pause.
+    if (Net.authorityRecovery) {
+      // After the long disconnect window, both sides exchange authority
+      // epochs before either simulation resumes. This prevents a brief
+      // split-brain frame if the former host returns after promotion.
+      Net.sendAuthorityClaim();
+      Net.scheduleAuthoritySettle();
+      Net.paintConn();
+      return;
+    }
+    Net.reconnecting = false;
     Net.setPauseNotice(false);
     const resumeUs = !Net.dropPaused && G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause';
     if (resumeUs) togglePause(false, true);
     Net.reconnectState = null;
     Net.dropPaused = false;
-    if (Net.wire && resumeUs) Net.wire.sendEv({ t: 'resume' });
-    // fast resync: push a snapshot on the next pump instead of waiting
-    // for the tick, so the guest reconverges immediately
+    if (Net.wire && resumeUs) Net.wire.sendEv({ t:'resume' });
     if (Net.isAuthority()) Net.snapAcc = 1;
     Net.resumingSession = false;
+    Net.sendAuthorityClaim();
+    Net.paintConn();
     return;
   }
+
+  Net.reconnecting = false;
+  Net.paintConn();
   if (Net.role === 'host' && Net.waitingForRival && !Net.active) Net.startHostMatch();
-  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.knockBurst(); // a rejoin knock can race too
+  else if (Net.role === 'guest' && !Net.active && Net.wire) Net.knockBurst();
 };
 // The "rival left" overlay is up and the room is still alive - a peer that
 // (re)joins now is knocking for a fresh match. DOM-guarded for headless.
@@ -1922,10 +1930,7 @@ Net.onPeerLeave = function (id) {
   Net.paintConn();
   clearTimeout(Net.disconnectTimer);
   Net.disconnectTimer = setTimeout(() => {
-    if (!Net.peerId && Net.reconnecting) {
-      Net.reconnecting = false;
-      Net.onRivalLeft();
-    }
+    if (!Net.peerId && Net.reconnecting) Net.beginAuthorityRecovery();
   }, Net.RECONNECT_GRACE_MS);
 };
 
@@ -1971,6 +1976,10 @@ Net.onEvent = function (ev, peerId) {
       // on join (see onPeerJoin) - answer with a fresh match instead of
       // silence, so a long blip ends in a rematch, not a dead table
       else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
+      break;
+    case 'authority':
+      Net.onAuthorityClaim(ev);
+      if (Net.authorityRecovery) Net.scheduleAuthoritySettle();
       break;
     case 'resume-knock':
       if (Net.isAuthority() && ev.v === NET_SESSION_VERSION &&
