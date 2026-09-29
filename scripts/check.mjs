@@ -55,6 +55,8 @@ assert.doesNotMatch(ui, /touchStick|touchReturn|stickReturn/,
   'retired floating-stick runtime must not return');
 assert.doesNotMatch(game, /stored\.touchControl|Settings\.(?:sound|music|masterMuted)\b|G\.kbDriveT|function buzz\(/,
   'v0 migrations and compatibility shims must stay removed');
+assert.doesNotMatch(game, /typeof Net\.(?:playerSide|isAuthority|isPlayer)|Net\.role === 'guest' \? 1/,
+  'gameplay must use the current online side and authority API directly');
 assert.doesNotMatch(ui, /Settings\.(?:sound|music|masterMuted)\b|syncPreferenceState|syncMaster/,
   'Preferences must use the current slider-only audio state');
 const ambience = game.slice(game.indexOf('// ---------- room ambience'), game.indexOf('// ---------- generative music'));
