@@ -132,6 +132,14 @@ const Net = {
   rtcStatsPending: false,
   rtc: { route: 'unknown', protocol: '', localType: '', remoteType: '', availableOut: 0 },
 
+  // ---- ICE recovery / mobile network migration ----
+  iceRecoveryPc: null,
+  iceRecoveryHandler: null,
+  iceRecoveryTimer: 0,
+  iceRecoveryBusy: false,
+  iceRecoveryAttempts: 0,
+  iceRecoveryStartedAt: 0,
+
   // ---- optional low-latency lane ----
   rtChannel: null,
   rtPc: null,
@@ -170,6 +178,10 @@ const NET_RELAYS = [
 const NET_TURN_ENDPOINT = 'https://atelier-turn-credentials.saihanswissle.workers.dev/ice';
 const NET_STUN_FALLBACK = [{ urls: ['stun:stun.cloudflare.com:3478'] }];
 const NET_ICE_CACHE_MS = 60 * 60 * 1000;
+const NET_ICE_RECOVERY_DELAY_MS = 700;
+const NET_ICE_RECOVERY_REFRESH_BUDGET_MS = 800;
+const NET_ICE_RECOVERY_RETRY_MS = 2200;
+const NET_ICE_RECOVERY_MAX_ATTEMPTS = 3;
 const NET_RT_CHANNEL_ID = 61000;
 const NET_RT_PROTOCOL = 'atelier-rt-v1';
 const NET_RT_VERSION = 1;
@@ -220,10 +232,10 @@ Net.forceTurnEnabled = function () {
  * The long-lived Cloudflare TURN key never ships to the browser. If the
  * credential service is unavailable, keep direct P2P alive with Cloudflare
  * STUN instead of making Online mode fail closed. */
-Net.fetchIceServers = async function () {
+Net.fetchIceServers = async function (force = false, fallbackOnError = true) {
   const now = Date.now();
-  if (Net._iceServers && now - Net._iceFetchedAt < NET_ICE_CACHE_MS) return Net._iceServers;
-  if (typeof fetch !== 'function') return NET_STUN_FALLBACK;
+  if (!force && Net._iceServers && now - Net._iceFetchedAt < NET_ICE_CACHE_MS) return Net._iceServers;
+  if (typeof fetch !== 'function') return fallbackOnError ? NET_STUN_FALLBACK : null;
   try {
     const response = await fetch(NET_TURN_ENDPOINT, {
       method: 'POST',
@@ -241,7 +253,7 @@ Net.fetchIceServers = async function () {
     return servers;
   } catch (e) {
     Net.logErr(e);
-    return NET_STUN_FALLBACK;
+    return fallbackOnError ? NET_STUN_FALLBACK : null;
   }
 };
 
@@ -764,6 +776,7 @@ Net.initRoom = function (room, role) {
 /* Drop the room object without ceremony (cancel paths). */
 Net.dropRoom = function () {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
+  Net.detachIceRecovery();
   Net.closeRealtime();
   clearTimeout(Net.knockTimer); Net.knockTimer = 0;
   Net.reconnecting = false; Net.reconnectState = null;
@@ -792,6 +805,7 @@ Net.onPeerJoin = function (id) {
   // underlying RTCPeerConnection. Old peers simply never open the matching
   // channel, so the reliable path remains active.
   Net.ensureRealtimeChannel();
+  Net.attachIceRecovery(Net.peerConnection());
   if (wasReconnecting && Net.active) {
     // The rival is back inside the grace window: both sides resume their
     // own retained state. A manual pause from before the drop is kept.
@@ -826,6 +840,7 @@ Net.setPauseNotice = function (on) {
 };
 Net.onPeerLeave = function (id) {
   if (id !== Net.peerId) return;
+  Net.detachIceRecovery();
   Net.peerId = null; Net.handshakePeerId = null;
   if (!Net.active && !Net.waitingForRival) return;
   if (Net.waitingForRival && !Net.active) {
@@ -1011,6 +1026,177 @@ Net.peerConnection = function () {
   } catch (e) { return null; }
 };
 
+Net.rtcClosed = function (pc) {
+  return !pc || pc.connectionState === 'closed' || pc.iceConnectionState === 'closed';
+};
+
+Net.rtcFailed = function (pc) {
+  if (Net.rtcClosed(pc)) return false;
+  return pc.connectionState === 'failed' || pc.iceConnectionState === 'failed';
+};
+
+Net.rtcProgressing = function (pc) {
+  if (Net.rtcClosed(pc) || Net.rtcFailed(pc)) return false;
+  return pc.connectionState === 'connected' || pc.connectionState === 'connecting' ||
+    pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed' ||
+    pc.iceConnectionState === 'checking';
+};
+
+Net.rtcDisconnected = function (pc) {
+  if (Net.rtcClosed(pc)) return false;
+  // Mirror Trystero 0.25.4's ordering: failure wins first, then any state that
+  // means the browser is already connected/negotiating, then disconnected.
+  if (Net.rtcFailed(pc)) return true;
+  if (Net.rtcProgressing(pc)) return false;
+  return pc.connectionState === 'disconnected' || pc.iceConnectionState === 'disconnected';
+};
+
+Net.cancelIceRecovery = function (resetAttempts = false) {
+  clearTimeout(Net.iceRecoveryTimer); Net.iceRecoveryTimer = 0;
+  if (resetAttempts) {
+    Net.iceRecoveryAttempts = 0;
+    Net.iceRecoveryStartedAt = 0;
+  }
+};
+
+Net.detachIceRecovery = function () {
+  Net.cancelIceRecovery(true);
+  const pc = Net.iceRecoveryPc, handler = Net.iceRecoveryHandler;
+  if (pc && handler && typeof pc.removeEventListener === 'function') {
+    try { pc.removeEventListener('connectionstatechange', handler); } catch (e) {}
+    try { pc.removeEventListener('iceconnectionstatechange', handler); } catch (e) {}
+  }
+  Net.iceRecoveryPc = null;
+  Net.iceRecoveryHandler = null;
+  Net.iceRecoveryBusy = false;
+};
+
+Net.scheduleIceRecovery = function (pc, immediate = false) {
+  if (!pc || pc !== Net.iceRecoveryPc || Net.rtcClosed(pc)) return false;
+  if (!Net.rtcDisconnected(pc)) {
+    Net.cancelIceRecovery(true);
+    return false;
+  }
+  if (Net.iceRecoveryBusy || Net.iceRecoveryTimer ||
+      Net.iceRecoveryAttempts >= NET_ICE_RECOVERY_MAX_ATTEMPTS) return false;
+
+  const delay = immediate ? 0 : NET_ICE_RECOVERY_DELAY_MS;
+  Net.iceRecoveryTimer = setTimeout(() => {
+    Net.iceRecoveryTimer = 0;
+    void Net.recoverIce(pc);
+  }, delay);
+  return true;
+};
+
+Net.fetchRecoveryIceServers = async function (budgetMs = NET_ICE_RECOVERY_REFRESH_BUDGET_MS) {
+  let timer = 0;
+  try {
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => resolve(null), Math.max(0, budgetMs));
+    });
+    // The ordinary room-open path may tolerate a slow credential request, but
+    // recovery cannot: Trystero closes a continuously disconnected peer after
+    // five seconds. If refresh misses this small budget, keep the peer's
+    // existing ICE configuration and restart while recovery time remains.
+    return await Promise.race([Net.fetchIceServers(true, false), timeout]);
+  } catch (e) {
+    Net.logErr(e);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+Net.recoverIce = async function (pc) {
+  if (!pc || pc !== Net.iceRecoveryPc || Net.rtcClosed(pc) || !Net.rtcDisconnected(pc))
+    return false;
+  if (Net.iceRecoveryBusy || Net.iceRecoveryAttempts >= NET_ICE_RECOVERY_MAX_ATTEMPTS) return false;
+
+  Net.iceRecoveryBusy = true;
+  Net.iceRecoveryAttempts++;
+  if (!Net.iceRecoveryStartedAt) Net.iceRecoveryStartedAt = performance.now();
+
+  try {
+    // Refresh credentials when possible, but never replace a working TURN
+    // configuration with the normal STUN-only outage fallback. A transient
+    // credential-service failure should still permit restartIce() to reuse
+    // the peer's existing ICE servers.
+    const fresh = await Net.fetchRecoveryIceServers();
+    if (pc !== Net.iceRecoveryPc || Net.rtcClosed(pc) || !Net.rtcDisconnected(pc))
+      return false;
+
+    if (typeof pc.setConfiguration === 'function' && fresh && fresh.length) {
+      try {
+        const forcedTurn = Net.forceTurnEnabled();
+        const nextServers = forcedTurn ? Net.turnOnlyIceServers(fresh) : fresh;
+        if (nextServers.length) {
+          // setConfiguration replaces the entire RTCConfiguration. Start from
+          // the peer's current settings so an ICE refresh cannot accidentally
+          // reset policies/configuration unrelated to the server list.
+          const currentConfig = typeof pc.getConfiguration === 'function' ? pc.getConfiguration() : {};
+          const nextConfig = { ...currentConfig, iceServers: nextServers };
+          if (forcedTurn) nextConfig.iceTransportPolicy = 'relay';
+          pc.setConfiguration(nextConfig);
+        }
+      } catch (e) {
+        // Some browsers reject specific configuration mutations after setup.
+        // ICE restart is still worth attempting with the existing config.
+        Net.logErr(e);
+      }
+    }
+
+    if (typeof pc.restartIce !== 'function') return false;
+    pc.restartIce(); // Trystero owns negotiationneeded and signals the new offer.
+    return true;
+  } catch (e) {
+    Net.logErr(e);
+    return false;
+  } finally {
+    // A credential request may outlive this peer. If Trystero closed it and a
+    // replacement peer has already attached, the stale async recovery must not
+    // clear/schedule state that belongs to the new connection.
+    if (pc === Net.iceRecoveryPc) {
+      Net.iceRecoveryBusy = false;
+      if (Net.rtcDisconnected(pc) &&
+          Net.iceRecoveryAttempts < NET_ICE_RECOVERY_MAX_ATTEMPTS) {
+        clearTimeout(Net.iceRecoveryTimer);
+        Net.iceRecoveryTimer = setTimeout(() => {
+          Net.iceRecoveryTimer = 0;
+          void Net.recoverIce(pc);
+        }, NET_ICE_RECOVERY_RETRY_MS);
+      }
+    }
+  }
+};
+
+Net.attachIceRecovery = function (pc) {
+  if (!pc || typeof pc.addEventListener !== 'function') return false;
+  if (Net.iceRecoveryPc === pc && Net.iceRecoveryHandler) return true;
+  Net.detachIceRecovery();
+  Net.iceRecoveryPc = pc;
+
+  const handler = () => {
+    if (pc !== Net.iceRecoveryPc) return;
+    if (Net.rtcProgressing(pc)) {
+      Net.cancelIceRecovery(true);
+      if (pc.connectionState === 'connected' ||
+          pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        void Net.sampleRtcStats();
+      }
+      return;
+    }
+    if (Net.rtcDisconnected(pc)) {
+      Net.scheduleIceRecovery(pc, Net.rtcFailed(pc));
+    }
+  };
+
+  Net.iceRecoveryHandler = handler;
+  pc.addEventListener('connectionstatechange', handler);
+  pc.addEventListener('iceconnectionstatechange', handler);
+  handler();
+  return true;
+};
+
 Net.sampleRtcStats = async function () {
   if (Net.rtcStatsPending) return;
   const pc = Net.peerConnection();
@@ -1053,6 +1239,8 @@ Net.resetConn = function () {
   Net.conn.salt = Math.random().toString(36).slice(2, 10);
   Net.rtcAcc = 0; Net.rtcStatsPending = false;
   Net.rtc = { route: 'unknown', protocol: '', localType: '', remoteType: '', availableOut: 0 };
+  // Connection-chip reset is match/UI state, not peer lifecycle. Recovery is
+  // owned by attach/detach + RTCPeerConnection state changes.
   Net.paintConn();
 };
 
