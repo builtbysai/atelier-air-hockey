@@ -239,9 +239,11 @@ Net.authorityCheckpoint = function () {
     m2:Net.copyBodyState(G.m2),
     stats:Net.copyStatsState(G.stats),
     state:(Net.reconnecting && G.state === 'pause' && !Net.dropPaused && Net.reconnectState)
-      ? Net.reconnectState : G.state,
+      ? Net.reconnectState
+      : (G.focusLost && G.state === 'pause' ? (G.pausedFrom || 'play') : G.state),
     pausedFrom:(Net.reconnecting && G.state === 'pause' && !Net.dropPaused && Net.reconnectState)
-      ? Net.reconnectState : (G.pausedFrom || 'play'),
+      ? Net.reconnectState
+      : (G.focusLost && G.state === 'pause' ? (G.pausedFrom || 'play') : (G.pausedFrom || 'play')),
     winSide:G.winSide | 0,
     gwNet:Number.isFinite(G.gwNet) ? G.gwNet : 0,
     countT:Number.isFinite(G.countT) ? G.countT : 0,
