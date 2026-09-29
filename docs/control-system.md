@@ -26,7 +26,7 @@ Relative inputs (keyboard and gamepad) start as screen-space directions and pass
 ## Input behavior
 
 ### Touch direct
-Touch is intentionally a single direct-manipulation model. The retired relative-stick mode introduced target drift: the player's thumb controlled velocity relative to a separate origin while air hockey demands an immediate spatial relationship between hand and striker.
+Touch uses a single direct-manipulation model because air hockey depends on an immediate spatial relationship between the player's hand and striker.
 
 - Pointer capture keeps a drag alive when the finger moves outside the canvas element.
 - The finger maps directly to the mallet target with a forward screen-space offset.
