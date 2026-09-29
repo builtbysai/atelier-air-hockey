@@ -1,7 +1,7 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was refreshed: `4135ca62df8f`
+Current reference main commit when this roadmap was refreshed: `0ec851f65c18`
 
 ## New-agent quick start
 
@@ -11,7 +11,7 @@ If you are taking over this work:
 2. Read this roadmap, then read `docs/online-v2-lag-compensation.md`.
 3. Read `src/net.js` before modifying transport or authority logic.
 4. Do **not** duplicate draft PR #88. It already contains ICE recovery / network migration.
-5. PR #89 (deterministic Network Lab) and PR #93 (forced TURN verification mode) are merged on `main`.
+5. PR #89 (deterministic Network Lab), #93 (forced TURN verification), #95 (blackout recovery coverage), #96 (exact latency matrix), and #97 (lost-input heartbeat recovery) are merged on `main`.
 6. When GitHub Actions return on October 2, validate #88 first, then run the merged Network Lab through the full suite.
 7. Only after the Network Lab is green should host-side lag compensation move from design into production code.
 8. Preserve host-authoritative score/goals, the reliable compatibility path, and short-lived server-issued TURN credentials.
@@ -20,9 +20,9 @@ If you are taking over this work:
 
 Current staged head at this refresh:
 
-- PR #88 `feat/online-v2-ice-recovery`: `eab65b414083839762f953a79cb3bce1d69aedd4`
+- PR #88 `feat/online-v2-ice-recovery`: `f93d1be4f6631a6c6cafee25477463fd6ae84099`
 
-Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89 and #93.
+Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96 and #97.
 
 ## Goal
 
@@ -208,14 +208,16 @@ Staged work:
 - brief debounce for transient disconnects
 - bounded recovery attempt budget
 - force-refresh short-lived Cloudflare ICE credentials
-- replace the active ICE server set with fresh credentials
+- preserve the peer's existing ICE configuration if credential refresh fails
+- preserve relay-only policy when the forced TURN diagnostic is active
+- replace the active ICE server set only when fresh credentials are available
 - call `RTCPeerConnection.restartIce()`
 - let Trystero's existing `negotiationneeded` signaling carry the restart
 - cleanly remove listeners/timers when the peer/room is dropped
 - preserve the existing 15-second gameplay reconnect fallback
 - focused recovery tests included
 
-Do not duplicate this work. First run its tests when Actions return, review any failures, then merge or revise.
+Do not duplicate this work. The branch was rebased onto current `main` during static review. Upstream Trystero source confirms its peer layer handles `onnegotiationneeded` by creating a new offer, but the browser/network behavior still requires full CI, Visual QA and real migration testing before merge.
 
 ### PR #89 - deterministic Network Lab
 
@@ -230,6 +232,10 @@ Implemented:
 - clean / broadband / mobile / hotel Wi-Fi / brutal profiles
 - real binary realtime state traffic through the simulator
 - real guest input + cumulative ACK traffic through the simulator
+- exact fixed one-way delay matrix at 0 / 30 / 60 / 100 / 150 / 250 ms
+- 1 / 5 / 15 second total packet blackouts with fresh-state convergence
+- lost first guest-input recovery through the existing 500 ms stationary heartbeat
+- bounded in-flight queue assertions at high fixed latency
 - metrics for delivery, drops, reorder count and maximum queue depth
 
 The merge does **not** mean the lab has been declared green. Run the full suite when Actions return before using its results to tune or enable lag compensation.
@@ -312,16 +318,22 @@ This should solve the classic: "I hit it on my screen but the host said I missed
 
 ### 5. Network Lab / chaos testing
 
-Build deterministic net simulation for:
+Merged deterministic coverage now includes:
 
 - latency: 0 / 30 / 60 / 100 / 150 / 250 ms
 - jitter
 - random packet loss
 - burst loss
 - packet reordering
-- realtime-lane backpressure
-- 1 / 5 / 15 second disconnects
-- Wi-Fi -> cellular style connection migration
+- realtime-lane backpressure unit coverage
+- 1 / 5 / 15 second packet blackouts
+- lost-input heartbeat recovery
+
+Still pending real or recovery-integrated validation:
+
+- Wi-Fi -> cellular style connection migration through PR #88
+- browser-level direct vs relayed route behavior
+- prediction/reconciliation metrics under the chaos profiles
 
 Track:
 
@@ -342,9 +354,9 @@ Acceptance invariants:
 - no duplicate goal
 - no divergent score
 - no permanently stuck puck
-- no stale queued physics burst
-- no permanent mallet target after packet loss
-- reconnect converges to one authoritative state
+- no stale queued physics burst (deterministic blackout coverage merged)
+- no permanent mallet target after packet loss (heartbeat recovery coverage merged)
+- reconnect converges to one authoritative state (packet-level convergence covered; actual peer migration still pending #88 validation)
 
 ### 6. Nostr signaling resilience
 
@@ -420,17 +432,18 @@ First measure host-authority + guest prediction + lag compensation. If that feel
 
 ## Recommended implementation order from here
 
-1. Verify production `POST /ice` and a forced TURN path on real devices.
-2. Add ICE restart / network-migration recovery.
-3. Vendor/pin Trystero and harden mobile leave/rejoin cleanup.
-4. Add host tick + bounded historical contact compensation.
-5. Build Network Lab / chaos metrics and tune prediction thresholds.
-6. Improve Nostr relay resilience based on measured failures.
-7. Add Quick Match.
-8. Add local identity / recent rivals / challenge flow.
-9. Add session resurrection.
-10. Add authority migration.
-11. Evaluate whether rollback is still worth the complexity.
+1. Verify production `POST /ice` and the merged forced TURN path on real devices.
+2. Run full CI + Visual QA for PR #88, then merge only if green.
+3. Run the merged Network Lab through the full suite and inspect/tune from measured results.
+4. Run real direct, forced-TURN and Wi-Fi/cellular migration tests.
+5. After the Network Lab is green, implement bounded host-side contact lag compensation.
+6. Vendor/pin Trystero and harden mobile leave/rejoin cleanup without changing the P2P architecture.
+7. Improve Nostr relay resilience based on measured failures.
+8. Add Quick Match.
+9. Add local identity / recent rivals / challenge flow.
+10. Add session resurrection.
+11. Add authority migration.
+12. Evaluate whether rollback is still worth the complexity.
 
 ## Experience targets
 
@@ -480,7 +493,7 @@ Do not stack another high-risk production protocol/physics change on top of unve
 
 Safe work:
 
-1. Harden the merged Network Lab with additional test-only invariants.
+1. Continue filling only meaningful Network Lab coverage gaps with test-only changes; exact latency, blackout convergence and lost-input heartbeat recovery are already merged.
 2. Review PR #88 statically, but keep its production recovery behavior staged until it can run through the full suite.
 3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
 4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
