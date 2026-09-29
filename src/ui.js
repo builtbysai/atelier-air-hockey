@@ -421,7 +421,8 @@ let keyLast = performance.now();
 function keyboardGamepadDrive(now) {
   const dt = Math.min(0.04, Math.max(0, (now - keyLast) / 1000)); keyLast = now;
   if (G.focusLost) { requestAnimationFrame(keyboardGamepadDrive); return; } // frozen: loop lives, nothing drives
-  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch') {
+  const spectator = G.mode === 'online' && typeof Net !== 'undefined' && Net.role === 'spectator';
+  if ((G.state === 'play' || G.state === 'count') && !G.demo && G.mode !== 'watch' && !spectator) {
     const speed = 920;
     // Screen-space input -> rink-space. In 2.5D the camera is the transform,
     // so a key press is resolved through it: project the mallet to screen,
@@ -458,10 +459,10 @@ function keyboardGamepadDrive(now) {
       m.ty = clamp(m.ty + dy * speed * dt, PY + MALLET_R, PY + PH - MALLET_R);
       G.kbDriveT = now; // keyboard drove a target this frame (see playStep)
     };
-    const guestOwnsRight = G.mode === 'online' && Net.role === 'guest';
-    const p1 = guestOwnsRight ? G.m2 : G.m1;
-    const p1Lo = guestOwnsRight ? CX + MALLET_R : PX + MALLET_R;
-    const p1Hi = guestOwnsRight ? PX + PW - MALLET_R : CX - MALLET_R;
+    const ownsRight = G.mode === 'online' && onlinePlayerSide() === 1;
+    const p1 = ownsRight ? G.m2 : G.m1;
+    const p1Lo = ownsRight ? CX + MALLET_R : PX + MALLET_R;
+    const p1Hi = ownsRight ? PX + PW - MALLET_R : CX - MALLET_R;
     move(p1, 'KeyA', 'KeyD', 'KeyW', 'KeyS', p1Lo, p1Hi);
     if (G.mode === '2p') move(G.m2, 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', CX + MALLET_R, PX + PW - MALLET_R);
     try {
@@ -849,7 +850,9 @@ function wireUI() {
   });
   window.addEventListener('keydown', e => {
     if (G.focusLost) return; // veiled: no input accumulates behind the overlay
-    if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code) && (G.state === 'play' || G.state === 'count')) { keyDrive.add(e.code); e.preventDefault(); }
+    const spectator = G.mode === 'online' && typeof Net !== 'undefined' && Net.role === 'spectator';
+    if (!spectator && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code) &&
+        (G.state === 'play' || G.state === 'count')) { keyDrive.add(e.code); e.preventDefault(); }
   }, { passive: false });
   window.addEventListener('keyup', e => keyDrive.delete(e.code));
   // focus loss pauses everything: sim, net, and audio freeze; the veil (or
@@ -871,7 +874,10 @@ function wireUI() {
   });
   window.addEventListener('blur', () => { keyDrive.clear(); pauseForFocusLoss(); });
   window.addEventListener('focus', () => recoverCanvasSurface());
-  window.addEventListener('pagehide', () => WakeSys.release());
+  window.addEventListener('pagehide', () => {
+    try { Net.saveSessionCheckpoint(); } catch (e) {}
+    WakeSys.release();
+  });
   canvas.addEventListener('contextlost', () => markCanvasContextLost());
   canvas.addEventListener('contextrestored', () => markCanvasContextRestored());
   canvas.addEventListener('pointerdown', onPointerDown);
@@ -1016,19 +1022,29 @@ function boot() {
   if ('requestIdleCallback' in window) requestIdleCallback(paintLater, { timeout: 800 }); else setTimeout(paintLater, 0);
   resetPositions();
   G.ai1 = mkBrain(0, 1); G.ai2 = mkBrain(1, 1);
+  // Deep links are explicit user intent and take precedence over a short-lived
+  // crash/reload checkpoint.
+  let explicitRoute = false;
   // deep links: ?table=mid&play , ?table=bil&2p , ?demo
   try {
     const q = new URLSearchParams(location.search);
     if (q.get('table') && THEMES[q.get('table')]) setTheme(q.get('table'), true);
     const joinCode = q.get('join') || q.get('room'); // ?room= is an alias for ?join=
-    if (joinCode) { Net.openLobby(); Net.join(joinCode); try { const u = new URL(location.href); u.searchParams.delete('join'); u.searchParams.delete('room'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {} }
-    else if (q.has('play') && tableUnlocked(G.themeId)) startGame('ai', G.difficulty);
-    else if (q.has('2p') && tableUnlocked(G.themeId)) startGame('2p');
-    else if (q.has('demo')) { G.idleT = 99; }
+    if (joinCode) {
+      explicitRoute = true;
+      Net.clearSessionCheckpoint();
+      Net.openLobby(); Net.join(joinCode);
+      try { const u = new URL(location.href); u.searchParams.delete('join'); u.searchParams.delete('room'); history.replaceState(null, '', u.pathname + u.search + u.hash); } catch (e) {}
+    }
+    else if (q.has('play') && tableUnlocked(G.themeId)) { explicitRoute = true; Net.clearSessionCheckpoint(); startGame('ai', G.difficulty); }
+    else if (q.has('2p') && tableUnlocked(G.themeId)) { explicitRoute = true; Net.clearSessionCheckpoint(); startGame('2p'); }
+    else if (q.has('demo')) { explicitRoute = true; Net.clearSessionCheckpoint(); G.idleT = 99; }
+    if (q.get('qa')) explicitRoute = true;
     applyVisualQaState(q.get('qa'));
   } catch (e) {}
   requestAnimationFrame(frame);
   requestAnimationFrame(keyboardGamepadDrive);
+  if (!explicitRoute) void Net.tryResumeSession();
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('./sw.js')
       .then(reg => {
