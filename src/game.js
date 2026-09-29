@@ -2455,7 +2455,10 @@ function touchReturnStep(m, dt, now = performance.now()) {
 function setTouchStickVisual(side, cx, cy, x = 0, y = 0, radius = 58) {
   const el = document.getElementById('touchStick' + side);
   if (!el) return;
+  const travel = radius * 0.82;
+  const power = clamp(hyp(x, y) / Math.max(1, travel), 0, 1);
   el.classList.remove('hidden');
+  el.classList.toggle('full', power > 0.92);
   el.style.left = cx + 'px';
   el.style.top = cy + 'px';
   el.style.width = (radius * 2) + 'px';
