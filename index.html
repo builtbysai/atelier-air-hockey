@@ -29,8 +29,6 @@
 <body>
 <canvas id="game"></canvas>
 <div id="gameStatus" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
-<div id="touchStick0" class="touch-stick hidden" aria-hidden="true"><i></i></div>
-<div id="touchStick1" class="touch-stick hidden" aria-hidden="true"><i></i></div>
 
 <div id="topbar" class="hidden" data-game-chrome>
   <span class="connchip hidden" id="connChip" title="Connection quality"><i class="unknown"></i><em>–ms</em></span>
@@ -39,7 +37,7 @@
 </div>
 
 <!-- first-time hint: one line on the first local match, gone forever after the first goal -->
-<div id="hint" class="hidden" data-game-chrome>Drag to move your mallet</div>
+<div id="hint" class="hidden" data-game-chrome>Drag behind your mallet to move</div>
 <div id="replayHud" class="replay-hud hidden" data-game-chrome role="status" aria-live="polite">
   <span class="replay-copy"><strong class="replay-word">REPLAY</strong><small id="replayContext"></small></span>
   <span class="replay-progress" aria-hidden="true"><i id="replayProgress"></i></span>
@@ -118,7 +116,7 @@
       </div>
     </div>
 
-    <div class="foot"><span class="desktop-controls">Move the mouse to play · WASD / arrows · P pause · M mute · Enter start</span><span class="touch-controls" id="touchControlHint">Drag to move your mallet · Tap pause for match controls</span></div>
+    <div class="foot"><span class="desktop-controls">Move the mouse to play · WASD / arrows · P pause · M mute · Enter start</span><span class="touch-controls" id="touchControlHint">Drag behind your mallet to move · Tap pause for match controls</span></div>
     <div class="foot lobfoot"><button id="btnWorkshop">Workshop</button><button id="btnHelp">How to play</button><button id="btnSettings">Preferences</button><a href="https://github.com/builtbysai/atelier-air-hockey" target="_blank" rel="noopener">GitHub</a><a href="https://builtbysai.com/" target="_blank" rel="noopener">Built by Sai</a><span class="ver">1.0.0</span></div>
   </div>
 </div>
@@ -269,22 +267,15 @@
       </section>
 
       <section class="pref-panel hidden" id="prefPanelControls" role="tabpanel" aria-labelledby="prefTabControls" data-pref-panel="controls">
-        <div class="setrow" id="touchControlRow">
-          <div class="setlabel">Touch</div>
+        <div class="setrow" id="touchOffsetRow">
+          <div class="setlabel">Touch offset</div>
           <div class="seg">
-            <button data-set="touchControl" data-val="direct">Direct</button>
-            <button data-set="touchControl" data-val="stick">Floating stick</button>
+            <button data-set="touchOffset" data-val="low">Low</button>
+            <button data-set="touchOffset" data-val="medium">Medium</button>
+            <button data-set="touchOffset" data-val="high">High</button>
           </div>
         </div>
-        <div class="setnote" id="touchControlNote">Direct keeps the mallet attached to your gesture and preserves the strongest flick control.</div>
-        <div class="setrow hidden" id="stickReturnRow">
-          <div class="setlabel">Release assist</div>
-          <div class="seg">
-            <button data-set="stickReturn" data-val="off">Off</button>
-            <button data-set="stickReturn" data-val="triangle">Triangle</button>
-          </div>
-        </div>
-        <div class="setnote hidden" id="stickReturnNote">On release, briefly recover toward the defensive triangle.</div>
+        <div class="setnote" id="touchOffsetNote">Medium keeps the mallet ahead of your finger while preserving direct 1:1 dragging.</div>
         <div class="setrow">
           <div class="setlabel">Keyboard</div>
           <div class="seg">
