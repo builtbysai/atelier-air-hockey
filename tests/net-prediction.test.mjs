@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';\nimport { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
+import vm from 'node:vm';
+import { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
 
 async function loadWorld() {
   const source = await readFile(new URL('../src/net.js', import.meta.url), 'utf8');
