@@ -1,7 +1,28 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was written: `9b58bc37c0794faebf27a14d1a7ae419589369ef`
+Current reference main commit when this roadmap was refreshed: `4135ca62df8f`
+
+## New-agent quick start
+
+If you are taking over this work:
+
+1. Start from current `main`, not an older Online V2 branch.
+2. Read this roadmap, then read `docs/online-v2-lag-compensation.md`.
+3. Read `src/net.js` before modifying transport or authority logic.
+4. Do **not** duplicate draft PR #88 or #89. They already contain ICE recovery and the deterministic Network Lab.
+5. When GitHub Actions return on October 2, validate #88 first, then #89.
+6. Only after the Network Lab is green should host-side lag compensation move from design into production code.
+7. Preserve host-authoritative score/goals, the reliable compatibility path, and short-lived server-issued TURN credentials.
+8. If CI reports only a PWA cache identity mismatch after a code change, update `sw.js` to the exact fingerprint CI prints, then rerun the suite.
+9. Update this roadmap whenever a phase lands so it remains the single source of truth.
+
+Current staged heads at this refresh:
+
+- PR #88 `feat/online-v2-ice-recovery`: `eab65b414083839762f953a79cb3bce1d69aedd4`
+- PR #89 `test/online-v2-network-lab`: `083bcf3c5b24df193b260ef22f9e2413c21b435c`
+
+Current merged Online V2 production stack includes PRs #80, #81, #84 and #86.
 
 ## Goal
 
