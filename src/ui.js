@@ -720,7 +720,10 @@ function updateStartLabel() {
 
 function installDialogA11y() {
   let returnFocus = null;
-  const visible = () => document.querySelector('.overlay[role="dialog"]:not(.hidden)');
+  const visible = () => {
+    const dialogs = [...document.querySelectorAll('.overlay[role="dialog"]:not(.hidden)')];
+    return dialogs[dialogs.length - 1] || null; // last in DOM is the topmost dialog layer
+  };
   const focusables = dlg => [...dlg.querySelectorAll('button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')]
     .filter(el => !el.closest('.hidden,[hidden],[aria-hidden="true"]'));
   const sync = () => {
