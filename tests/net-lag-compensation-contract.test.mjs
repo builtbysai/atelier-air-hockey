@@ -29,6 +29,31 @@ function finite(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+test('lag compensation hint packet layout is exact and contiguous', () => {
+  assert.deepEqual(
+    {
+      type: spec.packet.type,
+      version: spec.packet.version,
+      byteLength: spec.packet.byteLength,
+      littleEndian: spec.packet.littleEndian,
+    },
+    { type:4, version:1, byteLength:22, littleEndian:true }
+  );
+
+  let nextOffset = 0;
+  for (const field of spec.packet.fields) {
+    assert.equal(field.offset, nextOffset, 'packet field gap/overlap at ' + field.name);
+    assert.ok(field.size === 1 || field.size === 2 || field.size === 4);
+    assert.ok(['u8','u16','f32'].includes(field.kind));
+    nextOffset += field.size;
+  }
+  assert.equal(nextOffset, spec.packet.byteLength);
+  assert.deepEqual(
+    spec.packet.fields.map(field => field.name),
+    ['type','version','inputSeq','stateSeq','malletX','malletY','malletVx','malletVy']
+  );
+});
+
 test('lag compensation contract fixture has stable policy bounds', () => {
   assert.equal(spec.version, 1);
   assert.equal(spec.policy.maxRewindMs, 180);
@@ -94,4 +119,19 @@ test('lag compensation contract cases are unique and cover every rejection gate'
   for (const reason of REQUIRED_REASONS) {
     assert.ok(reasons.has(reason), 'missing contract fixture for ' + reason);
   }
+
+  const lostInputAccept = spec.cases.find(item =>
+    item.expected === 'accept' && item.matchingInputArrived === false
+  );
+  assert.ok(lostInputAccept, 'contract must prove a self-contained hint can survive matching input loss');
+
+  const wrapAccept = spec.cases.find(item => item.id === 'valid-wraparound-sequences');
+  assert.equal(wrapAccept.expected, 'accept');
+  assert.ok(wrapAccept.lastInputSeq > wrapAccept.hint.inputSeq,
+    'accepted wraparound fixture must cross the ordinary integer boundary');
+
+  const wrapReplay = spec.cases.find(item => item.id === 'wraparound-replay');
+  assert.equal(wrapReplay.reason, 'duplicate-or-replay');
+  assert.ok(wrapReplay.hint.inputSeq > wrapReplay.lastHintSeq,
+    'replay fixture must look newer under ordinary integer comparison');
 });
