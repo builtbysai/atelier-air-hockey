@@ -10,8 +10,13 @@
  * ----------------------------------------------------------------------------
  * PROTOCOL
  *
- * Transport: Trystero 0.25.4 (WebRTC data channels, Nostr signaling), one
- * reliable ordered channel. Three actions:
+ * Transport: Trystero 0.25.4 (WebRTC data channels, Nostr signaling).
+ * Control events stay on Trystero's reliable ordered channel. When both peers
+ * support Online V2, high-frequency state/input move to a second negotiated
+ * binary RTCDataChannel that is unordered with zero retransmits. If that lane
+ * cannot open, both peers remain fully compatible on the reliable path.
+ *
+ * Reliable Trystero actions:
  *
  *   st  host -> guest, ~30 Hz. Compact array (all numbers, 1-decimal):
  *       [px,py,pvx,pvy, m1x,m1y, m2x,m2y, s0,s1, flags, top, br, sv0, sv1,
@@ -125,7 +130,17 @@ const Net = {
   // ---- RTC path diagnostics (display/debug only for now) ----
   rtcAcc: 0,
   rtcStatsPending: false,
-  rtc: { route: 'unknown', protocol: '', localType: '', remoteType: '', availableOut: 0 }
+  rtc: { route: 'unknown', protocol: '', localType: '', remoteType: '', availableOut: 0 },
+
+  // ---- optional low-latency lane ----
+  rtChannel: null,
+  rtPc: null,
+  rtReady: false,
+  rtStateSeq: 0,
+  rtInputSeq: 0,
+  rtLastStateSeq: null,
+  rtLastInputSeq: null,
+  rtDropped: 0
 };
 
 /* Unambiguous code alphabet: no 0/O, 1/I/L. */
@@ -148,6 +163,12 @@ const NET_RELAYS = [
 const NET_TURN_ENDPOINT = 'https://atelier-turn-credentials.saihanswissle.workers.dev/ice';
 const NET_STUN_FALLBACK = [{ urls: ['stun:stun.cloudflare.com:3478'] }];
 const NET_ICE_CACHE_MS = 60 * 60 * 1000;
+const NET_RT_CHANNEL_ID = 61000;
+const NET_RT_PROTOCOL = 'atelier-rt-v1';
+const NET_RT_VERSION = 1;
+const NET_RT_STATE = 1;
+const NET_RT_INPUT = 2;
+const NET_RT_MAX_BUFFERED = 32 * 1024;
 
 Net.validIceServers = function (servers) {
   if (!Array.isArray(servers)) return [];
@@ -533,6 +554,125 @@ Net.cancelLobby = function () {
   AudioSys.ui();
 };
 
+/* ---------------- Online V2 realtime lane ---------------- */
+Net.seqNewer = function (next, previous) {
+  if (previous === null || previous === undefined) return true;
+  const delta = (next - previous + 0x10000) & 0xffff;
+  return delta > 0 && delta < 0x8000;
+};
+
+Net.closeRealtime = function () {
+  const ch = Net.rtChannel;
+  Net.rtChannel = null; Net.rtPc = null; Net.rtReady = false;
+  Net.rtLastStateSeq = null; Net.rtLastInputSeq = null;
+  try { if (ch && ch.readyState !== 'closed') ch.close(); } catch (e) {}
+};
+
+Net.ensureRealtimeChannel = function () {
+  const pc = Net.peerConnection();
+  if (!pc || typeof pc.createDataChannel !== 'function') return null;
+  if (Net.rtChannel && Net.rtPc === pc && Net.rtChannel.readyState !== 'closed') return Net.rtChannel;
+  Net.closeRealtime();
+  try {
+    const ch = pc.createDataChannel('atelier-realtime', {
+      negotiated: true,
+      id: NET_RT_CHANNEL_ID,
+      ordered: false,
+      maxRetransmits: 0,
+      protocol: NET_RT_PROTOCOL,
+    });
+    ch.binaryType = 'arraybuffer';
+    Net.rtChannel = ch; Net.rtPc = pc;
+    ch.onopen = () => { if (Net.rtChannel === ch) Net.rtReady = true; };
+    ch.onclose = () => { if (Net.rtChannel === ch) Net.rtReady = false; };
+    ch.onerror = (ev) => {
+      if (Net.rtChannel === ch) Net.rtReady = false;
+      Net.logErr(ev && (ev.error || ev));
+    };
+    ch.onmessage = (ev) => { if (Net.rtChannel === ch) Net.onRealtimeMessage(ev.data); };
+    return ch;
+  } catch (e) {
+    Net.logErr(e);
+    Net.closeRealtime();
+    return null;
+  }
+};
+
+Net.encodeRealtimeState = function () {
+  const a = Net.encodeSnapshot();
+  const buffer = new ArrayBuffer(56);
+  const v = new DataView(buffer);
+  v.setUint8(0, NET_RT_STATE); v.setUint8(1, NET_RT_VERSION);
+  Net.rtStateSeq = (Net.rtStateSeq + 1) & 0xffff;
+  v.setUint16(2, Net.rtStateSeq, true);
+  let o = 4;
+  for (let i = 0; i < 8; i++, o += 4) v.setFloat32(o, a[i], true);
+  v.setUint8(36, a[8] & 0xff); v.setUint8(37, a[9] & 0xff); v.setUint8(38, a[10] & 0xff);
+  v.setUint16(39, Math.max(0, Math.min(0xffff, a[11] | 0)), true);
+  v.setUint16(41, Math.max(0, Math.min(0xffff, a[12] | 0)), true);
+  v.setUint16(43, Math.max(0, Math.min(0xffff, a[13] | 0)), true);
+  v.setUint16(45, Math.max(0, Math.min(0xffff, a[14] | 0)), true);
+  v.setFloat32(47, Number.isFinite(a[15]) ? a[15] : 0, true);
+  v.setFloat32(51, Number.isFinite(a[16]) ? a[16] : 0, true);
+  v.setInt8(55, a[17] === -1 ? -1 : a[17] === 1 ? 1 : 0);
+  return buffer;
+};
+
+Net.decodeRealtimeState = function (v) {
+  if (v.byteLength !== 56 || v.getUint8(1) !== NET_RT_VERSION) return null;
+  const seq = v.getUint16(2, true);
+  if (!Net.seqNewer(seq, Net.rtLastStateSeq)) return null;
+  Net.rtLastStateSeq = seq;
+  const a = [];
+  let o = 4;
+  for (let i = 0; i < 8; i++, o += 4) a.push(v.getFloat32(o, true));
+  a.push(v.getUint8(36), v.getUint8(37), v.getUint8(38));
+  a.push(v.getUint16(39, true), v.getUint16(41, true), v.getUint16(43, true), v.getUint16(45, true));
+  a.push(v.getFloat32(47, true), v.getFloat32(51, true), v.getInt8(55));
+  return a;
+};
+
+Net.encodeRealtimeInput = function (tx, ty) {
+  const buffer = new ArrayBuffer(12);
+  const v = new DataView(buffer);
+  v.setUint8(0, NET_RT_INPUT); v.setUint8(1, NET_RT_VERSION);
+  Net.rtInputSeq = (Net.rtInputSeq + 1) & 0xffff;
+  v.setUint16(2, Net.rtInputSeq, true);
+  v.setFloat32(4, tx, true); v.setFloat32(8, ty, true);
+  return buffer;
+};
+
+Net.decodeRealtimeInput = function (v) {
+  if (v.byteLength !== 12 || v.getUint8(1) !== NET_RT_VERSION) return null;
+  const seq = v.getUint16(2, true);
+  if (!Net.seqNewer(seq, Net.rtLastInputSeq)) return null;
+  Net.rtLastInputSeq = seq;
+  return [v.getFloat32(4, true), v.getFloat32(8, true)];
+};
+
+Net.onRealtimeMessage = function (data) {
+  if (!(data instanceof ArrayBuffer) || data.byteLength < 4) return;
+  const v = new DataView(data);
+  const type = v.getUint8(0);
+  if (type === NET_RT_STATE && Net.role === 'guest') {
+    const a = Net.decodeRealtimeState(v);
+    if (a) Net.onSnapshot(a, Net.peerId);
+  } else if (type === NET_RT_INPUT && Net.role === 'host') {
+    const a = Net.decodeRealtimeInput(v);
+    if (a) Net.onInput(a, Net.peerId);
+  }
+};
+
+Net.sendRealtime = function (buffer) {
+  const ch = Net.rtChannel;
+  if (!Net.rtReady || !ch || ch.readyState !== 'open') return false;
+  // Fresh position/state replaces old position/state. Under backpressure,
+  // dropping a packet is better than queueing stale physics behind it.
+  if (ch.bufferedAmount > NET_RT_MAX_BUFFERED) { Net.rtDropped++; return true; }
+  try { ch.send(buffer); return true; }
+  catch (e) { Net.rtReady = false; Net.logErr(e); return false; }
+};
+
 /* ---------------- room lifecycle ---------------- */
 Net.initRoom = function (room, role) {
   Net.dropRoom();
@@ -549,6 +689,7 @@ Net.initRoom = function (room, role) {
 /* Drop the room object without ceremony (cancel paths). */
 Net.dropRoom = function () {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
+  Net.closeRealtime();
   clearTimeout(Net.knockTimer); Net.knockTimer = 0;
   Net.reconnecting = false; Net.reconnectState = null;
   Net.setPauseNotice(false);
@@ -572,6 +713,10 @@ Net.onPeerJoin = function (id) {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
   Net.reconnecting = false;
   Net.paintConn();
+  // The negotiated lane is created only after Trystero has established the
+  // underlying RTCPeerConnection. Old peers simply never open the matching
+  // channel, so the reliable path remains active.
+  Net.ensureRealtimeChannel();
   if (wasReconnecting && Net.active) {
     // The rival is back inside the grace window: both sides resume their
     // own retained state. A manual pause from before the drop is kept.
@@ -865,6 +1010,8 @@ Net.beginMatch = function (role) {
   Net.rsnap = null; Net.gview = null; Net.snapT = 0;
   Net.lastIn = null; Net.lastInT = 0;
   Net.snapAcc = 0; Net.inAcc = 0;
+  Net.rtStateSeq = 0; Net.rtInputSeq = 0;
+  Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtDropped = 0;
   Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
 };
 
@@ -1003,8 +1150,9 @@ Net.guestSyncState = function (s) {
 };
 
 /* ---------------- per-frame ---------------- */
-/* Host: snapshots @30Hz. Guest: input @30Hz + dead reckoning every frame.
- * No-op unless a match is live. */
+/* Host: snapshots at 60 Hz on the realtime lane, 30 Hz on the reliable
+ * compatibility lane. Guest input uses the same adaptive cadence; visual
+ * dead reckoning still runs every frame. No-op unless a match is live. */
 Net.pump = function (rdt) {
   if (!Net.active || !Net.wire) return;
   // RTT probe: cheap, on the event channel, display-only
@@ -1019,13 +1167,15 @@ Net.pump = function (rdt) {
   if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; void Net.sampleRtcStats(); }
   if (Net.role === 'host') {
     Net.snapAcc += rdt;
-    if (Net.snapAcc >= 1 / 30 && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
+    const stateStep = Net.rtReady ? 1 / 60 : 1 / 30;
+    if (Net.snapAcc >= stateStep && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
       Net.snapAcc = 0;
-      Net.wire.sendSt(Net.encodeSnapshot());
+      if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeState()))) Net.wire.sendSt(Net.encodeSnapshot());
     }
   } else {
     Net.inAcc += rdt;
-    if (Net.inAcc >= 1 / 30) { Net.inAcc = 0; Net.sendInput(); }
+    const inputStep = Net.rtReady ? 1 / 60 : 1 / 30;
+    if (Net.inAcc >= inputStep) { Net.inAcc = 0; Net.sendInput(); }
     // a paused guest holds the frozen frame - dead reckoning must not keep
     // extrapolating the puck behind the pause card
     if (G.state !== 'pause') Net.guestApply(rdt);
@@ -1110,7 +1260,7 @@ Net.sendInput = function () {
   if (Net.lastIn && Math.abs(tx - Net.lastIn[0]) < 0.5 && Math.abs(ty - Net.lastIn[1]) < 0.5 &&
       now - Net.lastInT < 500) return;
   Net.lastIn = [tx, ty]; Net.lastInT = now;
-  Net.wire.sendIn([tx, ty]);
+  if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeInput(tx, ty)))) Net.wire.sendIn([tx, ty]);
 };
 
 /* ---------------- rematch ---------------- */
