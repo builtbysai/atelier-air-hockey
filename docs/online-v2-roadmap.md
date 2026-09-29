@@ -10,20 +10,19 @@ If you are taking over this work:
 1. Start from current `main`, not an older Online V2 branch.
 2. Read this roadmap, then read `docs/online-v2-lag-compensation.md`.
 3. Read `src/net.js` before modifying transport or authority logic.
-4. Do **not** duplicate draft PR #88 or #89. They already contain ICE recovery and the deterministic Network Lab.
-5. When GitHub Actions return on October 2, validate #88 first, then #89.
-6. Only after the Network Lab is green should host-side lag compensation move from design into production code.
-7. Preserve host-authoritative score/goals, the reliable compatibility path, and short-lived server-issued TURN credentials.
-8. If CI reports only a PWA cache identity mismatch after a code change, update `sw.js` to the exact fingerprint CI prints, then rerun the suite.
-9. Update this roadmap whenever a phase lands so it remains the single source of truth.
+4. Do **not** duplicate draft PR #88. It already contains ICE recovery / network migration.
+5. PR #89 (deterministic Network Lab) and PR #93 (forced TURN verification mode) are merged on `main`.
+6. When GitHub Actions return on October 2, validate #88 first, then run the merged Network Lab through the full suite.
+7. Only after the Network Lab is green should host-side lag compensation move from design into production code.
+8. Preserve host-authoritative score/goals, the reliable compatibility path, and short-lived server-issued TURN credentials.
+9. If CI reports only a PWA cache identity mismatch after a code change, update `sw.js` to the exact fingerprint CI prints, then rerun the suite.
+10. Update this roadmap whenever a phase lands so it remains the single source of truth.
 
-Current staged heads at this refresh:
+Current staged head at this refresh:
 
 - PR #88 `feat/online-v2-ice-recovery`: `eab65b414083839762f953a79cb3bce1d69aedd4`
-- PR #89 `test/online-v2-network-lab`: `083bcf3c5b24df193b260ef22f9e2413c21b435c`
-- PR #93 `test/online-v2-forced-turn`: diagnostic-only forced TURN verification mode; safe to merge independently because normal production routing is unchanged
 
-Current merged Online V2 production stack includes PRs #80, #81, #84 and #86.
+Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89 and #93.
 
 ## Goal
 
@@ -197,7 +196,7 @@ Already present before the above work:
 
 ## Work staged during the GitHub Actions outage
 
-These branches are implemented but deliberately **not merged** until the full test/visual suite can run again.
+High-risk production behavior remains staged until the full test/visual suite can run again.
 
 ### Draft PR #88 - ICE recovery / network migration
 
@@ -218,11 +217,11 @@ Staged work:
 
 Do not duplicate this work. First run its tests when Actions return, review any failures, then merge or revise.
 
-### Draft PR #89 - deterministic Network Lab
+### PR #89 - deterministic Network Lab
 
-Branch: `test/online-v2-network-lab`
+Merged into `main` as test-only infrastructure.
 
-Staged test-only work:
+Implemented:
 
 - seeded virtual clock/network
 - configurable latency and jitter
@@ -233,13 +232,13 @@ Staged test-only work:
 - real guest input + cumulative ACK traffic through the simulator
 - metrics for delivery, drops, reorder count and maximum queue depth
 
-Do not tune prediction/lag-compensation constants against intuition while this lab is pending. Run the lab first after Actions return.
+The merge does **not** mean the lab has been declared green. Run the full suite when Actions return before using its results to tune or enable lag compensation.
 
 ### PR #93 - forced TURN verification mode
 
-Branch: `test/online-v2-forced-turn`
+Merged into `main`.
 
-Staged work:
+Implemented:
 
 - diagnostic-only `?netRoute=turn` switch
 - Trystero `rtcConfig` override so its default STUN list is not inherited during the forced test
@@ -249,9 +248,7 @@ Staged work:
 - focused configuration tests
 - real-device direct + forced-TURN checklist in `docs/online-v2-turn-verification.md`
 
-Normal production behavior is unchanged: direct WebRTC remains preferred and Cloudflare TURN remains fallback. This PR does not change authority, packet formats, critical-event reliability, or the 30 Hz compatibility path.
-
-This diagnostic can land independently. Use it for the required real-device relay test after #88 and #89 have been validated, because recovery and Network Lab results still gate the lag-compensation phase.
+Normal production behavior remains direct WebRTC preferred with Cloudflare TURN fallback. This does not change authority, packet formats, critical-event reliability, or the 30 Hz compatibility path.
 
 ## Current known risks / unfinished areas
 
@@ -479,19 +476,19 @@ Before changing Online code:
 
 ### While Actions remain unavailable
 
-Do not stack another high-risk production protocol/physics change on top of unverified PRs #88/#89.
+Do not stack another high-risk production protocol/physics change on top of unverified PR #88 or before the merged Network Lab has actually executed.
 
 Safe work:
 
-1. Review and harden documentation/tests.
-2. The forced TURN diagnostic may be merged independently if statically reviewed; it does not alter normal direct-preferred routing.
-3. Research and design the host lag-compensation packet/history format.
-4. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab can execute.
+1. Harden the merged Network Lab with additional test-only invariants.
+2. Review PR #88 statically, but keep its production recovery behavior staged until it can run through the full suite.
+3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
+4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
 
 ### When Actions return
 
 1. Run PR #88 through full CI + Visual QA; fix and merge if green.
-2. Run the Network Lab through full CI and confirm it is green.
+2. Run the merged Network Lab through full CI and confirm it is green.
 3. Run normal direct-preferred + forced TURN real-device tests using `docs/online-v2-turn-verification.md`.
 4. Then implement host tick/history contact compensation as the next production phase.
 
