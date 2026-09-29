@@ -336,10 +336,6 @@ function encodeGifIndexed(frames, width, height, delayMs) {
   for (const indexed of frames) gifAppendIndexedFrame(out, indexed, width, height, delayMs);
   return gifBlob(out);
 }
-// Public test/backward-compatibility seam for the original fixed-palette path.
-function encodeGif332(frames, width, height, delayMs) {
-  return encodeGifIndexed(frames.map(gifIndex332), width, height, delayMs);
-}
 function gifYield() { return new Promise(resolve => setTimeout(resolve, 0)); }
 async function encodeGifPackedAdaptiveAsync(frames, width, height, delayMs, onProgress) {
   const counts=new Uint32Array(32768);
