@@ -6,7 +6,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import vm from 'node:vm';\nimport { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
+import vm from 'node:vm';
+import { NET_TEST_PHYSICS } from './helpers/net-test-physics.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
