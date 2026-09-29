@@ -424,7 +424,6 @@ function openWorkshop() {
 function renderProgress() {
   const body = $('progressBody'), summary = $('progressSummary');
   if (!body || !summary) return;
-  const unlocked = FEATS.filter(f => Feats.data[f.id]).length;
   const openRooms = THEME_ORDER.filter(tableUnlocked).length;
   summary.textContent = openRooms + '/' + THEME_ORDER.length + ' rooms open · ' +
     Mastery.masteredCount() + ' tables mastered · ' + TableChallenges.count() + '/10 challenges · ' +
