@@ -850,6 +850,15 @@ Net.watch = async function (rawCode) {
     room.onPeerLeave = id => {
       if (id !== Net.watchHostPeerId) return;
       Net.watchHostPeerId = null;
+      // Authority migration can briefly leave the replacement authority
+      // already connected while the old one disappears. Adopt it immediately
+      // instead of waiting for another join callback that will never fire.
+      const replacement = Object.keys(room.getPeers()).find(peerId => peerId !== id);
+      if (replacement) {
+        Net.watchHostPeerId = replacement;
+        Net.reconnecting = false;
+        return;
+      }
       if (Net.role === 'spectator') {
         Net.reconnecting = true;
         clearTimeout(Net.watchJoinTimer);
@@ -1464,6 +1473,8 @@ Net.restoreAuthorityCheckpoint = function (checkpoint) {
   }
   Net.restoreBodyState(G.m1, saved.m1);
   Net.restoreBodyState(G.m2, saved.m2);
+  const remote = Net.remoteMallet();
+  if (remote) { Net.remote.tx = remote.x; Net.remote.ty = remote.y; }
   G.stats = Net.restoreStatsState(saved.stats);
   G.serveVX = Number.isFinite(snap.svx) ? snap.svx : 0;
   G.serveVY = Number.isFinite(snap.svy) ? snap.svy : 0;
@@ -2189,7 +2200,8 @@ Net.beginMatch = function (role) {
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null; Net.rtDropped = 0;
   Net.guestPrediction = null; Net.guestContactLatch = false;
   Net.predictionCorrections = 0; Net.predictionMaxError = 0;
-  Net.remote.tx = PX + PW - 170; Net.remote.ty = CY;
+  Net.remote.tx = Net.remoteSide() === 0 ? PX + 170 : PX + PW - 170;
+  Net.remote.ty = CY;
 };
 
 /* Host: a rival arrived - start the match, send the settings, count down. */
