@@ -318,14 +318,15 @@ Key design correction from the current pass: the guest predicts against an extra
 
 Guest prediction improves perceived latency, but the authoritative host still evaluates the guest mallet against its current simulation state.
 
-Next fairness target:
+Next fairness target after the validation gates:
 
-- Add host simulation tick IDs.
-- Add guest-observed host tick to input packets.
-- Keep a small circular history buffer on the host.
-- Validate guest contact conservatively against recent historical states.
-- Never allow the guest to authoritatively declare a goal/hit outcome.
-- Cap rewind window; do not reward intentionally stale inputs.
+- Reuse the existing 16-bit realtime host state sequence as the guest's lower-bound reference.
+- Keep a small host-authored circular puck/mallet history tied atomically to those published state sequences.
+- Add the separate additive 22-byte type-4 contact hint; do not change the existing input packet layout.
+- Scan forward from the referenced state through bounded authoritative history to the earliest plausible open-table contact.
+- Validate age, sequence, point/touch continuity, side bounds, speed, geometry, approach direction and rail/goal ambiguity.
+- Never allow the guest to authoritatively declare a hit outcome, puck state, goal or score.
+- Cap rewind age and reject ambiguous/stale evidence.
 
 This should solve the classic: "I hit it on my screen but the host said I missed."
 
@@ -521,4 +522,4 @@ Safe work:
 3. Run normal direct-preferred + forced TURN real-device tests using `docs/online-v2-turn-verification.md`.
 4. Then implement host tick/history contact compensation as the next production phase.
 
-The lag-compensation design should add a bounded host tick reference to guest input, retain a small host history ring, and validate contact against recent history without allowing the guest to authoritatively declare hits or goals.
+The lag-compensation design uses the existing host realtime state sequence as a lower-bound reference, a bounded host-authored history ring, and a separate additive type-4 contact hint. The host alone validates the trajectory and computes any future outcome.
