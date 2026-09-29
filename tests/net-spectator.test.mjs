@@ -29,7 +29,7 @@ async function loadNet() {
     clamp:(v,a,b)=>Math.min(b,Math.max(a,v)),
     $,
     localStorage:{getItem:()=>null,setItem(){}},
-    hideAll(){}, clearCeremony(){}, beginGoalCeremony(){}, resetPositions(){}, startCount(){ G.state='count'; },
+    hideAll(){}, clearCeremony(){}, beginGoalCeremony(){}, resetPositions(){}, startCount(){ G.state='count'; }, rollServe(){},
     freshBoard:()=>({}), freshStats:()=>({topSpeed:0,bestRally:0,saves:[0,0]}),
     pointers:{clear(){}}, goalW:()=>200, setTheme(){}, applySettingsToUI(){},
     MusicSys:{setSessionSeed(){}}, fitCamera(){}, paintTableWarp(){},
@@ -98,6 +98,49 @@ test('watching a completed match never records the authority as a recent rival',
   Net.role='guest';
   Net.guestGoal({s0:7,s1:5,scorer:0,matchEnd:true});
   assert.equal(remembered,1, 'played matches still update recent-rival history');
+});
+
+
+test('live authority opens a watcher room when a hosted match actually starts', async () => {
+  const {Net} = await loadNet();
+  let opened = 0;
+  Net.openSpectatorHost = async () => { opened++; };
+  Net.beginMatch = role => {
+    Net.role = role;
+    Net.side = role === 'host' ? 0 : 1;
+    Net.active = true;
+    Net.waitingForRival = false;
+  };
+  Net.resetConn = () => {};
+  Net.sendHello = () => {};
+  Net.sendCountdown = () => {};
+  Net.waitingForRival = true;
+  Net.peerAuthorityVersion = 1;
+
+  Net.startHostMatch();
+
+  assert.equal(Net.isAuthority(), true);
+  assert.equal(opened, 1, 'normal host startup must publish the watcher room after authority becomes active');
+});
+
+test('late host restart republishes spectators after the previous match closed them', async () => {
+  const {Net} = await loadNet();
+  let opened = 0;
+  Net.openSpectatorHost = async () => { opened++; };
+  Net.beginMatch = role => {
+    Net.role = role;
+    Net.side = role === 'host' ? 0 : 1;
+    Net.active = true;
+  };
+  Net.resetConn = () => {};
+  Net.sendHello = () => {};
+  Net.sendCountdown = () => {};
+  Net.peerAuthorityVersion = 1;
+
+  Net.restartMatchAsHost();
+
+  assert.equal(Net.isAuthority(), true);
+  assert.equal(opened, 1, 'a fresh match after rival loss must reopen spectator publishing');
 });
 
 test('game loop never gives a spectator physics or input authority', async () => {
