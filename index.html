@@ -437,7 +437,7 @@
      window blur; sits above every other overlay (last in DOM) and never
      disturbs the state underneath. Dismissed only by a user gesture, which
      is what the autoplay policy needs to restart the AudioContext. -->
-<div class="overlay hidden" id="focusov" role="dialog" aria-modal="true" aria-labelledby="focusTitle">
+<div class="overlay hidden" id="focusov" data-persistent-overlay role="dialog" aria-modal="true" aria-labelledby="focusTitle">
   <div class="card">
     <div class="kicker">PAUSED</div>
     <h1 id="focusTitle">Paused</h1>
