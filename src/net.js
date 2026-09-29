@@ -310,7 +310,7 @@ Net.buildSessionCheckpoint = function () {
     expiresAt:now + NET_SESSION_TTL_MS,
     code:Net.code,
     role:Net.role,
-    side:Net.side,
+    side:Net.playerSide(),
     authoritySide:Net.authoritySide,
     authorityEpoch:Net.authorityEpoch,
     sid:Net.sessionId,
@@ -1735,7 +1735,7 @@ Net.sendAuthorityClaim = function () {
 
 Net.onAuthorityClaim = function (ev) {
   if (!ev || ev.v !== 1 || ev.sid !== Net.sessionId || !Net.isPlayer() ||
-      (ev.side !== 0 && ev.side !== 1) || ev.side === Net.side ||
+      (ev.side !== 0 && ev.side !== 1) || ev.side === Net.playerSide() ||
       !Number.isInteger(ev.epoch) || ev.epoch < 1) return false;
 
   const incomingWins = Net.authorityTupleWins(ev.epoch, ev.side);
@@ -1756,7 +1756,7 @@ Net.onAuthorityClaim = function (ev) {
 Net.promoteAuthority = function () {
   if (!Net.active || !Net.isPlayer() || Net.isAuthority() || !Net.rsnap) return false;
   const snap = Net.rsnap;
-  Net.authoritySide = Net.side;
+  Net.authoritySide = Net.playerSide();
   Net.authorityEpoch = Math.max(1, Net.authorityEpoch + 1);
   Net.rtStateSeq = Net.rtLastStateSeq === null ? Net.rtStateSeq : Net.rtLastStateSeq;
   Net.rtLastInputSeq = null;
