@@ -4574,7 +4574,7 @@ function hideAll() {
   // Dialog cleanup must be structural, not an allowlist. A newly added modal
   // should never be able to survive because someone forgot to append its ID
   // here (the old Controls overlay exposed exactly that failure mode).
-  document.querySelectorAll('.overlay').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.overlay:not([data-persistent-overlay])').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('[data-game-chrome]').forEach(el => el.classList.add('hidden'));
 }
 function $(id) { return document.getElementById(id); }
