@@ -1371,10 +1371,10 @@ Net.onRealtimeMessage = function (data) {
   if (!(data instanceof ArrayBuffer) || data.byteLength < 4) return;
   const v = new DataView(data);
   const type = v.getUint8(0);
-  if (type === NET_RT_STATE && Net.role === 'guest') {
+  if (type === NET_RT_STATE && Net.isPlayer() && !Net.isAuthority()) {
     const a = Net.decodeRealtimeState(v);
     if (a) Net.onSnapshot(a, Net.peerId);
-  } else if (type === NET_RT_INPUT && Net.role === 'host') {
+  } else if (type === NET_RT_INPUT && Net.isAuthority()) {
     const a = Net.decodeRealtimeInput(v);
     if (a) {
       Net.onInput(a, Net.peerId);
@@ -1382,7 +1382,7 @@ Net.onRealtimeMessage = function (data) {
       // produces a newer ACK. Old clients ignore this unknown message type.
       Net.sendRealtime(Net.encodeRealtimeAck(Net.rtLastInputSeq));
     }
-  } else if (type === NET_RT_ACK && Net.role === 'guest') {
+  } else if (type === NET_RT_ACK && Net.isPlayer() && !Net.isAuthority()) {
     Net.onRealtimeAck(v);
   }
 };
@@ -1750,7 +1750,7 @@ Net.onPeerJoin = function (id) {
     if (Net.wire && resumeUs) Net.wire.sendEv({ t: 'resume' });
     // fast resync: push a snapshot on the next pump instead of waiting
     // for the tick, so the guest reconverges immediately
-    if (Net.role === 'host') Net.snapAcc = 1;
+    if (Net.isAuthority()) Net.snapAcc = 1;
     Net.resumingSession = false;
     return;
   }
@@ -1804,17 +1804,17 @@ Net.onPeerLeave = function (id) {
 };
 
 Net.onSnapshot = function (a, peerId) {
-  if (Net.role !== 'guest' || !Net.active || !Net.acceptPeer(peerId)) return;
+  if (!Net.isPlayer() || Net.isAuthority() || !Net.active || !Net.acceptPeer(peerId)) return;
   Net.applyRemoteSnapshot(a);
 };
 
 Net.onInput = function (a, peerId) {
-  if (Net.role !== 'host' || !Net.active || !Net.acceptPeer(peerId)) return;
+  if (!Net.isAuthority() || !Net.acceptPeer(peerId)) return;
   if (!Array.isArray(a) || a.length < 2 || !Number.isFinite(a[0]) || !Number.isFinite(a[1])) return;
-  // the guest owns the right half - clamp the target to it up front
-  // (driveMallet re-clamps per side, but the target itself should never
-  // cross the center line)
-  Net.remote.tx = clamp(a[0], CX + 8, PX + PW - MALLET_R);
+  const side = Net.remoteSide();
+  const lo = side === 0 ? PX + MALLET_R : CX + 8;
+  const hi = side === 0 ? CX - 8 : PX + PW - MALLET_R;
+  Net.remote.tx = clamp(a[0], lo, hi);
   Net.remote.ty = clamp(a[1], PY + MALLET_R, PY + PH - MALLET_R);
 };
 
@@ -1825,7 +1825,8 @@ Net.onInput = function (a, peerId) {
  * never touch the puck. driveMallet and PLAYER_CAP live in game.js; unit
  * tests stub driveMallet. */
 Net.driveRemoteMallet = function (dt) {
-  const m = G.m2;
+  const m = Net.remoteMallet();
+  if (!m) return;
   m.tx = Net.remote.tx; m.ty = Net.remote.ty;
   driveMallet(m, dt, PLAYER_CAP);
 };
@@ -1846,23 +1847,23 @@ Net.onEvent = function (ev, peerId) {
       else if (Net.role === 'host' && !Net.active && !Net.waitingForRival && Net.dropOpen()) Net.restartMatchAsHost();
       break;
     case 'resume-knock':
-      if (Net.role === 'host' && Net.active && ev.v === NET_SESSION_VERSION &&
+      if (Net.isAuthority() && ev.v === NET_SESSION_VERSION &&
           ev.sid === Net.sessionId && Net.validSessionId(ev.sid)) {
         if (ev.player) Net.rivalIdentity = Net.cleanPlayer(ev.player);
         Net.sendSessionSync();
       }
       break;
     case 'session-sync':
-      if (Net.role === 'guest') Net.applySessionSync(ev);
+      if (Net.isPlayer() && !Net.isAuthority()) Net.applySessionSync(ev);
       break;
     case 'hello':
       if (Net.role === 'guest') Net.onHello(ev);
       break;
     case 'countdown':
-      if (Net.role === 'guest') Net.onCountdown(ev);
+      if (Net.isPlayer() && !Net.isAuthority()) Net.onCountdown(ev);
       break;
     case 'goal':
-      if (Net.role === 'guest' && Net.active && Net.validGoalEvent(ev)) Net.guestGoal(ev);
+      if (Net.isPlayer() && !Net.isAuthority() && Net.active && Net.validGoalEvent(ev)) Net.guestGoal(ev);
       break;
     case 'pause':
       if (Net.active) Net.applyRemotePause(true);
@@ -1876,7 +1877,7 @@ Net.onEvent = function (ev, peerId) {
     case 'restart-req':
       // ONLINE: guest asks mid-match for a restart - host authority performs
       // it; the countdown event pulls the guest along via Net.onCountdown.
-      if (Net.role === 'host' && Net.active) Net.restartMatchAsHost();
+      if (Net.isAuthority()) Net.restartMatchAsAuthority();
       break;
     case 'leave':
       if (Net.active || Net.waitingForRival) Net.onRivalLeft();
@@ -2092,7 +2093,7 @@ Net.onHello = function (ev) {
 /* Guest: a new-match countdown resets match state; a post-goal countdown
  * starts only the next point, preserving the score and cumulative stats. */
 Net.onCountdown = function (ev) {
-  if (Net.role !== 'guest' || !Net.active) return;
+  if (!Net.active || !Net.isPlayer() || Net.isAuthority()) return;
   const fresh = ev?.fresh === true || !Net.matchStarted || G.state === 'win';
   if (fresh) Net.beginMatch('guest');
   else {
@@ -2209,8 +2210,8 @@ Net.predictionTarget = function () {
  * conservative: no prediction without the V2 realtime/ACK lane, while
  * reconnecting, or when the outgoing queue is already backed up. */
 Net.tryPredictGuestHit = function () {
-  if (Net.role !== 'guest' || G.state !== 'play' || Net.reconnecting || !Net.realtimeWritable()) return false;
-  const gv = Net.gview, m = G.m2;
+  if (!Net.isPlayer() || Net.isAuthority() || G.state !== 'play' || Net.reconnecting || !Net.realtimeWritable()) return false;
+  const gv = Net.gview, m = Net.localMallet();
   if (!gv || !m) return false;
 
   const dx = gv.px - m.x, dy = gv.py - m.y;
@@ -2343,7 +2344,7 @@ Net.pump = function (rdt) {
   // the foundation pass; adaptive netcode will consume it in Online V2.
   Net.rtcAcc += rdt;
   if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; void Net.sampleRtcStats(); }
-  if (Net.role === 'host') {
+  if (Net.isAuthority()) {
     Net.snapAcc += rdt;
     const stateStep = Net.rtReady ? 1 / 60 : 1 / 30;
     if (Net.snapAcc >= stateStep && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
@@ -2370,8 +2371,11 @@ Net.pump = function (rdt) {
 Net.easeHostMallet = function (rdt) {
   if (!Net.rsnap) return;
   const k = Math.min(1, rdt * 18);
-  G.m1.x += (Net.rsnap.m1x - G.m1.x) * k;
-  G.m1.y += (Net.rsnap.m1y - G.m1.y) * k;
+  const m = Net.authoritySide === 1 ? G.m2 : G.m1;
+  const x = Net.authoritySide === 1 ? Net.rsnap.m2x : Net.rsnap.m1x;
+  const y = Net.authoritySide === 1 ? Net.rsnap.m2y : Net.rsnap.m1y;
+  m.x += (x - m.x) * k;
+  m.y += (y - m.y) * k;
 };
 
 Net.easeSpectatorMallets = function (rdt) {
@@ -2466,8 +2470,10 @@ Net.sendPause = function (paused) {
   void Net.spectatorSendEvent(ev);
 };
 Net.sendInput = function (force = false) {
-  if (!Net.wire || !Net.active) return null;
-  const tx = _r1(G.m2.tx), ty = _r1(G.m2.ty), now = performance.now();
+  if (!Net.wire || !Net.active || !Net.isPlayer() || Net.isAuthority()) return null;
+  const local = Net.localMallet();
+  if (!local) return null;
+  const tx = _r1(local.tx), ty = _r1(local.ty), now = performance.now();
   // delta suppression: a stationary mallet re-sends nothing. But packets do
   // drop, so heartbeat at least every 500ms - the host must never stick on
   // a target the guest abandoned three drops ago. Predicted contact forces
