@@ -1658,11 +1658,7 @@ Net.resumeAuthoritySession = async function (checkpoint) {
     if (peers.length > 0) Net.onPeerJoin(peers[0]);
     clearTimeout(Net.disconnectTimer);
     Net.disconnectTimer = setTimeout(() => {
-      if (!Net.peerId && Net.resumingSession) {
-        Net.resumingSession = false;
-        Net.reconnecting = false;
-        Net.onRivalLeft();
-      }
+      if (!Net.peerId && Net.resumingSession) Net.beginAuthorityRecovery();
     }, Net.RECONNECT_GRACE_MS);
     return true;
   } catch (e) {
@@ -1681,6 +1677,136 @@ Net.tryResumeSession = async function () {
   return checkpoint.authority
     ? Net.resumeAuthoritySession(checkpoint)
     : Net.resumeGuestSession(checkpoint);
+};
+
+/* ---------------- authority migration ---------------- */
+Net.adoptAuthoritySnapshot = function (saved) {
+  if (!saved || !Array.isArray(saved.snapshot) || saved.snapshot.length < 15 ||
+      !saved.snapshot.every(Number.isFinite)) return false;
+  const snap = Net.decodeSnapshot(saved.snapshot);
+  Net.clearGuestPrediction();
+  Net.rsnap = snap;
+  Net.snapT = performance.now();
+  Net.gview = { px:snap.px, py:snap.py, pvx:snap.pvx, pvy:snap.pvy };
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  G.m1.x = G.m1.tx = snap.m1x; G.m1.y = G.m1.ty = snap.m1y;
+  G.m2.x = G.m2.tx = snap.m2x; G.m2.y = G.m2.ty = snap.m2y;
+  if (Number.isFinite(snap.svx)) G.serveVX = snap.svx;
+  if (Number.isFinite(snap.svy)) G.serveVY = snap.svy;
+  if (snap.sdir === 1 || snap.sdir === -1) G.serveDir = snap.sdir;
+  if (saved.winSide === 0 || saved.winSide === 1) G.winSide = saved.winSide;
+  const semantic = ['play','count','goal','pause','win'].includes(saved.state) ? saved.state : 'play';
+  if (Net.reconnecting && G.state === 'pause') {
+    Net.reconnectState = semantic === 'pause'
+      ? (['play','count','goal'].includes(saved.pausedFrom) ? saved.pausedFrom : 'play')
+      : semantic;
+    Net.dropPaused = semantic === 'pause';
+  }
+  return true;
+};
+
+Net.sendAuthorityClaim = function () {
+  if (!Net.wire || !Net.active || !Net.isPlayer() || !Net.validSessionId(Net.sessionId)) return;
+  const ev = {
+    t:'authority',
+    v:1,
+    sid:Net.sessionId,
+    epoch:Net.authorityEpoch,
+    side:Net.authoritySide,
+  };
+  if (Net.isAuthority()) ev.authority = Net.authorityCheckpoint();
+  try { Net.wire.sendEv(ev); } catch (e) { Net.logErr(e); }
+};
+
+Net.onAuthorityClaim = function (ev) {
+  if (!ev || ev.v !== 1 || ev.sid !== Net.sessionId || !Net.isPlayer() ||
+      (ev.side !== 0 && ev.side !== 1) || ev.side === Net.side ||
+      !Number.isInteger(ev.epoch) || ev.epoch < 1) return false;
+
+  const incomingWins = Net.authorityTupleWins(ev.epoch, ev.side);
+  if (!incomingWins) return false;
+
+  const wasAuthority = Net.isAuthority();
+  Net.authoritySide = ev.side;
+  Net.authorityEpoch = ev.epoch;
+  if (ev.authority) Net.adoptAuthoritySnapshot(ev.authority);
+
+  if (wasAuthority && !Net.isAuthority()) Net.closeSpectatorRoom();
+  Net.rtLastInputSeq = null;
+  Net.rtAckInputSeq = null;
+  Net.saveSessionCheckpoint();
+  return true;
+};
+
+Net.promoteAuthority = function () {
+  if (!Net.active || !Net.isPlayer() || Net.isAuthority() || !Net.rsnap) return false;
+  const snap = Net.rsnap;
+  Net.authoritySide = Net.side;
+  Net.authorityEpoch = Math.max(1, Net.authorityEpoch + 1);
+  Net.rtStateSeq = Net.rtLastStateSeq === null ? Net.rtStateSeq : Net.rtLastStateSeq;
+  Net.rtLastInputSeq = null;
+  Net.rtAckInputSeq = null;
+  Net.clearGuestPrediction();
+
+  // Promotion starts from the last host-authored state, never from speculative
+  // puck flight. That keeps score/position authority on a converged boundary.
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  G.m1.x = G.m1.tx = snap.m1x; G.m1.y = G.m1.ty = snap.m1y;
+  G.m2.x = G.m2.tx = snap.m2x; G.m2.y = G.m2.ty = snap.m2y;
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  Net.remote.tx = Net.remoteMallet().x;
+  Net.remote.ty = Net.remoteMallet().y;
+  if (G.stats) {
+    G.stats.topSpeed = Math.max(G.stats.topSpeed || 0, snap.top || 0);
+    G.stats.bestRally = Math.max(G.stats.bestRally || 0, snap.br || 0);
+    G.stats.saves = [snap.sv0 | 0, snap.sv1 | 0];
+  }
+  Net.gview = null;
+  void Net.openSpectatorHost();
+  Net.saveSessionCheckpoint();
+  return true;
+};
+
+Net.beginAuthorityRecovery = function () {
+  if (!Net.active || !Net.isPlayer() || Net.peerId) return;
+  Net.authorityRecovery = true;
+  if (!Net.isAuthority()) Net.promoteAuthority();
+  clearTimeout(Net.disconnectTimer);
+  Net.disconnectTimer = setTimeout(() => {
+    if (!Net.peerId && Net.authorityRecovery) {
+      Net.authorityRecovery = false;
+      Net.reconnecting = false;
+      Net.onRivalLeft();
+    }
+  }, NET_AUTHORITY_RECOVERY_MS);
+};
+
+Net.finishAuthorityReconnect = function () {
+  clearTimeout(Net.authoritySettleTimer); Net.authoritySettleTimer = 0;
+  if (!Net.active || !Net.peerId) return;
+  Net.reconnecting = false;
+  Net.authorityRecovery = false;
+  Net.setPauseNotice(false);
+  const resumeUs = !Net.dropPaused && G.state === 'pause' && Net.reconnectState && Net.reconnectState !== 'pause';
+  if (resumeUs) togglePause(false, true);
+  Net.reconnectState = null;
+  Net.dropPaused = false;
+  if (Net.wire && resumeUs) Net.wire.sendEv({ t:'resume' });
+  if (Net.isAuthority()) {
+    Net.snapAcc = 1;
+    void Net.openSpectatorHost();
+  } else {
+    Net.closeSpectatorRoom();
+  }
+  Net.resumingSession = false;
+  Net.saveSessionCheckpoint();
+  Net.paintConn();
+};
+
+Net.scheduleAuthoritySettle = function () {
+  clearTimeout(Net.authoritySettleTimer);
+  Net.authoritySettleTimer = setTimeout(() => Net.finishAuthorityReconnect(), NET_AUTHORITY_SETTLE_MS);
 };
 
 /* ---------------- room lifecycle ---------------- */
