@@ -2290,8 +2290,8 @@ function onlineLocalMallet() {
 // ONLINE: scoreboard / win / ribbon labels by player side.
 function onlineSideLabel(side) {
   if (typeof Net !== 'undefined' && Net.role === 'spectator') return side === 0 ? 'P1' : 'P2';
-  if (typeof Net !== 'undefined' && typeof Net.playerSide === 'function' && onlinePlayerSide() !== null)
-    return side === onlinePlayerSide() ? 'YOU' : 'RIVAL';
+  const localSide = onlinePlayerSide();
+  if (localSide !== null) return side === localSide ? 'YOU' : 'RIVAL';
   return side === 0 ? 'P1' : 'P2';
 }
 // Scoreboard + match-point ribbon side labels, by mode. Exhibition (watch)
