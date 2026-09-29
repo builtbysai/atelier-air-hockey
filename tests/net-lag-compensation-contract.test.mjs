@@ -112,6 +112,25 @@ test('lag compensation contract cases are unique and cover every rejection gate'
       }
     }
 
+    if (item.trajectory !== undefined) {
+      assert.ok(Array.isArray(item.trajectory) && item.trajectory.length >= 2,
+        item.id + ': trajectory must contain at least two authoritative samples');
+      assert.equal(item.trajectory[0].seq, item.hint.stateSeq,
+        item.id + ': trajectory must begin at the guest-referenced state');
+      assert.equal(item.trajectory[0].timeMs, item.history.timeMs);
+      let priorTime = -Infinity;
+      for (const sample of item.trajectory) {
+        assert.ok(sample.timeMs >= priorTime, item.id + ': trajectory time must be monotonic');
+        priorTime = sample.timeMs;
+        assert.equal(sample.pointSerial, item.history.pointSerial);
+        assert.equal(sample.touchSerial, item.history.touchSerial);
+        assert.equal(sample.state, 'play');
+        for (const key of ['puckX','puckY','puckVx','puckVy','puckW']) {
+          assert.ok(finite(sample[key]), item.id + ': non-finite trajectory ' + key);
+        }
+      }
+    }
+
     if (item.expected === 'accept') assert.equal(item.reason, 'accepted');
     else assert.notEqual(item.reason, 'accepted');
   }
@@ -134,4 +153,13 @@ test('lag compensation contract cases are unique and cover every rejection gate'
   assert.equal(wrapReplay.reason, 'duplicate-or-replay');
   assert.ok(wrapReplay.hint.inputSeq > wrapReplay.lastHintSeq,
     'replay fixture must look newer under ordinary integer comparison');
+
+  const extrapolatedContact = spec.cases.find(item => item.id === 'valid-contact-after-referenced-state');
+  assert.equal(extrapolatedContact.expected, 'accept');
+  const rawDistance = Math.hypot(
+    extrapolatedContact.history.puckX - extrapolatedContact.hint.malletX,
+    extrapolatedContact.history.puckY - extrapolatedContact.hint.malletY
+  );
+  assert.ok(rawDistance > NET_TEST_PHYSICS.PUCK_R + NET_TEST_PHYSICS.MALLET_R + spec.policy.contactTolerance,
+    'trajectory fixture must prove raw referenced-snapshot overlap is insufficient');
 });
