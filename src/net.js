@@ -268,6 +268,7 @@ Net.buildSessionCheckpoint = function () {
     matchStarted:!!Net.matchStarted,
     firstTo:Settings.firstTo,
     pace:Settings.pace,
+    goalW:Settings.goalW,
     theme:THEME.id,
     musicSeed:Net.musicSeed >>> 0,
     authority:Net.role === 'host' ? Net.authorityCheckpoint() : null,
@@ -1335,6 +1336,283 @@ Net.sendRealtime = function (buffer) {
   if (ch.bufferedAmount > NET_RT_MAX_BUFFERED) { Net.rtDropped++; return true; }
   try { ch.send(buffer); return true; }
   catch (e) { Net.rtReady = false; Net.logErr(e); return false; }
+};
+
+/* ---------------- short-lived session resurrection ---------------- */
+Net.restoreBodyState = function (body, saved) {
+  if (!body || !saved) return;
+  for (const key of ['x','y','tx','ty','vx','vy']) {
+    if (Number.isFinite(saved[key])) body[key] = saved[key];
+  }
+};
+
+Net.restoreStatsState = function (saved) {
+  const stats = freshStats();
+  if (!saved || typeof saved !== 'object') return stats;
+  const pair = (key, fallback) => Array.isArray(saved[key]) && saved[key].length >= 2
+    ? [saved[key][0] | 0, saved[key][1] | 0] : fallback;
+  stats.topSpeed = Number.isFinite(saved.topSpeed) ? Math.max(0, saved.topSpeed) : 0;
+  stats.rally = saved.rally | 0;
+  stats.bestRally = saved.bestRally | 0;
+  stats.bestGoalRally = saved.bestGoalRally | 0;
+  stats.bankGoals = pair('bankGoals', [0,0]);
+  stats.rallyLastSide = Number.isInteger(saved.rallyLastSide) ? saved.rallyLastSide : -1;
+  stats.saves = pair('saves', [0,0]);
+  stats.streak = pair('streak', [0,0]);
+  stats.bestStreak = pair('bestStreak', [0,0]);
+  stats.worstDef = pair('worstDef', [0,0]);
+  stats.t0 = performance.now() - (Number.isFinite(saved.elapsedMs) ? Math.max(0, saved.elapsedMs) : 0);
+  return stats;
+};
+
+Net.restoreAuthorityCheckpoint = function (checkpoint) {
+  const saved = checkpoint && checkpoint.authority;
+  if (!saved || !Array.isArray(saved.snapshot) || saved.snapshot.length < 15 ||
+      !saved.snapshot.every(Number.isFinite)) return false;
+
+  if ([5,7,11].includes(+checkpoint.firstTo)) Settings.firstTo = +checkpoint.firstTo;
+  if (checkpoint.pace && PACES[checkpoint.pace]) Settings.pace = checkpoint.pace;
+  if (['narrow','standard','wide'].includes(checkpoint.goalW)) Settings.goalW = checkpoint.goalW;
+  if (checkpoint.theme && THEMES[checkpoint.theme]) setTheme(checkpoint.theme, true);
+  try { applySettingsToUI(); } catch (e) {}
+
+  Net.musicSeed = Number.isFinite(+checkpoint.musicSeed) ? (+checkpoint.musicSeed >>> 0) : 0;
+  try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+
+  Net.beginMatch('host');
+  const snap = Net.decodeSnapshot(saved.snapshot);
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  G.winSide = saved.winSide === 1 ? 1 : 0;
+  G.gwNet = Number.isFinite(saved.gwNet) ? saved.gwNet : 0;
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  if (saved.puck) {
+    if (Number.isFinite(saved.puck.w)) G.puck.w = saved.puck.w;
+    if (Number.isFinite(saved.puck.ang)) G.puck.ang = saved.puck.ang;
+  }
+  Net.restoreBodyState(G.m1, saved.m1);
+  Net.restoreBodyState(G.m2, saved.m2);
+  G.stats = Net.restoreStatsState(saved.stats);
+  G.serveVX = Number.isFinite(snap.svx) ? snap.svx : 0;
+  G.serveVY = Number.isFinite(snap.svy) ? snap.svy : 0;
+  if (snap.sdir === 1 || snap.sdir === -1) G.serveDir = snap.sdir;
+
+  let state = ['play','count','goal','pause','win'].includes(saved.state) ? saved.state : 'play';
+  if (state === 'goal') {
+    // A reload does not replay a half-finished ceremony. Advance to the next
+    // stable authoritative state while preserving the already-awarded score.
+    if (G.score[0] >= Settings.firstTo || G.score[1] >= Settings.firstTo) {
+      G.winSide = G.score[0] > G.score[1] ? 0 : 1;
+      state = 'win';
+    } else {
+      resetPositions();
+      rollServe(saved.goalSide === 0 ? 1 : -1);
+      startCount();
+      state = 'count';
+    }
+  } else if (state === 'count') {
+    G.state = 'count';
+    G.countT = Number.isFinite(saved.countT) ? clamp(saved.countT, 0, 2) : 0;
+    G.countN = Number.isInteger(saved.countN) ? clamp(saved.countN, 1, 3) : 3;
+    G.goPlayed = !!saved.goPlayed;
+  } else {
+    G.state = state;
+  }
+
+  if (state === 'win') {
+    G.state = 'win';
+    showWin();
+  } else {
+    const originallyPaused = state === 'pause';
+    const resumeState = originallyPaused
+      ? (['play','count','goal'].includes(saved.pausedFrom) ? saved.pausedFrom : 'play')
+      : state;
+    Net.reconnecting = true;
+    Net.reconnectState = resumeState;
+    Net.dropPaused = originallyPaused;
+    G.pausedFrom = resumeState;
+    G.state = 'pause';
+    hideAll();
+    $('pauseov').classList.remove('hidden');
+    Net.setPauseNotice(true);
+  }
+
+  Net.active = true;
+  Net.matchStarted = true;
+  Net.waitingForRival = false;
+  Net.resumingSession = true;
+  Net.resetConn();
+  return true;
+};
+
+Net.sessionSyncPayload = function () {
+  if (Net.role !== 'host' || !Net.active || !Net.validSessionId(Net.sessionId)) return null;
+  const authority = Net.authorityCheckpoint();
+  if (!authority) return null;
+  return {
+    t:'session-sync',
+    v:NET_SESSION_VERSION,
+    sid:Net.sessionId,
+    firstTo:Settings.firstTo,
+    pace:Settings.pace,
+    goalW:Math.round(goalW()),
+    theme:THEME.id,
+    mseed:Net.musicSeed >>> 0,
+    player:Net.localPlayer(),
+    authority,
+  };
+};
+
+Net.sendSessionSync = function () {
+  if (!Net.wire) return;
+  const payload = Net.sessionSyncPayload();
+  if (!payload) return;
+  Net.wire.sendEv(payload);
+  Net.wire.sendSt(Net.encodeSnapshot());
+};
+
+Net.applySessionSync = function (ev) {
+  if (!ev || ev.v !== NET_SESSION_VERSION || ev.sid !== Net.sessionId ||
+      !Net.resumingSession || !ev.authority ||
+      !Array.isArray(ev.authority.snapshot) || ev.authority.snapshot.length < 15 ||
+      !ev.authority.snapshot.every(Number.isFinite)) return false;
+
+  clearTimeout(Net.joinTimer); Net.joinTimer = 0;
+  clearTimeout(Net.knockTimer); Net.knockTimer = 0;
+  if (!Net.savedSettings) Net.savedSettings = { firstTo:Settings.firstTo, pace:Settings.pace, theme:THEME.id };
+  if ([5,7,11].includes(+ev.firstTo)) Settings.firstTo = +ev.firstTo;
+  if (ev.pace && PACES[ev.pace]) Settings.pace = ev.pace;
+  if (ev.theme && THEMES[ev.theme]) setTheme(ev.theme, true);
+  Net.musicSeed = Number.isFinite(+ev.mseed) ? (+ev.mseed >>> 0) : 0;
+  try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  Net.rivalIdentity = Net.cleanPlayer(ev.player);
+
+  Net.beginMatch('guest');
+  Net.sessionId = ev.sid;
+  const saved = ev.authority;
+  const snap = Net.decodeSnapshot(saved.snapshot);
+  Net.applyRemoteSnapshot(saved.snapshot);
+  G.score = [snap.s0 | 0, snap.s1 | 0];
+  G.winSide = saved.winSide === 1 ? 1 : 0;
+  G.gwNet = Number.isFinite(ev.goalW) ? clamp(ev.goalW, 150, 260) : 0;
+  G.puck.x = snap.px; G.puck.y = snap.py; G.puck.vx = snap.pvx; G.puck.vy = snap.pvy;
+  G.m1.x = G.m1.tx = snap.m1x; G.m1.y = G.m1.ty = snap.m1y;
+  G.m2.x = G.m2.tx = snap.m2x; G.m2.y = G.m2.ty = snap.m2y;
+  G.serveVX = Number.isFinite(snap.svx) ? snap.svx : 0;
+  G.serveVY = Number.isFinite(snap.svy) ? snap.svy : 0;
+  if (snap.sdir === 1 || snap.sdir === -1) G.serveDir = snap.sdir;
+
+  const state = ['play','count','goal','pause','win'].includes(saved.state) ? saved.state : 'play';
+  if (state === 'count') {
+    startCount();
+    G.countT = Number.isFinite(saved.countT) ? clamp(saved.countT, 0, 2) : 0;
+    G.countN = Number.isInteger(saved.countN) ? clamp(saved.countN, 1, 3) : 3;
+    G.goPlayed = !!saved.goPlayed;
+  } else if (state === 'goal') {
+    beginGoalCeremony(saved.goalSide === 1 ? 1 : 0);
+    G.goalT = Number.isFinite(saved.goalT) ? Math.max(0, saved.goalT) : 0;
+    G.goalSlowT = Number.isFinite(saved.goalSlowT) ? Math.max(0, saved.goalSlowT) : 0;
+    G.timeScale = Number.isFinite(saved.timeScale) ? saved.timeScale : G.timeScale;
+  } else if (state === 'pause') {
+    G.pausedFrom = ['play','count','goal'].includes(saved.pausedFrom) ? saved.pausedFrom : 'play';
+    G.state = 'pause';
+    hideAll(); $('pauseov').classList.remove('hidden');
+  } else if (state === 'win') {
+    G.state = 'win';
+    showWin();
+  } else {
+    G.state = 'play';
+    hideAll(); $('topbar').classList.remove('hidden');
+  }
+
+  Net.active = true;
+  Net.matchStarted = true;
+  Net.resumingSession = false;
+  Net.reconnecting = false;
+  Net.setPauseNotice(false);
+  Net.saveSessionCheckpoint();
+  return true;
+};
+
+Net.resumeGuestSession = async function (checkpoint) {
+  const token = ++Net.opToken;
+  Net.openLobby();
+  Net.uiShow('resuming');
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return false;
+    const room = await Net.makeRoom(joinRoom, checkpoint.code);
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return false; }
+    Net.initRoom(room, 'guest');
+    Net.code = checkpoint.code;
+    Net.sessionId = checkpoint.sid;
+    Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
+    Net.resumingSession = true;
+    Net.resumeCheckpoint = checkpoint;
+    Net.joinTimer = setTimeout(() => {
+      if (!Net.active && Net.resumingSession) {
+        Net.resumingSession = false;
+        Net.clearSessionCheckpoint();
+        Net.dropRoom();
+        Net.uiShow('choose');
+        Net.uiError("Couldn't resume that table.");
+      }
+    }, 20000);
+    const peers = Object.keys(room.getPeers());
+    if (peers.length > 0 && Net.acceptPeer(peers[0])) Net.knockBurst();
+    return true;
+  } catch (e) {
+    Net.resumingSession = false;
+    Net.clearSessionCheckpoint();
+    Net.dropRoom();
+    Net.uiShow('choose');
+    Net.uiError(Net.connectionError(e, "Couldn't resume that table."));
+    return false;
+  }
+};
+
+Net.resumeHostSession = async function (checkpoint) {
+  const token = ++Net.opToken;
+  Net.openLobby();
+  Net.uiShow('resuming');
+  try {
+    const { joinRoom } = await Net.trystero();
+    if (token !== Net.opToken) return false;
+    const room = await Net.makeRoom(joinRoom, checkpoint.code);
+    if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return false; }
+    Net.initRoom(room, 'host');
+    Net.code = checkpoint.code;
+    Net.sessionId = checkpoint.sid;
+    Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
+    Net.resumeCheckpoint = checkpoint;
+    if (!Net.restoreAuthorityCheckpoint(checkpoint)) throw new Error('Saved authority state is invalid');
+    void Net.openSpectatorHost();
+    const peers = Object.keys(room.getPeers());
+    if (peers.length > 0) Net.onPeerJoin(peers[0]);
+    clearTimeout(Net.disconnectTimer);
+    Net.disconnectTimer = setTimeout(() => {
+      if (!Net.peerId && Net.resumingSession) {
+        Net.resumingSession = false;
+        Net.reconnecting = false;
+        Net.onRivalLeft();
+      }
+    }, Net.RECONNECT_GRACE_MS);
+    return true;
+  } catch (e) {
+    Net.resumingSession = false;
+    Net.clearSessionCheckpoint();
+    Net.dropRoom();
+    Net.uiShow('choose');
+    Net.uiError(Net.connectionError(e, "Couldn't restore that table."));
+    return false;
+  }
+};
+
+Net.tryResumeSession = async function () {
+  const checkpoint = Net.readSessionCheckpoint();
+  if (!checkpoint || Net.active || Net.room) return false;
+  return checkpoint.role === 'host'
+    ? Net.resumeHostSession(checkpoint)
+    : Net.resumeGuestSession(checkpoint);
 };
 
 /* ---------------- room lifecycle ---------------- */
