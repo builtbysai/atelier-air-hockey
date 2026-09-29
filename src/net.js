@@ -697,15 +697,15 @@ Net.spectatorHello = function (target) {
 };
 
 Net.openSpectatorHost = async function () {
-  if (Net.role !== 'host' || !Net.code) return;
+  if (!Net.isAuthority() || !Net.code) return;
   const token = ++Net.spectatorToken;
   try {
     const { joinRoom } = await Net.trystero();
-    if (token !== Net.spectatorToken || Net.role !== 'host' || !Net.code) return;
+    if (token !== Net.spectatorToken || !Net.isAuthority() || !Net.code) return;
     const room = await Net.makeRoom(joinRoom, Net.code, {
       prefix:'atelier-ah-watch-', lockPeer:false, passive:true,
     });
-    if (token !== Net.spectatorToken || Net.role !== 'host') { try { room.leave(); } catch (e) {} return; }
+    if (token !== Net.spectatorToken || !Net.isAuthority()) { try { room.leave(); } catch (e) {} return; }
 
     const st = room.makeAction('wst');
     const ev = room.makeAction('wev');
@@ -1223,7 +1223,7 @@ Net.knockBurst = function () {
   clearTimeout(Net.knockTimer);
   let tries = 0;
   const burst = () => {
-    if (Net.active || !Net.wire || Net.role !== 'guest') return;
+    if (Net.active || !Net.wire || !Net.isPlayer()) return;
     if (tries++ >= Net.KNOCK_RETRIES) return;
     const ev = Net.resumingSession && Net.validSessionId(Net.sessionId)
       ? { t:'resume-knock', v:NET_SESSION_VERSION, sid:Net.sessionId, player:Net.localPlayer() }
@@ -1609,8 +1609,12 @@ Net.resumeGuestSession = async function (checkpoint) {
     if (token !== Net.opToken) return false;
     const room = await Net.makeRoom(joinRoom, checkpoint.code);
     if (token !== Net.opToken) { try { room.leave(); } catch (e) {} return false; }
-    Net.initRoom(room, 'guest');
+    const resumeRole = checkpoint.role === 'host' ? 'host' : 'guest';
+    Net.initRoom(room, resumeRole);
     Net.code = checkpoint.code;
+    Net.side = checkpoint.side === 0 ? 0 : 1;
+    Net.authoritySide = checkpoint.authoritySide === 1 ? 1 : 0;
+    Net.authorityEpoch = Number.isInteger(checkpoint.authorityEpoch) ? Math.max(1, checkpoint.authorityEpoch) : 1;
     Net.sessionId = checkpoint.sid;
     Net.rivalIdentity = Net.cleanPlayer(checkpoint.rival);
     Net.resumingSession = true;
@@ -1826,7 +1830,7 @@ Net.initRoom = function (room, role) {
 /* Drop the room object without ceremony (cancel paths). */
 Net.dropRoom = function () {
   clearTimeout(Net.disconnectTimer); Net.disconnectTimer = 0;
-  if (Net.role === 'host') {
+  if (Net.isAuthority()) {
     void Net.spectatorSendEvent({ t:'end' });
     Net.closeSpectatorRoom();
   }
@@ -2218,7 +2222,7 @@ Net.onHello = function (ev) {
   Net.active = true;
   Net.waitingForRival = false;
   G.mode = 'online';
-  G.onlineFlip = true;
+  G.onlineFlip = Net.side === 1;
   if (typeof fitCamera === 'function') fitCamera(); // 2.5D: re-seat the camera behind the viewer's end
   if (typeof paintTableWarp === 'function') paintTableWarp(); // re-warp the static table
   Net.resetConn(); // fresh RTT chip for a fresh match (not on every countdown)
@@ -2230,7 +2234,13 @@ Net.onHello = function (ev) {
 Net.onCountdown = function (ev) {
   if (!Net.active || !Net.isPlayer() || Net.isAuthority()) return;
   const fresh = ev?.fresh === true || !Net.matchStarted || G.state === 'win';
-  if (fresh) Net.beginMatch('guest');
+  if (ev && (ev.authoritySide === 0 || ev.authoritySide === 1)) Net.authoritySide = ev.authoritySide;
+  if (ev && Number.isInteger(ev.authorityEpoch)) Net.authorityEpoch = Math.max(Net.authorityEpoch, ev.authorityEpoch);
+  if (ev && Number.isFinite(+ev.mseed)) {
+    Net.musicSeed = (+ev.mseed) >>> 0;
+    try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
+  }
+  if (fresh) Net.beginMatch(Net.role === 'host' ? 'host' : 'guest');
   else {
     clearCeremony();
     hideAll();
@@ -2582,7 +2592,8 @@ Net.sendCountdown = function (fresh = false) {
   if (!Net.wire || !Net.active) return;
   const ev = { t:'countdown', fresh, s0:G.score[0], s1:G.score[1], serveDir:G.serveDir,
     svx:Math.round(G.serveVX * 10) / 10, svy:Math.round(G.serveVY * 10) / 10,
-    gw:Math.round(goalW()) };
+    gw:Math.round(goalW()), mseed:Net.musicSeed >>> 0,
+    authoritySide:Net.authoritySide, authorityEpoch:Net.authorityEpoch };
   Net.wire.sendEv(ev);
   void Net.spectatorSendEvent(ev);
 };
@@ -2644,7 +2655,7 @@ Net.onRematch = function (phase) {
     Net.uiShow('rematchoffer');
     AudioSys.ui();
   } else if (phase === 'accept') {
-    if (Net.role === 'host') Net.restartMatchAsHost();
+    if (Net.isAuthority()) Net.restartMatchAsAuthority();
     else { Net.uiShow('guestwait'); } // host accepted - they're starting it
   } else if (phase === 'decline') {
     if (!Net.offerSent) return;
