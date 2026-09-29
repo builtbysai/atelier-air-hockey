@@ -110,6 +110,60 @@ test('former host adopts a higher guest authority epoch and converged state', as
   assert.equal(Net.reconnectState,'play');
 });
 
+test('losing but valid peer authority claim completes epoch comparison without changing authority', async () => {
+  const {Net} = await loadNet();
+  Net.active=true; Net.role='host'; Net.side=0;
+  Net.authoritySide=0; Net.authorityEpoch=3;
+  Net.authorityMigrationReady=true;
+  Net.sessionId='abcdefghijklmnopqrstuvwx';
+  Net.saveSessionCheckpoint=()=>true;
+
+  assert.equal(Net.onAuthorityClaim({
+    v:1,sid:Net.sessionId,epoch:3,side:1,
+  }),true);
+  assert.equal(Net.authoritySide,0);
+  assert.equal(Net.authorityEpoch,3);
+});
+
+test('newer remote authority is rejected without a valid authoritative snapshot', async () => {
+  const {Net} = await loadNet();
+  Net.active=true; Net.role='host'; Net.side=0;
+  Net.authoritySide=0; Net.authorityEpoch=1;
+  Net.authorityMigrationReady=true;
+  Net.sessionId='abcdefghijklmnopqrstuvwx';
+  Net.saveSessionCheckpoint=()=>true;
+
+  assert.equal(Net.onAuthorityClaim({
+    v:1,sid:Net.sessionId,epoch:2,side:1,
+  }),false);
+  assert.equal(Net.authoritySide,0);
+  assert.equal(Net.authorityEpoch,1);
+});
+
+test('authority recovery stays frozen until a peer claim has been observed', async () => {
+  const {Net} = await loadNet();
+  Net.active=true; Net.role='guest'; Net.side=1;
+  Net.authoritySide=0; Net.authorityEpoch=1;
+  Net.peerId='peer-zero';
+  Net.reconnecting=true; Net.authorityRecovery=true;
+  Net.authorityPeerClaimSeen=false;
+  Net.reconnectState='play'; Net.dropPaused=false;
+  Net.setPauseNotice=()=>{};
+  Net.closeSpectatorRoom=()=>{};
+  Net.saveSessionCheckpoint=()=>true;
+  Net.paintConn=()=>{};
+
+  Net.finishAuthorityReconnect();
+  assert.equal(Net.reconnecting,true);
+  assert.equal(Net.authorityRecovery,true);
+
+  Net.authorityPeerClaimSeen=true;
+  Net.finishAuthorityReconnect();
+  assert.equal(Net.reconnecting,false);
+  assert.equal(Net.authorityRecovery,false);
+  assert.equal(Net.authorityPeerClaimSeen,false);
+});
+
 test('migrated authority clamps incoming target to the remote player half', async () => {
   const {Net} = await loadNet();
   Net.active=true; Net.role='guest'; Net.side=1;
