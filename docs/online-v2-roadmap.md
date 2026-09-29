@@ -1,7 +1,7 @@
 # Atelier Online V2 Roadmap
 
 Last updated: 2026-09-29  
-Current reference main commit when this roadmap was refreshed: `01e51bb53776`
+Current reference main commit when this roadmap was refreshed: `aa9be00e7a68`
 
 ## New-agent quick start
 
@@ -11,7 +11,7 @@ If you are taking over this work:
 2. Read this roadmap, then read `docs/online-v2-lag-compensation.md`.
 3. Read `src/net.js` before modifying transport or authority logic.
 4. Do **not** duplicate draft PR #88. It already contains ICE recovery / network migration.
-5. PR #89 (deterministic Network Lab), #93 (forced TURN verification), #95 (blackout recovery coverage), #96 (exact latency matrix), and #97 (lost-input heartbeat recovery) are merged on `main`.
+5. PR #89 (deterministic Network Lab), #93 (forced TURN verification), #95 (blackout recovery), #96 (exact latency matrix), #97 (lost-input recovery), #99 (score convergence), #100 (transport metrics), #101 (sequence tracing), #102 (focused Online test command), and #103 (prediction chaos metrics) are merged on `main`.
 6. When GitHub Actions return on October 2, validate #88 first, then run the merged Network Lab through the full suite.
 7. Only after the Network Lab is green should host-side lag compensation move from design into production code.
 8. Preserve host-authoritative score/goals, the reliable compatibility path, and short-lived server-issued TURN credentials.
@@ -20,9 +20,9 @@ If you are taking over this work:
 
 Current staged head at this refresh:
 
-- PR #88 `feat/online-v2-ice-recovery`: `10fe9f951bf379e35d7bbba218e519db581b0a9a`
+- PR #88 `feat/online-v2-ice-recovery`: `86662b2697f222d87ae381b7edc43c3299262d0c`
 
-Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100 and #101.
+Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102 and #103.
 
 ## Goal
 
@@ -207,17 +207,17 @@ Staged work:
 - monitor `connectionstatechange` and `iceconnectionstatechange`
 - brief debounce for transient disconnects
 - bounded recovery attempt budget
-- force-refresh short-lived Cloudflare ICE credentials
-- preserve the peer's existing ICE configuration if credential refresh fails
+- refresh short-lived Cloudflare ICE credentials within an 800 ms recovery budget
+- preserve the peer's existing ICE configuration if refresh fails or times out
 - preserve relay-only policy when the forced TURN diagnostic is active
-- replace the active ICE server set only when fresh credentials are available
+- preserve the rest of the current RTCConfiguration while rotating ICE servers
 - call `RTCPeerConnection.restartIce()`
 - let Trystero's existing `negotiationneeded` signaling carry the restart
 - cleanly remove listeners/timers when the peer/room is dropped
 - preserve the existing 15-second gameplay reconnect fallback
 - focused recovery tests included
 
-Do not duplicate this work. The branch was rebased onto current `main` during static review. Upstream Trystero source confirms its peer layer handles `onnegotiationneeded` by creating a new offer, but the browser/network behavior still requires full CI, Visual QA and real migration testing before merge.
+Do not duplicate this work. The branch is one commit directly on current `main`. Exact Trystero 0.25.4 source confirms a continuously `disconnected` peer gets a 5-second close timer and `onnegotiationneeded` creates/signals a new offer. `failed`/`closed` emit close immediately, so #88 is intentionally early disconnected-state recovery; Atelier's existing reconnect grace path remains the fallback. Full CI, Visual QA and real migration testing are still required before merge.
 
 ### PR #89 - deterministic Network Lab
 
@@ -239,6 +239,8 @@ Implemented:
 - metrics for delivery, drops, reorder count, maximum queue depth, bytes, observed latency and delay variation
 - sequence tracing for realtime packet gaps plus stale/duplicate arrivals
 - score-convergence coverage for stale realtime state and repeated absolute goal delivery
+- focused `npm run unit:online` command for every `tests/net-*.test.mjs` suite
+- prediction/reconciliation chaos coverage across clean / broadband / mobile / hotel Wi-Fi / brutal profiles
 
 The merge does **not** mean the lab has been declared green. Run the full suite when Actions return before using its results to tune or enable lag compensation.
 
@@ -335,7 +337,7 @@ Still pending real or recovery-integrated validation:
 
 - Wi-Fi -> cellular style connection migration through PR #88
 - browser-level direct vs relayed route behavior
-- prediction/reconciliation metrics under the chaos profiles
+- subjective prediction/reconciliation tuning from real-device measurements
 
 Track:
 
@@ -343,9 +345,9 @@ Track:
 - jitter
 - realtime packet gaps (test-harness sequence tracing merged)
 - stale/out-of-order packets (test-harness sequence tracing merged)
-- prediction count
-- reconciliation count
-- maximum correction distance
+- prediction count (deterministic chaos coverage merged)
+- reconciliation count (deterministic chaos coverage merged)
+- maximum correction distance (deterministic chaos coverage merged)
 - realtime channel buffered bytes
 - selected ICE candidate route
 - bytes sent/received (virtual transport byte metrics merged)
@@ -495,7 +497,7 @@ Do not stack another high-risk production protocol/physics change on top of unve
 
 Safe work:
 
-1. Use `npm run unit:online` for the focused Online V2 suite once this tooling lands; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics and sequence tracing are already covered.
+1. Use `npm run unit:online` for the focused Online V2 suite; exact latency, blackout convergence, lost-input recovery, score convergence, bytes/timing metrics, sequence tracing and prediction/reconciliation chaos coverage are already merged.
 2. Review PR #88 statically, but keep its production recovery behavior staged until it can run through the full suite.
 3. Keep lag-compensation implementation on paper or an isolated experimental branch until the Network Lab executes successfully.
 4. Use the merged forced TURN diagnostic for real-device relay validation when practical.
