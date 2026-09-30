@@ -531,3 +531,138 @@ test('stationary mallet input is suppressed, moves and heartbeats send', async (
   Net.sendInput();
   assert.equal(sent.length, 3, 'heartbeat re-sends even when still');
 });
+
+
+// ---------- realtime lane health / reliable safety net ----------
+
+test('open but unproven realtime lane keeps authoritative snapshots on reliable fallback', async () => {
+  const { Net, G } = await loadNetWorld();
+  Net.role = 'host'; Net.active = true; Net.peerId = 'peer';
+  G.state = 'play';
+
+  let realtimeSends = 0;
+  Net.rtReady = true;
+  Net.rtChannel = {
+    readyState:'open', bufferedAmount:0,
+    send() { realtimeSends++; }, // deliberately never delivered
+  };
+  const reliable = [];
+  Net.wire = {
+    sendSt(d) { reliable.push(d); return Promise.resolve(); },
+    sendIn() { return Promise.resolve(); },
+    sendEv() { return Promise.resolve(); },
+  };
+
+  // Two 60 Hz frames are one 30 Hz fallback interval.
+  Net.pump(1 / 60);
+  Net.pump(1 / 60);
+
+  assert.ok(realtimeSends > 0, 'fast lane is still attempted');
+  assert.ok(reliable.length > 0, 'unproven fast lane must never suppress reliable state');
+  assert.ok(Number.isInteger(reliable.at(-1)[18]), 'reliable keyframe carries shared state sequence');
+});
+
+test('healthy realtime lane still emits low-rate reliable state keyframes', async () => {
+  const { Net, G } = await loadNetWorld();
+  Net.role = 'host'; Net.active = true; Net.peerId = 'peer';
+  G.state = 'play';
+
+  let realtimeSends = 0;
+  Net.rtReady = true;
+  Net.rtChannel = {
+    readyState:'open', bufferedAmount:0,
+    send() { realtimeSends++; },
+  };
+  Net.rtLastInputRxT = performance.now();
+  const reliable = [];
+  Net.wire = {
+    sendSt(d) { reliable.push(d); return Promise.resolve(); },
+    sendIn() { return Promise.resolve(); },
+    sendEv() { return Promise.resolve(); },
+  };
+
+  for (let i = 0; i < 12; i++) Net.pump(1 / 60);
+
+  assert.ok(realtimeSends >= 10, 'healthy lane keeps high-rate realtime state');
+  assert.ok(reliable.length >= 1 && reliable.length <= 3,
+    'healthy lane keeps only a low-rate reliable safety stream: ' + reliable.length);
+});
+
+test('guest sends reliable input while realtime lane is open but not proven healthy', async () => {
+  const { Net, G } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; Net.peerId = 'peer';
+  G.state = 'play';
+  G.m2.tx = 620; G.m2.ty = 310;
+
+  Net.rtReady = true;
+  Net.rtChannel = {
+    readyState:'open', bufferedAmount:0,
+    send() {}, // black-holed fast lane
+  };
+  const reliableInputs = [];
+  Net.wire = {
+    sendSt() { return Promise.resolve(); },
+    sendIn(d) { reliableInputs.push(d); return Promise.resolve(); },
+    sendEv() { return Promise.resolve(); },
+  };
+
+  Net.pump(1 / 30);
+
+  assert.ok(reliableInputs.length > 0, 'guest target survives an asymmetric/broken fast lane');
+  assert.deepEqual(reliableInputs.at(-1), [620, 310]);
+});
+
+test('state starvation requests an immediate authoritative reliable keyframe', async () => {
+  const guest = await loadNetWorld();
+  const host = await loadNetWorld();
+  guest.Net.role = 'guest'; guest.Net.active = true; guest.Net.peerId = 'peer';
+  host.Net.role = 'host'; host.Net.active = true; host.Net.peerId = 'peer';
+  guest.G.state = host.G.state = 'play';
+
+  const hostStates = [];
+  host.Net.wire = {
+    sendSt(d) { hostStates.push(d); return Promise.resolve(); },
+    sendIn() { return Promise.resolve(); },
+    sendEv() { return Promise.resolve(); },
+  };
+  guest.Net.wire = {
+    sendSt() { return Promise.resolve(); },
+    sendIn() { return Promise.resolve(); },
+    sendEv(ev) {
+      host.Net.onEvent(JSON.parse(JSON.stringify(ev)), 'peer');
+      return Promise.resolve();
+    },
+  };
+
+  // No snapshot ever reaches the guest. The watchdog must ask over the
+  // reliable event channel instead of painting the center puck forever.
+  for (let i = 0; i < 12; i++) guest.Net.pump(1 / 30);
+
+  assert.ok(hostStates.length > 0, 'authority answered sync request with a reliable state');
+  assert.ok(Number.isInteger(hostStates.at(-1)[18]));
+});
+
+test('shared state sequence prevents a late reliable keyframe from rewinding realtime state', async () => {
+  const { Net } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; Net.peerId = 'peer';
+
+  const base = [
+    500, 300, 600, 0,
+    150, 300, 650, 300,
+    2, 1, 2, 0, 0, 0, 0,
+    500, 0, 1,
+  ];
+
+  assert.equal(Net.applyRemoteSnapshot([...base, 20]), true);
+  assert.equal(Net.rsnap.px, 500);
+
+  const stale = [...base, 19];
+  stale[0] = 300;
+  assert.equal(Net.applyRemoteSnapshot(stale), false);
+  assert.equal(Net.rsnap.px, 500, 'older cross-lane state cannot move the puck backward');
+
+  const newer = [...base, 21];
+  newer[0] = 540;
+  assert.equal(Net.applyRemoteSnapshot(newer), true);
+  assert.equal(Net.rsnap.px, 540);
+});
