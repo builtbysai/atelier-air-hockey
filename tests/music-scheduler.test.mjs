@@ -40,7 +40,7 @@ async function loadGame() {
   const context = vm.createContext({
     console, Math, JSON, G,
     DIFFS: [{ name: 'Rookie' }, { name: 'Club Pro' }, { name: 'Champion' }],
-    Net: { role: 'host' },
+    Net: { role: 'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null },
     Settings: { firstTo: 7, orientation: 'landscape', music: true, sfx: true },
     THEME: { scoreboard: 'solari', board: {}, gold: '#c9a227', font: { body: 'sans-serif', display: 'sans-serif' }, ink: '#fff' },
     CX: 720, CY: 520, TAU: Math.PI * 2,

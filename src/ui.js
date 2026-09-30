@@ -247,13 +247,10 @@ function setSetting(key, val) {
   if (key === 'soundVolume' || key === 'musicVolume') val = clamp(Math.round(Number(val) || 0), 0, 100);
   Settings[key] = val;
   if (key === 'shake') PRM.userShake = true;
-  if (key === 'soundVolume' || key === 'musicVolume') {
-    Settings.sound = Settings.soundVolume > 0;
-    Settings.music = Settings.musicVolume > 0;
-    Settings.masterMuted = !Settings.sound && !Settings.music;
+  if ((key === 'soundVolume' || key === 'musicVolume') && val > 0) {
     // Keep a useful restore point when sliders are adjusted directly. A
     // central mute snapshots the exact current mix separately in AudioSys.
-    if (val > 0) Settings[key === 'soundVolume' ? 'soundBeforeMute' : 'musicBeforeMute'] = val;
+    Settings[key === 'soundVolume' ? 'soundBeforeMute' : 'musicBeforeMute'] = val;
   }
   saveSettings();
   if (key === 'touchOffset') resetTransientControls();
@@ -300,17 +297,16 @@ function applySettingsToUI() {
       btn.title = rulesLocked ? 'Match rules are locked during an online match' : '';
     });
   });
-  AudioSys.syncPreferenceState();
   AudioSys.syncMute();
   AudioSys.syncMusic();
-  AudioSys.syncMaster();
   MusicSys.syncEnabled();
   const sb = $('btnSound');
   if (sb) {
-    sb.classList.toggle('off', Settings.masterMuted);
-    sb.innerHTML = Settings.masterMuted ? '&#215;' : '&#9834;';
-    sb.setAttribute('aria-label', Settings.masterMuted ? 'Unmute all audio' : 'Mute all audio');
-    sb.title = Settings.masterMuted ? 'Unmute all (M)' : 'Mute all (M)';
+    const muted = AudioSys.isMasterMuted();
+    sb.classList.toggle('off', muted);
+    sb.innerHTML = muted ? '&#215;' : '&#9834;';
+    sb.setAttribute('aria-label', muted ? 'Unmute all audio' : 'Mute all audio');
+    sb.title = muted ? 'Unmute all (M)' : 'Mute all (M)';
   }
   updateStartLabel();
   const hf = $('helpFirst');
@@ -900,7 +896,7 @@ function wireUI() {
     AudioSys.init();
     // One source of truth: global mute changes the visible channel sliders,
     // and direct slider changes derive the global muted state in return.
-    AudioSys.setMasterMuted(!Settings.masterMuted);
+    AudioSys.setMasterMuted(!AudioSys.isMasterMuted());
     applySettingsToUI();
   });
   window.addEventListener('keydown', e => {

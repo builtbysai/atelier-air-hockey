@@ -14,7 +14,7 @@ async function loadCamera() {
   const context = vm.createContext({
     console, Math, JSON,
     G,
-    Net: { role: 'host' },
+    Net: { role: 'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null },
     Settings: { firstTo: 7, camera: 'top' },
     THEME: { gold: '#c9a227', font: { body: 'sans-serif', display: 'sans-serif' }, ink: '#fff' },
     clamp: (v, a, b) => Math.min(b, Math.max(a, v)),

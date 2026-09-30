@@ -28,11 +28,8 @@ const TAU = Math.PI * 2;
 // ---------- user settings (persisted) ----------
 const Settings = {
   shake: 'full',      // 'off' | 'subtle' | 'full'
-  sound: true,        // compatibility gate, derived from soundVolume
   soundVolume: 100,   // 0-100 - 0 is muted, 100 preserves today's calibrated SFX level
-  masterMuted: false, // derived: true only when BOTH visible audio sliders are at 0
   soundBeforeMute: 100, // remembered mix used by the global mute button
-  music: true,        // compatibility gate, derived from musicVolume
   musicVolume: 70,    // 0-100 - whole music/ambience bus; 70 is the calibrated unity point
   musicBeforeMute: 70, // remembered mix used by the global mute button
   haptics: true,
@@ -68,41 +65,17 @@ function loadSettings() {
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';
   if (!['top', 'elevated', 'surface'].includes(Settings.camera)) Settings.camera = 'top';
-  // Migrate the retired floating-stick preference. Players who chose it were
-  // explicitly asking for less hand occlusion, so move them to High offset.
-  if (!Object.prototype.hasOwnProperty.call(stored, 'touchOffset'))
-    Settings.touchOffset = stored.touchControl === 'stick' ? 'high' : 'medium';
   if (!['low', 'medium', 'high'].includes(Settings.touchOffset)) Settings.touchOffset = 'medium';
   if (!['precise', 'balanced', 'fast'].includes(Settings.keyboardFeel)) Settings.keyboardFeel = 'balanced';
   if (!['precise', 'balanced', 'fast'].includes(Settings.gamepadFeel)) Settings.gamepadFeel = 'balanced';
-  // Audio sliders replace the old on/off preferences. Migrate old saves once,
-  // then keep the booleans as derived compatibility gates for existing audio paths.
-  if (!Object.prototype.hasOwnProperty.call(stored, 'soundVolume')) Settings.soundVolume = stored.sound === false ? 0 : 100;
   if (!Number.isFinite(Settings.soundVolume)) Settings.soundVolume = 100;
   else Settings.soundVolume = clamp(Math.round(Settings.soundVolume), 0, 100);
   if (!Number.isFinite(Settings.musicVolume)) Settings.musicVolume = 70;
   else Settings.musicVolume = clamp(Math.round(Settings.musicVolume), 0, 100);
-  // The old UI stored a separate Music Off toggle alongside a remembered
-  // volume. Respect that explicit choice when moving to the slider-only model.
-  if (stored.music === false) Settings.musicVolume = 0;
-
   if (!Number.isFinite(Settings.soundBeforeMute)) Settings.soundBeforeMute = 100;
   else Settings.soundBeforeMute = clamp(Math.round(Settings.soundBeforeMute), 0, 100);
   if (!Number.isFinite(Settings.musicBeforeMute)) Settings.musicBeforeMute = 70;
   else Settings.musicBeforeMute = clamp(Math.round(Settings.musicBeforeMute), 0, 100);
-
-  // v1 stored a third independent masterMuted gate while leaving the two
-  // sliders visually unchanged. Migrate that state into the slider model so
-  // every audio control now tells the same truth.
-  if (stored.masterMuted === true && (Settings.soundVolume > 0 || Settings.musicVolume > 0)) {
-    Settings.soundBeforeMute = Settings.soundVolume;
-    Settings.musicBeforeMute = Settings.musicVolume;
-    Settings.soundVolume = 0;
-    Settings.musicVolume = 0;
-  }
-  Settings.sound = Settings.soundVolume > 0;
-  Settings.music = Settings.musicVolume > 0;
-  Settings.masterMuted = !Settings.sound && !Settings.music;
 }
 // Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
@@ -348,8 +321,7 @@ const Workshop = {
   save() {
     try { localStorage.setItem(this.key, JSON.stringify(this.data)); } catch (e) {}
   },
-  // Stored drill values are completed stage numbers. Legacy saves used 1,
-  // which naturally migrates to Stage 1 without losing unlock progress.
+  // Stored drill values are completed stage numbers.
   stage(id) {
     const n = Number(this.data[id]);
     if (!Number.isFinite(n) || n <= 0) return 0;
@@ -364,9 +336,6 @@ const Workshop = {
     this.data[id] = next; this.save();
     return true;
   },
-  // Compatibility for older callers: "complete" still means the first clear,
-  // which is the stage that unlocks the same route as before.
-  complete(id) { return this.completeStage(id, 1); },
   best(id) {
     const n = Number(this.data._best && this.data._best[id]);
     return Number.isFinite(n) && n > 0 ? n : 0;
@@ -649,18 +618,15 @@ const AudioSys = {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       this.ctx = new AC();
-      // Three gain stages: sfxBus (Sound Effects), musicBus (Music, including
-      // room ambience), and a shared masterBus. Global mute now drives the two
-      // visible sliders to zero, so the bus gate and the UI can never disagree.
+      // Sound Effects and Music (including room ambience) have independent
+      // gain stages. Global mute is represented only by both visible sliders
+      // being at zero, so there is no hidden master state to drift out of sync.
       this.sfxBus = this.ctx.createGain();
       this.musicBus = this.ctx.createGain();
-      this.masterBus = this.ctx.createGain();
-      this.sfxBus.connect(this.masterBus);
-      this.musicBus.connect(this.masterBus);
-      this.masterBus.connect(this.ctx.destination);
-      this.syncMute(); // honor the persisted sound setting (boot w/ sound off)
-      this.syncMusic(); // and the persisted music setting (boot w/ music off)
-      this.syncMaster(); // and the persisted master mute (boot w/ all muted)
+      this.sfxBus.connect(this.ctx.destination);
+      this.musicBus.connect(this.ctx.destination);
+      this.syncMute();
+      this.syncMusic();
     } catch (e) { /* silent */ }
     this._ensureAmbience();
     MusicSys.prime(); // generative music also waits for the first user gesture
@@ -674,7 +640,6 @@ const AudioSys = {
   // (browser policy) instead of throwing an unhandled rejection.
   suspend() { try { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
   resume() { try { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
-  toggle() { this.muted = !this.muted; this.syncMute(); return this.muted; },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
   // pitchMul climbs ~3% per rally hit so long rallies audibly tighten.
   hit(power, pitchMul = 1) {
@@ -818,7 +783,7 @@ const AudioSys = {
   // jazz-room bass plucks, poolside laps, a concrete-hall wash, felt hush,
   // loft murmur swells with the odd glass clink, machiya rain and wood
   // creaks. Levels sit well under SFX. The bed rides the music bus, so it
-  // follows the Music toggle - Sound off leaves it playing. The bed only
+  // follows the Music volume - muting Sound Effects leaves it playing. The bed only
   // ever exists after init(), which runs solely on real user input
   // (autoplay-safe). Switching rooms crossfades the bed instead of clicking.
   ambKey: null, amb: null, ambTimer: null,
@@ -830,23 +795,20 @@ const AudioSys = {
   syncMute() {
     if (!this.sfxBus) return;
     const v = clamp(Settings.soundVolume, 0, 100) / 100;
-    this.sfxBus.gain.value = (this.muted || v <= 0) ? 0 : 0.5 * Math.pow(v, 1.5);
-  }, // SFX/UI only - 100 preserves the previous calibrated 0.5 gain
+    this.muted = v <= 0;
+    this.sfxBus.gain.value = this.muted ? 0 : 0.5 * Math.pow(v, 1.5);
+  }, // SFX/UI only - 100 preserves the calibrated 0.5 gain
   syncMusic() {
     if (!this.musicBus) return;
     const v = clamp(Settings.musicVolume, 0, 100) / 70;
-    this.musicBus.gain.value = (!Settings.music || v <= 0) ? 0 : Math.min(2, Math.pow(v, 1.5));
+    this.musicBus.gain.value = v <= 0 ? 0 : Math.min(2, Math.pow(v, 1.5));
   }, // whole music + ambience bus; 70 is unity
-  syncPreferenceState() {
-    Settings.sound = Settings.soundVolume > 0;
-    Settings.music = Settings.musicVolume > 0;
-    Settings.masterMuted = !Settings.sound && !Settings.music;
-    this.muted = !Settings.sound;
+  isMasterMuted() {
+    return Settings.soundVolume <= 0 && Settings.musicVolume <= 0;
   },
-  syncMaster() { if (this.masterBus) this.masterBus.gain.value = Settings.masterMuted ? 0 : 1; },
   setMasterMuted(m) {
     const mute = !!m;
-    const wasMuted = Settings.soundVolume <= 0 && Settings.musicVolume <= 0;
+    const wasMuted = this.isMasterMuted();
     if (mute && !wasMuted) {
       // Snapshot the exact mix, including an intentionally-zero channel.
       Settings.soundBeforeMute = Settings.soundVolume;
@@ -862,13 +824,11 @@ const AudioSys = {
       Settings.soundVolume = sound;
       Settings.musicVolume = music;
     }
-    this.syncPreferenceState();
     try { saveSettings(); } catch (e) {}
     this.syncMute();
     this.syncMusic();
-    this.syncMaster();
     MusicSys.syncEnabled();
-    return Settings.masterMuted;
+    return this.isMasterMuted();
   },
   _noiseBuf() { // cached 2s loopable noise, pink-ish so beds stay smooth
     if (this._nb) return this._nb;
@@ -932,7 +892,7 @@ const AudioSys = {
     }, 1500);
   },
   _ambTick() { // every ~1.1s: roll the room's sparse events
-    if (!this.amb || !this.ctx || !Settings.music || Settings.musicVolume <= 0 || this.ctx.state !== 'running') return;
+    if (!this.amb || !this.ctx || Settings.musicVolume <= 0 || this.ctx.state !== 'running') return;
     const a = this.amb, cfg = a.cfg, t = this.ctx.currentTime;
     // the loft murmurs: slow random swells on the bed
     if (cfg.bed.swell) a.g.gain.setTargetAtTime(cfg.bed.g * rnd(0.7, 1.3), t, 1.2);
@@ -1033,7 +993,7 @@ const ROOM_AMB = {
 // the timer's own firing time, so tab jank can't drift the beat. The RNG is
 // seeded per table (mulberry32), so each room's music is a stable identity
 // across sessions, not a shuffle. Music rides AudioSys.musicBus - the Sound
-// toggle (sfxBus) never touches it, and Music off never touches SFX.
+// Sound Effects volume never touches it, and Music volume never touches SFX.
 // Euclidean onset pattern: k hits spread as evenly as possible over n steps,
 // rotated by rot. Bjorklund's algorithm, the same math behind the tresillo
 // E(3,8) = [x..x..x.] and the cinquillo E(5,8). Used for bass lines and percussion.
@@ -1188,12 +1148,12 @@ const MusicSys = {
   applyVolume() { AudioSys.syncMusic(); },
   // --- lifecycle ---
   prime() { // first-user-gesture path, via AudioSys.init()
-    if (!Settings.music || !this.ac()) return;
+    if (Settings.musicVolume <= 0 || !this.ac()) return;
     this.key = this.pendingKey = (MUSIC[G.themeId] ? G.themeId : 'deco');
     this.start();
   },
-  syncEnabled() { // the settings toggle calls here
-    if (Settings.music) { if (this.ac() && !this.timer) this.start(); }
+  syncEnabled() { // the Music slider calls here
+    if (Settings.musicVolume > 0) { if (this.ac() && !this.timer) this.start(); }
     else this.stop();
   },
   setTable(id) { // from setTheme: always records; crossfades when audible
@@ -1251,7 +1211,7 @@ const MusicSys = {
   },
   start() {
     const ac = this.ac();
-    if (!ac || this.timer || !Settings.music) return;
+    if (!ac || this.timer || Settings.musicVolume <= 0) return;
     try { ac.resume(); } catch (e) {}
     this.key = this.pendingKey;
     this.buildBus();
@@ -1283,7 +1243,7 @@ const MusicSys = {
     const ac = this.ac();
     const musicG = ac.createGain(); musicG.gain.value = 0.0001; // per-room level
     const duckG = ac.createGain(); duckG.gain.value = 1;         // goal-ceremony dip
-    musicG.connect(duckG); duckG.connect(AudioSys.musicBus);      // music rides its own bus - the Sound toggle never touches it
+    musicG.connect(duckG); duckG.connect(AudioSys.musicBus);      // music rides its own bus - Sound Effects volume never touches it
     // one shared feedback delay as cheap space for plucks and shimmer
     const dly = ac.createDelay(1); dly.delayTime.value = 0.34;
     const fb = ac.createGain(); fb.gain.value = 0.32;
@@ -1574,10 +1534,6 @@ const Haptics = {
   },
   cancel() { try { if (navigator.vibrate) navigator.vibrate(0); } catch (e) {} },
 };
-// Compatibility helper for older call sites/tests; new gameplay code should
-// prefer semantic Haptics.fire(name).
-function buzz(pat) { try { if (interacted && Settings.haptics && navigator.vibrate) navigator.vibrate(pat); } catch (e) {} }
-
 // ---------- game state ----------
 // whiff: per-strike chance the AI swings clean through (a human error, never a
 // superhuman stat - it only ever makes rivals weaker). windup: telegraph time.
@@ -2321,7 +2277,6 @@ function markControlDrive(side, now = performance.now()) {
   if (side !== 0 && side !== 1) return;
   if (!Array.isArray(G.inputDriveT)) G.inputDriveT = [0, 0];
   G.inputDriveT[side] = now;
-  G.kbDriveT = now; // compatibility for older harnesses / diagnostics
 }
 
 function pointerOwnsSide(side) {
@@ -2359,28 +2314,18 @@ function nudgeMalletTarget(m, sx, sy, speed, dt) {
   return true;
 }
 
-// ONLINE compatibility helpers: production net.js exposes explicit side and
-// authority helpers. Small headless/legacy harnesses may still expose only
-// the original host/guest role, so gameplay falls back without changing
-// production semantics.
+// ONLINE helpers use the current net.js side/authority API directly.
 function onlinePlayerSide() {
-  if (typeof Net === 'undefined') return null;
-  if (typeof Net.playerSide === 'function') return Net.playerSide();
-  return Net.role === 'guest' ? 1 : Net.role === 'host' ? 0 : null;
+  return typeof Net === 'undefined' ? null : Net.playerSide();
 }
 function onlineIsAuthority() {
-  if (typeof Net === 'undefined') return false;
-  if (typeof Net.isAuthority === 'function') return Net.isAuthority();
-  return Net.role === 'host';
+  return typeof Net !== 'undefined' && Net.isAuthority();
 }
 function onlineIsPlayer() {
-  if (typeof Net === 'undefined') return false;
-  if (typeof Net.isPlayer === 'function') return Net.isPlayer();
-  return Net.role === 'host' || Net.role === 'guest';
+  return typeof Net !== 'undefined' && Net.isPlayer();
 }
 function onlineLocalMallet() {
-  if (typeof Net !== 'undefined' && typeof Net.localMallet === 'function') return Net.localMallet();
-  return onlinePlayerSide() === 1 ? G.m2 : onlinePlayerSide() === 0 ? G.m1 : null;
+  return typeof Net === 'undefined' ? null : Net.localMallet();
 }
 
 // ONLINE: scoreboard / win / ribbon labels by player side.

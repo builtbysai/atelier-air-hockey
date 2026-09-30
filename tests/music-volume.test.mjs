@@ -62,7 +62,7 @@ async function loadGame(storageSeed) {
   const context = vm.createContext({
     console, Math, JSON, G,
     DIFFS: [{ name: 'Rookie' }, { name: 'Club Pro' }, { name: 'Champion' }],
-    Net: { role: 'host' },
+    Net: { role: 'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null },
     THEME: {
       scoreboard: 'solari', board: {}, gold: '#c9a227', font: { body: 'sans-serif', display: 'sans-serif' }, ink: '#fff',
       drawRails() {}, drawSurface() {}, drawMarkings() {},
@@ -118,7 +118,6 @@ test('music bus uses a perceptual curve with unity at 70 and 0 = silent', async 
   const { t } = await loadGame();
   const g = (v) => {
     t.Settings.musicVolume = v;
-    t.Settings.music = v > 0;
     t.AudioSys.syncMusic();
     return t.AudioSys.musicBus.gain.value;
   };
@@ -149,13 +148,11 @@ test('targetLevel composes table level and intensity, not user bus volume', asyn
 test('applyVolume re-aims the outer music bus without a restart', async () => {
   const { t } = await loadGame();
   t.Settings.musicVolume = 50;
-  t.Settings.music = true;
   t.MusicSys.applyVolume();
   const want = Math.pow(50 / 70, 1.5);
   assert.ok(Math.abs(t.AudioSys.musicBus.gain.value - want) < 1e-9,
     `outer music bus must aim at ${want}, got ${t.AudioSys.musicBus.gain.value}`);
   t.Settings.musicVolume = 0;
-  t.Settings.music = false;
   t.MusicSys.applyVolume();
   assert.equal(t.AudioSys.musicBus.gain.value, 0, 'volume 0 fully closes the music bus');
 });
@@ -163,7 +160,6 @@ test('applyVolume re-aims the outer music bus without a restart', async () => {
 test('start() keeps per-room target independent from the user volume bus', async () => {
   const { t, ac } = await loadGame();
   t.Settings.musicVolume = 80;
-  t.Settings.music = true;
   t.MusicSys.key = 'deco'; t.MusicSys.intensity = 0;
   ac.calls.length = 0;
   t.MusicSys.start();
@@ -246,10 +242,10 @@ test('preferences UI wires both audio sliders', async () => {
   const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
   assert.match(ui, /key === 'musicVolume'/, 'setSetting must parse musicVolume');
   assert.match(ui, /key === 'soundVolume'/, 'setSetting must parse soundVolume');
-  assert.match(ui, /Settings\.masterMuted = !Settings\.sound && !Settings\.music/,
-    'direct slider changes must derive global mute from both channels');
-  assert.match(ui, /AudioSys\.setMasterMuted\(!Settings\.masterMuted\)/,
-    'HUD mute must use the synchronized audio state path');
+  assert.doesNotMatch(ui, /Settings\.(?:sound|music|masterMuted)\b/,
+    'obsolete audio compatibility fields must not return');
+  assert.match(ui, /AudioSys\.setMasterMuted\(!AudioSys\.isMasterMuted\(\)\)/,
+    'HUD mute must derive its state directly from the visible sliders');
   assert.match(ui, /aria-valuetext/, 'volume sliders should expose useful spoken values');
   assert.match(ui, /AudioSys\.syncMusic\(\)/, 'music slider must update the whole music bus');
   assert.match(ui, /AudioSys\.syncMute\(\)/, 'sound slider must update the SFX bus');

@@ -100,9 +100,8 @@ test('save haptic is not overwritten by the generic strike from the same contact
   assert.match(game, /if \(!suppressHaptic && tier < 2 && v > 0\.55\) Haptics\.fire\('strike'\)/);
 });
 
-test('raw vibration calls are no longer scattered through gameplay', () => {
-  const calls = game.match(/\bbuzz\(/g) || [];
-  assert.equal(calls.length, 1, 'only the compatibility buzz helper should remain');
+test('raw vibration calls are centralized in semantic haptics', () => {
+  assert.doesNotMatch(game, /\bbuzz\(/, 'retired raw vibration helper must stay removed');
 });
 
 test('update banner exists but is not a modal overlay', () => {
