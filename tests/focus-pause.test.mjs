@@ -69,7 +69,7 @@ async function loadGame() {
   const context = vm.createContext({
     console, Math, JSON,
     DIFFS: [{ name: 'Rookie' }],
-    Net: { role: 'host', sendPause() {}, pump() {} },
+    Net: { role: 'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null, sendPause() {}, pump() {} },
     THEME: baseTheme,
     CX: 720, CY: 520, TAU: Math.PI * 2,
     clamp: (v, a, b) => Math.min(b, Math.max(a, v)),
