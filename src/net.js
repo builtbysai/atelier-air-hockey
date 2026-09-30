@@ -13,8 +13,12 @@
  * Transport: Trystero 0.25.4 (WebRTC data channels, Nostr signaling).
  * Control events stay on Trystero's reliable ordered channel. When both peers
  * support Online V2, high-frequency state/input move to a second negotiated
- * binary RTCDataChannel that is unordered with zero retransmits. If that lane
- * cannot open, both peers remain fully compatible on the reliable path.
+ * binary RTCDataChannel that is unordered with zero retransmits. The fast lane
+ * is never trusted as the only path: until real state + input ACK traffic proves
+ * it healthy the reliable path stays at 30 Hz, then remains as a 10 Hz safety
+ * stream. A state-starvation watchdog can request an immediate reliable
+ * keyframe, so a browser/data-channel edge case cannot leave a center puck
+ * frozen while the peer connection itself still looks alive.
  *
  * Reliable Trystero actions:
  *
@@ -187,6 +191,7 @@ const Net = {
   rtLastRxT: 0,
   rtLastStateRxT: 0,
   rtLastInputRxT: 0,
+  rtLastAckRxT: 0,
   lastAppliedStateSeq: null,
   prevSnap: null,
   prevSnapT: 0,
@@ -1400,8 +1405,11 @@ Net.realtimeHealthy = function (now = performance.now()) {
   if (!Net.rtReady || !Net.rtChannel || Net.rtChannel.readyState !== 'open') return false;
   if (Net.isAuthority())
     return Net.rtLastInputRxT > 0 && now - Net.rtLastInputRxT <= NET_RT_INPUT_STALE_MS;
-  if (Net.isPlayer())
-    return Net.rtLastStateRxT > 0 && now - Net.rtLastStateRxT <= NET_RT_STATE_STALE_MS;
+  if (Net.isPlayer()) {
+    const stateHealthy = Net.rtLastStateRxT > 0 && now - Net.rtLastStateRxT <= NET_RT_STATE_STALE_MS;
+    const inputHealthy = Net.rtLastAckRxT > 0 && now - Net.rtLastAckRxT <= NET_RT_INPUT_STALE_MS;
+    return stateHealthy && inputHealthy;
+  }
   return false;
 };
 
@@ -1417,7 +1425,7 @@ Net.closeRealtime = function () {
   const ch = Net.rtChannel;
   Net.rtChannel = null; Net.rtPc = null; Net.rtReady = false;
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null;
-  Net.rtOpenedT = 0; Net.rtLastRxT = 0; Net.rtLastStateRxT = 0; Net.rtLastInputRxT = 0;
+  Net.rtOpenedT = 0; Net.rtLastRxT = 0; Net.rtLastStateRxT = 0; Net.rtLastInputRxT = 0; Net.rtLastAckRxT = 0;
   Net.guestPrediction = null; Net.guestContactLatch = false;
   try { if (ch && ch.readyState !== 'closed') ch.close(); } catch (e) {}
 };
@@ -1556,8 +1564,10 @@ Net.onRealtimeMessage = function (data) {
       Net.sendRealtime(Net.encodeRealtimeAck(Net.rtLastInputSeq));
     }
   } else if (type === NET_RT_ACK && Net.isPlayer() && !Net.isAuthority()) {
-    Net.rtLastRxT = performance.now();
-    Net.onRealtimeAck(v);
+    if (Net.onRealtimeAck(v)) {
+      const now = performance.now();
+      Net.rtLastRxT = now; Net.rtLastAckRxT = now;
+    }
   }
 };
 
@@ -1714,7 +1724,10 @@ Net.sendSessionSync = function () {
   const payload = Net.sessionSyncPayload();
   if (!payload) return;
   Net.wire.sendEv(payload);
-  Net.wire.sendSt(Net.encodeSnapshot());
+  // The session payload is a complete restore point. Follow it with a fresh
+  // sequenced keyframe so any racing realtime packet is ordered correctly.
+  const packet = Net.sequencedSnapshot();
+  Net.wire.sendSt(packet.a);
 };
 
 Net.applySessionSync = function (ev) {
@@ -2589,7 +2602,7 @@ Net.beginMatch = function (role) {
   Net.reliableSnapAcc = 0; Net.reliableInAcc = 0; Net.syncRequestAcc = 0;
   Net.rtStateSeq = 0; Net.rtInputSeq = 0;
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null; Net.rtDropped = 0;
-  Net.rtLastRxT = 0; Net.rtLastStateRxT = 0; Net.rtLastInputRxT = 0;
+  Net.rtLastRxT = 0; Net.rtLastStateRxT = 0; Net.rtLastInputRxT = 0; Net.rtLastAckRxT = 0;
   Net.lastAppliedStateSeq = null; Net.prevSnap = null; Net.prevSnapT = 0;
   Net.guestPrediction = null; Net.guestContactLatch = false;
   Net.predictionCorrections = 0; Net.predictionMaxError = 0;
