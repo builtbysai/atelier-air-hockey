@@ -183,6 +183,16 @@ const Net = {
   rtLastInputSeq: null,
   rtAckInputSeq: null,
   rtDropped: 0,
+  rtOpenedT: 0,
+  rtLastRxT: 0,
+  rtLastStateRxT: 0,
+  rtLastInputRxT: 0,
+  lastAppliedStateSeq: null,
+  prevSnap: null,
+  prevSnapT: 0,
+  reliableSnapAcc: 0,
+  reliableInAcc: 0,
+  syncRequestAcc: 0,
 
   // ---- guest-side speculative contact ----
   guestPrediction: null,
@@ -453,6 +463,15 @@ const NET_RT_STATE = 1;
 const NET_RT_INPUT = 2;
 const NET_RT_ACK = 3;
 const NET_RT_MAX_BUFFERED = 32 * 1024;
+// The fast lane is an optimization, never the only path to a playable match.
+// Even while it is healthy, a tiny reliable safety stream keeps both sides
+// recoverable from browser/data-channel edge cases and asymmetric packet loss.
+const NET_RT_STATE_STALE_MS = 450;
+const NET_RT_INPUT_STALE_MS = 900;
+const NET_RELIABLE_SAFETY_HZ = 10;
+const NET_RELIABLE_FALLBACK_HZ = 30;
+const NET_SYNC_REQUEST_STALE_MS = 500;
+const NET_SYNC_REQUEST_COOLDOWN_MS = 350;
 const NET_PLAYER_KEY = 'atelier-ah-player-v1';
 const NET_RIVALS_KEY = 'atelier-ah-rivals-v1';
 const NET_QUICK_VERSION = 1;
@@ -846,6 +865,16 @@ Net.openSpectatorHost = async function () {
 Net.applyRemoteSnapshot = function (a) {
   if (!Array.isArray(a) || a.length < 15 || !a.every(Number.isFinite)) return false;
   const snap = Net.decodeSnapshot(a);
+
+  // The reliable safety stream and the unordered realtime stream can race.
+  // A shared sequence prevents a late reliable keyframe (or reordered fast
+  // packet) from rewinding the puck after a newer state was already painted.
+  if (snap.seq !== null && Net.lastAppliedStateSeq !== null &&
+      !Net.seqNewer(snap.seq, Net.lastAppliedStateSeq)) return false;
+
+  const now = performance.now();
+  Net.prevSnap = Net.rsnap;
+  Net.prevSnapT = Net.snapT;
   if (!Net.gview) {
     Net.gview = { px:snap.px, py:snap.py, pvx:snap.pvx, pvy:snap.pvy };
   } else {
@@ -853,7 +882,9 @@ Net.applyRemoteSnapshot = function (a) {
     if (!Net.guestPrediction && d > 420) { Net.gview.px = snap.px; Net.gview.py = snap.py; }
   }
   Net.rsnap = snap;
-  Net.snapT = performance.now();
+  Net.snapT = now;
+  if (snap.seq !== null) Net.lastAppliedStateSeq = snap.seq;
+  Net.syncRequestAcc = 0;
   return true;
 };
 
@@ -1041,6 +1072,9 @@ Net.decodeSnapshot = function (a) {
     svx: a.length > 15 ? a[15] : undefined,
     svy: a.length > 16 ? a[16] : undefined,
     sdir: a.length > 17 ? a[17] : undefined,
+    // New peers append one transport-independent state sequence. Old peers
+    // omit it and remain fully compatible.
+    seq: a.length > 18 && Number.isInteger(a[18]) ? (a[18] & 0xffff) : null,
   };
 };
 
@@ -1357,10 +1391,33 @@ Net.seqNewer = function (next, previous) {
   return delta > 0 && delta < 0x8000;
 };
 
+Net.nextStateSeq = function () {
+  Net.rtStateSeq = (Net.rtStateSeq + 1) & 0xffff;
+  return Net.rtStateSeq;
+};
+
+Net.realtimeHealthy = function (now = performance.now()) {
+  if (!Net.rtReady || !Net.rtChannel || Net.rtChannel.readyState !== 'open') return false;
+  if (Net.isAuthority())
+    return Net.rtLastInputRxT > 0 && now - Net.rtLastInputRxT <= NET_RT_INPUT_STALE_MS;
+  if (Net.isPlayer())
+    return Net.rtLastStateRxT > 0 && now - Net.rtLastStateRxT <= NET_RT_STATE_STALE_MS;
+  return false;
+};
+
+// RTT/2 is useful prediction lead, but air hockey has hard collisions. Capping
+// the lead keeps the remote view responsive without inventing a puck far past
+// a rail or mallet before the next authoritative correction arrives.
+Net.renderLeadSeconds = function (max = 0.06) {
+  const rtt = Net.conn && Number.isFinite(Net.conn.rtt) ? Net.conn.rtt : -1;
+  return rtt > 0 ? Math.min(max, rtt / 2000) : 0;
+};
+
 Net.closeRealtime = function () {
   const ch = Net.rtChannel;
   Net.rtChannel = null; Net.rtPc = null; Net.rtReady = false;
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null;
+  Net.rtOpenedT = 0; Net.rtLastRxT = 0; Net.rtLastStateRxT = 0; Net.rtLastInputRxT = 0;
   Net.guestPrediction = null; Net.guestContactLatch = false;
   try { if (ch && ch.readyState !== 'closed') ch.close(); } catch (e) {}
 };
@@ -1380,7 +1437,13 @@ Net.ensureRealtimeChannel = function () {
     });
     ch.binaryType = 'arraybuffer';
     Net.rtChannel = ch; Net.rtPc = pc;
-    ch.onopen = () => { if (Net.rtChannel === ch) Net.rtReady = true; };
+    ch.onopen = () => {
+      if (Net.rtChannel !== ch) return;
+      Net.rtReady = true;
+      Net.rtOpenedT = performance.now();
+      // Do not call the lane "healthy" yet. Actual inbound gameplay traffic
+      // proves that; reliable state/input continue until then.
+    };
     ch.onclose = () => { if (Net.rtChannel === ch) Net.rtReady = false; };
     ch.onerror = (ev) => {
       if (Net.rtChannel === ch) Net.rtReady = false;
@@ -1395,13 +1458,14 @@ Net.ensureRealtimeChannel = function () {
   }
 };
 
-Net.encodeRealtimeState = function () {
-  const a = Net.encodeSnapshot();
+Net.encodeRealtimeState = function (snapshot = null, seq = null) {
+  const a = Array.isArray(snapshot) ? snapshot : Net.encodeSnapshot();
+  if (!Number.isInteger(seq)) seq = Net.nextStateSeq();
+  else seq &= 0xffff;
   const buffer = new ArrayBuffer(56);
   const v = new DataView(buffer);
   v.setUint8(0, NET_RT_STATE); v.setUint8(1, NET_RT_VERSION);
-  Net.rtStateSeq = (Net.rtStateSeq + 1) & 0xffff;
-  v.setUint16(2, Net.rtStateSeq, true);
+  v.setUint16(2, seq, true);
   let o = 4;
   for (let i = 0; i < 8; i++, o += 4) v.setFloat32(o, a[i], true);
   v.setUint8(36, a[8] & 0xff); v.setUint8(37, a[9] & 0xff); v.setUint8(38, a[10] & 0xff);
@@ -1425,7 +1489,7 @@ Net.decodeRealtimeState = function (v) {
   for (let i = 0; i < 8; i++, o += 4) a.push(v.getFloat32(o, true));
   a.push(v.getUint8(36), v.getUint8(37), v.getUint8(38));
   a.push(v.getUint16(39, true), v.getUint16(41, true), v.getUint16(43, true), v.getUint16(45, true));
-  a.push(v.getFloat32(47, true), v.getFloat32(51, true), v.getInt8(55));
+  a.push(v.getFloat32(47, true), v.getFloat32(51, true), v.getInt8(55), seq);
   return a;
 };
 
@@ -1476,16 +1540,23 @@ Net.onRealtimeMessage = function (data) {
   const type = v.getUint8(0);
   if (type === NET_RT_STATE && Net.isPlayer() && !Net.isAuthority()) {
     const a = Net.decodeRealtimeState(v);
-    if (a) Net.onSnapshot(a, Net.peerId);
+    if (a) {
+      const now = performance.now();
+      Net.rtLastRxT = now; Net.rtLastStateRxT = now;
+      Net.onSnapshot(a, Net.peerId);
+    }
   } else if (type === NET_RT_INPUT && Net.isAuthority()) {
     const a = Net.decodeRealtimeInput(v);
     if (a) {
+      const now = performance.now();
+      Net.rtLastRxT = now; Net.rtLastInputRxT = now;
       Net.onInput(a, Net.peerId);
       // ACKs are cumulative and replaceable: if one is lost, the next input
       // produces a newer ACK. Old clients ignore this unknown message type.
       Net.sendRealtime(Net.encodeRealtimeAck(Net.rtLastInputSeq));
     }
   } else if (type === NET_RT_ACK && Net.isPlayer() && !Net.isAuthority()) {
+    Net.rtLastRxT = performance.now();
     Net.onRealtimeAck(v);
   }
 };
@@ -2159,6 +2230,11 @@ Net.onEvent = function (ev, peerId) {
     case 'session-sync':
       if (Net.isPlayer() && !Net.isAuthority()) Net.applySessionSync(ev);
       break;
+    case 'sync-req':
+      // Reliable event channel is our escape hatch if the zero-retransmit
+      // state lane is open but starved. Reply with a fresh reliable keyframe.
+      if (Net.isAuthority() && Net.active) Net.sendReliableSnapshot();
+      break;
     case 'hello':
       // Fresh-match hello is for whichever player is currently non-authority.
       // After migration that can be the original host, so do not gate on the
@@ -2510,8 +2586,11 @@ Net.beginMatch = function (role) {
   Net.rsnap = null; Net.gview = null; Net.snapT = 0;
   Net.lastIn = null; Net.lastInT = 0;
   Net.snapAcc = 0; Net.inAcc = 0;
+  Net.reliableSnapAcc = 0; Net.reliableInAcc = 0; Net.syncRequestAcc = 0;
   Net.rtStateSeq = 0; Net.rtInputSeq = 0;
   Net.rtLastStateSeq = null; Net.rtLastInputSeq = null; Net.rtAckInputSeq = null; Net.rtDropped = 0;
+  Net.rtLastRxT = 0; Net.rtLastStateRxT = 0; Net.rtLastInputRxT = 0;
+  Net.lastAppliedStateSeq = null; Net.prevSnap = null; Net.prevSnapT = 0;
   Net.guestPrediction = null; Net.guestContactLatch = false;
   Net.predictionCorrections = 0; Net.predictionMaxError = 0;
   Net.remote.tx = Net.remoteSide() === 0 ? PX + 170 : PX + PW - 170;
@@ -2680,7 +2759,8 @@ Net.guestSyncState = function (s) {
 /* ---------------- guest contact prediction ---------------- */
 Net.realtimeWritable = function () {
   const ch = Net.rtChannel;
-  return !!(Net.rtReady && ch && ch.readyState === 'open' && ch.bufferedAmount <= NET_RT_MAX_BUFFERED);
+  return !!(Net.realtimeHealthy() && ch && ch.readyState === 'open' &&
+    ch.bufferedAmount <= NET_RT_MAX_BUFFERED);
 };
 
 Net.clearGuestPrediction = function () {
@@ -2691,7 +2771,8 @@ Net.clearGuestPrediction = function () {
 Net.predictionTarget = function () {
   const s = Net.rsnap;
   if (!s) return null;
-  const age = Math.min(0.35, Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000));
+  const sinceArrival = Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000);
+  const age = Math.min(0.22, sinceArrival + Net.renderLeadSeconds());
   return {
     x: Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * age)),
     y: Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * age)),
@@ -2828,23 +2909,38 @@ Net.pump = function (rdt) {
     Net.saveSessionCheckpoint();
   }
   if (!Net.wire) return;
-  // RTT probe: cheap, on the event channel, display-only
+
   Net.conn.pingAcc += rdt;
   if (Net.conn.pingAcc >= 2.5) { Net.conn.pingAcc = 0; Net.sendPing(); }
-  // repaint the chip ~1Hz so staleness shows promptly even with no traffic
   Net.conn.paintAcc += rdt;
   if (Net.conn.paintAcc >= 1) { Net.conn.paintAcc = 0; Net.paintConn(); }
-  // Inspect the selected ICE path occasionally. This is diagnostics only in
-  // the foundation pass; adaptive netcode will consume it in Online V2.
   Net.rtcAcc += rdt;
   if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; void Net.sampleRtcStats(); }
+
+  const liveState = G.state === 'count' || G.state === 'play' || G.state === 'goal';
   if (Net.isAuthority()) {
     Net.snapAcc += rdt;
-    const stateStep = Net.rtReady ? 1 / 60 : 1 / 30;
-    if (Net.snapAcc >= stateStep && (G.state === 'count' || G.state === 'play' || G.state === 'goal')) {
+    Net.reliableSnapAcc += rdt;
+    const fastOpen = Net.rtReady && Net.rtChannel && Net.rtChannel.readyState === 'open';
+    const stateStep = fastOpen ? 1 / 60 : 1 / NET_RELIABLE_FALLBACK_HZ;
+
+    if (liveState && Net.snapAcc >= stateStep) {
       Net.snapAcc = 0;
-      if (!(Net.rtReady && Net.sendRealtime(Net.encodeRealtimeState()))) Net.wire.sendSt(Net.encodeSnapshot());
+      const packet = Net.sequencedSnapshot();
+      let fastSent = false;
+      if (fastOpen) fastSent = Net.sendRealtime(Net.encodeRealtimeState(packet.a, packet.seq));
+
+      // Never turn correctness over entirely to the zero-retransmit lane.
+      // Before it proves inbound health we keep the original 30 Hz reliable
+      // path; once healthy, 10 Hz reliable keyframes are a cheap safety net.
+      const reliableHz = Net.realtimeHealthy()
+        ? NET_RELIABLE_SAFETY_HZ : NET_RELIABLE_FALLBACK_HZ;
+      if (!fastSent || !fastOpen || Net.reliableSnapAcc >= 1 / reliableHz) {
+        Net.reliableSnapAcc = 0;
+        Net.wire.sendSt(packet.a);
+      }
     }
+
     if (Net.spectatorWire && Net.spectatorIds.size > 0) {
       Net.spectatorAcc += rdt;
       if (Net.spectatorAcc >= 1 / NET_SPECTATOR_HZ) {
@@ -2854,22 +2950,65 @@ Net.pump = function (rdt) {
     }
   } else {
     Net.inAcc += rdt;
-    const inputStep = Net.rtReady ? 1 / 60 : 1 / 30;
+    Net.reliableInAcc += rdt;
+    Net.syncRequestAcc += rdt;
+
+    const fastOpen = Net.rtReady && Net.rtChannel && Net.rtChannel.readyState === 'open';
+    const inputStep = fastOpen ? 1 / 60 : 1 / NET_RELIABLE_FALLBACK_HZ;
     if (Net.inAcc >= inputStep) { Net.inAcc = 0; Net.sendInput(); }
-    // a paused guest holds the frozen frame - dead reckoning must not keep
-    // extrapolating the puck behind the pause card
+
+    if (fastOpen) {
+      const reliableHz = Net.realtimeHealthy()
+        ? NET_RELIABLE_SAFETY_HZ : NET_RELIABLE_FALLBACK_HZ;
+      if (Net.reliableInAcc >= 1 / reliableHz) {
+        Net.reliableInAcc = 0;
+        Net.sendReliableInput();
+      }
+    }
+
+    // A connected peer with a starved state stream used to look like a valid
+    // match with a frozen center puck. Ask the authority for an immediate
+    // reliable keyframe instead of waiting indefinitely.
+    const stale = !Net.rsnap || performance.now() - (Net.snapT || 0) > NET_SYNC_REQUEST_STALE_MS;
+    if (liveState && stale && Net.syncRequestAcc >= NET_SYNC_REQUEST_COOLDOWN_MS / 1000) {
+      Net.syncRequestAcc = 0;
+      try { Net.wire.sendEv({ t:'sync-req' }); } catch (e) {}
+    }
+
     if (G.state !== 'pause') Net.guestApply(rdt);
   }
 };
 
 Net.easeHostMallet = function (rdt) {
   if (!Net.rsnap) return;
-  const k = Math.min(1, rdt * 18);
-  const m = Net.authoritySide === 1 ? G.m2 : G.m1;
-  const x = Net.authoritySide === 1 ? Net.rsnap.m2x : Net.rsnap.m1x;
-  const y = Net.authoritySide === 1 ? Net.rsnap.m2y : Net.rsnap.m1y;
-  m.x += (x - m.x) * k;
-  m.y += (y - m.y) * k;
+  const s = Net.rsnap, p = Net.prevSnap;
+  const authorityIsSide1 = Net.authoritySide === 1;
+  const m = authorityIsSide1 ? G.m2 : G.m1;
+  const x = authorityIsSide1 ? s.m2x : s.m1x;
+  const y = authorityIsSide1 ? s.m2y : s.m1y;
+
+  // Derive a visual velocity from the previous authority sample and project a
+  // short distance toward "now". This never feeds authoritative collisions.
+  let tx = x, ty = y;
+  const dt = Net.snapT > Net.prevSnapT ? (Net.snapT - Net.prevSnapT) / 1000 : 0;
+  if (p && dt > 0.004 && dt < 0.25) {
+    const px = authorityIsSide1 ? p.m2x : p.m1x;
+    const py = authorityIsSide1 ? p.m2y : p.m1y;
+    let vx = (x - px) / dt, vy = (y - py) / dt;
+    const speed = Math.hypot(vx, vy);
+    if (speed > PLAYER_CAP && speed > 0) { vx *= PLAYER_CAP / speed; vy *= PLAYER_CAP / speed; }
+    const lead = Math.min(0.08,
+      Math.max(0, (performance.now() - Net.snapT) / 1000) + Net.renderLeadSeconds(0.05));
+    tx += vx * lead; ty += vy * lead;
+  }
+  const side = authorityIsSide1 ? 1 : 0;
+  const lo = side === 0 ? PX + MALLET_R : CX + 8;
+  const hi = side === 0 ? CX - 8 : PX + PW - MALLET_R;
+  tx = clamp(tx, lo, hi); ty = clamp(ty, PY + MALLET_R, PY + PH - MALLET_R);
+
+  const k = 1 - Math.exp(-rdt * 28);
+  m.x += (tx - m.x) * k;
+  m.y += (ty - m.y) * k;
 };
 
 Net.easeSpectatorMallets = function (rdt) {
@@ -2895,11 +3034,13 @@ Net.guestApply = function (rdt) {
   if (G.state !== 'play' && Net.guestPrediction) Net.clearGuestPrediction();
 
   if (!Net.guestPrediction) {
-    const age = Math.min(0.5, Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000));
-    // predicted target: where the snapshot's puck is NOW, clamped to the table
+    const sinceArrival = Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000);
+    // Include a bounded RTT/2 lead so the guest does not intentionally render
+    // a full one-way trip behind the authority. Corrections remain visual only.
+    const age = Math.min(0.22, sinceArrival + Net.renderLeadSeconds());
     const tx = Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * age));
     const ty = Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * age));
-    const k = 1 - Math.exp(-rdt * 14); // exponential ease: the same feel at any frame rate
+    const k = 1 - Math.exp(-rdt * 20);
     gv.px += (tx - gv.px) * k; gv.py += (ty - gv.py) * k;
     gv.pvx = s.pvx; gv.pvy = s.pvy;
   } else {
@@ -2916,7 +3057,6 @@ Net.guestApply = function (rdt) {
   if (G.stats) {
     if (s.top > G.stats.topSpeed) G.stats.topSpeed = s.top;
     if (s.br > G.stats.bestRally) G.stats.bestRally = s.br;
-    // saves are monotonic counters - take the host's max, same as top speed
     if (s.sv0 > G.stats.saves[0]) G.stats.saves[0] = s.sv0;
     if (s.sv1 > G.stats.saves[1]) G.stats.saves[1] = s.sv1;
   }
@@ -2970,10 +3110,8 @@ Net.sendInput = function (force = false) {
   const local = Net.localMallet();
   if (!local) return null;
   const tx = _r1(local.tx), ty = _r1(local.ty), now = performance.now();
-  // delta suppression: a stationary mallet re-sends nothing. But packets do
-  // drop, so heartbeat at least every 500ms - the host must never stick on
-  // a target the guest abandoned three drops ago. Predicted contact forces
-  // one fresh target packet so its ACK can become the reconciliation fence.
+  // delta suppression: a stationary mallet re-sends nothing on the fast path.
+  // Heartbeat at least every 500ms because zero-retransmit packets may vanish.
   if (!force && Net.lastIn && Math.abs(tx - Net.lastIn[0]) < 0.5 && Math.abs(ty - Net.lastIn[1]) < 0.5 &&
       now - Net.lastInT < 500) return null;
   Net.lastIn = [tx, ty]; Net.lastInT = now;
@@ -2984,6 +3122,28 @@ Net.sendInput = function (force = false) {
   }
   Net.wire.sendIn([tx, ty]);
   return null;
+};
+
+Net.sendReliableInput = function () {
+  if (!Net.wire || !Net.active || !Net.isPlayer() || Net.isAuthority()) return false;
+  const local = Net.localMallet();
+  if (!local) return false;
+  Net.wire.sendIn([_r1(local.tx), _r1(local.ty)]);
+  return true;
+};
+
+Net.sequencedSnapshot = function () {
+  const a = Net.encodeSnapshot();
+  const seq = Net.nextStateSeq();
+  a.push(seq);
+  return { a, seq };
+};
+
+Net.sendReliableSnapshot = function () {
+  if (!Net.wire || !Net.active || !Net.isAuthority()) return false;
+  const packet = Net.sequencedSnapshot();
+  Net.wire.sendSt(packet.a);
+  return true;
 };
 
 /* ---------------- rematch ---------------- */
