@@ -14,7 +14,7 @@ async function loadReplayMath() {
   const canvasStub = { getContext: () => ({}), addEventListener() {}, style: {}, width: 0, height: 0 };
   const context = vm.createContext({
     console, Math, JSON,
-    Net: { role:'host' },
+    Net: { role:'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null },
     THEMES: {}, THEME_ORDER: [],
     THEME: { gold:'#c9a227', font:{ body:'sans-serif', display:'sans-serif' }, ink:'#fff' },
     document: {
