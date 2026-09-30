@@ -15,7 +15,7 @@ async function loadWorld() {
   const elStub = () => ({ getContext: () => ({}), addEventListener() {}, style: {}, classList: { add() {}, remove() {} }, width: 0, height: 0 });
   const context = vm.createContext({
     console, Math, JSON,
-    Net: { role: 'host' },
+    Net: { role: 'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null },
     Settings: { firstTo: 7, camera: 'top', orientation: 'landscape' },
     THEME: { gold: '#c9a227', font: { body: 'sans-serif', display: 'sans-serif' }, ink: '#fff', scoreboard: 'solari', board: {} },
     THEMES: {}, PACES: { classic: {} }, DIFFS: [{ name: 'Rookie' }, { name: 'Club Pro' }, { name: 'Champion' }],
