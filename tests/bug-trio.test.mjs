@@ -199,12 +199,13 @@ test('bug 2: rally milestones and match-point feedback use one lane below the sc
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /RALLY ×/);
   assert.doesNotMatch(source, /drawPlaque\([^\n]*150, 71/);
-  assert.match(source, /rallyN >= 5 && rallyN % 5 === 0/);
+  assert.match(source, /Feel\.meaningfulReturn\(next, prev\)/);
   assert.match(source, /return 'RALLY · ' \+ G\.rallyHudN/);
   assert.match(source, /drawPlaque\(c, CX, 164, status/);
   const status = source.slice(source.indexOf('function hudStatusText'), source.indexOf('function drawHudCore'));
-  assert.ok(status.indexOf('MATCH POINT') < status.indexOf("return 'RALLY · '"),
-    'match point should take priority over the rally milestone');
+  assert.match(status, /MATCH POINT/);
+  const rallyFn = source.slice(source.indexOf('function noteRallyTouch'), source.indexOf('function onMalletHit'));
+  assert.doesNotMatch(rallyFn, /addText|rallyHudT/, 'normal rallies should stay clear of pop-up counters');
 });
 
 

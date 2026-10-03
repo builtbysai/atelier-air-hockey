@@ -13,5 +13,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Focused game-feel regressions
+        run: node --test tests/feel-events.test.mjs tests/rally-feedback.test.mjs
       - name: Build and verify
         run: npm test
+      - name: Independent build integrity
+        if: always()
+        run: npm run build && npm run check

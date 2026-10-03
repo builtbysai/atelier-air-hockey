@@ -80,7 +80,8 @@ function loadSettings() {
 // Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
 const fxParticles = () => Settings.effects === 'minimal' ? 0.35 : Settings.effects === 'subtle' ? 0.65 : 1;
-const fxTrail = () => Settings.effects === 'minimal' ? 0.5 : Settings.effects === 'subtle' ? 0.75 : 1;
+const fxTrail = () => (Settings.effects === 'minimal' ? 0.5 : Settings.effects === 'subtle' ? 0.75 : 1) *
+  (1 + Feel.rallyIntensity(G.stats ? G.stats.rally : 0) * 0.25);
 const fxRoom = () => Settings.effects === 'full' && !PRM.reduce;   // room reactivity
 const fxFlash = () => Settings.effects !== 'minimal' && !PRM.reduce; // flashes & glows
 function saveSettings() {
@@ -665,6 +666,29 @@ const AudioSys = {
     o.connect(g2); g2.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.12);
   },
+  // Dry, ultra-short perfect-strike signature; no ordinary hit on top.
+  perfectCrack() {
+    if (!this.ctx || this.muted) return;
+    const ac = this.ctx, t = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noiseBuf();
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 2850; bp.Q.value = 0.85;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.042);
+    src.connect(bp); bp.connect(g); g.connect(this.sfxBus);
+    src.start(t, rnd(1.7)); src.stop(t + 0.05);
+    src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) {} };
+    const o = ac.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(460, t);
+    o.frequency.exponentialRampToValueAtTime(240, t + 0.035);
+    const bg = ac.createGain();
+    bg.gain.setValueAtTime(0.14, t);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.043);
+    o.connect(bg); bg.connect(this.sfxBus);
+    o.start(t); o.stop(t + 0.048);
+    o.onended = () => { try { o.disconnect(); bg.disconnect(); } catch (e) {} };
+  },
   // mallet whoosh: fast flicks get an airy sweep before the clack lands
   whoosh(power) {
     if (!this.ctx || this.muted) return;
@@ -1134,7 +1158,7 @@ const MUSIC = {
 };
 
 const MusicSys = {
-  key: 'deco', pendingKey: 'deco', intensity: 0,
+  key: 'deco', pendingKey: 'deco', intensity: 0, rally: 0,
   timer: 0, nodes: null, nextT: 0, beat: 0,
   rng: null, progIdx: 0, curChord: null, xfade: 0, sessionSeed: 0,
   bassHit: 0, bassPat: null, kickPat: null, snarePat: null, hatPat: null, prevPad: null,
@@ -1144,7 +1168,7 @@ const MusicSys = {
   ac() { return AudioSys.ctx; },
   // User music volume lives on AudioSys.musicBus so it scales both the
   // generative score and room ambience together. Per-room dynamics stay here.
-  targetLevel() { return this.cfg().level * (this.intensity ? 1.3 : 1); },
+  targetLevel() { return this.cfg().level * (this.intensity ? 1.3 : 1) * (1 + this.rally * 0.045); },
   applyVolume() { AudioSys.syncMusic(); },
   // --- lifecycle ---
   prime() { // first-user-gesture path, via AudioSys.init()
@@ -1276,6 +1300,7 @@ const MusicSys = {
     if (c.bass) this.bass16(t, n, spb, dens.bass);
     if (c.drums && dens.drums > 0) this.drums16(t, n, spb, dens);
     if (this.intensity && c.pulse && pn % 2 === 0) this.pulseTok(t); // match-point motorik
+    else if (this.rally >= 0.68 && c.pulse && pn % 4 === 0) this.pulseTok(t, this.rally * 0.19);
     if (c.shimmer && this.rng() < 0.10 * dens.mel) this.shimmerTone(t);
   },
   // Phrase start: advance the composed progression (the bridge chords every
@@ -1450,14 +1475,14 @@ const MusicSys = {
     setTimeout(() => { try { lp.disconnect(); g.disconnect(); } catch (e) {} },
       Math.max(0, (t + dur + 0.6 - ac.currentTime) * 1000) + 400);
   },
-  pulseTok(t) { // soft motorik tick for the match-point lift
+  pulseTok(t, gain = 1) { // quieter variant supports rally tension
     const ac = this.ac(), n = this.nodes;
     if (!n) return;
     const o = ac.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(210, t);
     o.frequency.exponentialRampToValueAtTime(105, t + 0.05);
     const g = ac.createGain();
-    g.gain.setValueAtTime(0.090, t);
+    g.gain.setValueAtTime(0.090 * gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
     o.connect(g); g.connect(n.musicG);
     o.start(t); o.stop(t + 0.1);
@@ -1491,6 +1516,17 @@ const MusicSys = {
     this.padChord((this.curChord ? this.curChord.t : c.prog[0].t).map(s => this.mf(c.root + s)),
       t + 0.05, 1.4 + e, 0.090 * e);
   },
+  setRally(level) {
+    level = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 0));
+    if (this.rally === level) return;
+    this.rally = level;
+    const n = this.nodes, ac = this.ac();
+    if (n && ac) n.musicG.gain.setTargetAtTime(this.targetLevel(), ac.currentTime, 0.45);
+    // The existing room bed ducks very slightly as meaningful returns build.
+    const amb = AudioSys.amb;
+    if (amb && ac && amb.g && amb.cfg)
+      amb.g.gain.setTargetAtTime(amb.cfg.bed.g * (1 - level * 0.14), ac.currentTime, 0.38);
+  },
   setIntensity(i) {
     i = i ? 1 : 0;
     if (i === this.intensity) return;
@@ -1503,6 +1539,7 @@ const MusicSys = {
 };
 const HAPTIC_PATTERNS = Object.freeze({
   strike: 10,
+  perfect: 7,
   smash: [16, 22, 26],
   rail: 7,
   post: [12, 18, 14],
@@ -1514,7 +1551,7 @@ const HAPTIC_PATTERNS = Object.freeze({
   loss: [18, 32, 18],
 });
 const HAPTIC_COOLDOWN = Object.freeze({
-  strike: 70, smash: 110, rail: 100, post: 140, save: 260,
+  strike: 70, perfect: 140, smash: 110, rail: 100, post: 140, save: 260,
   serve: 500, goal: 700, concede: 700, win: 1200, loss: 1200,
 });
 const Haptics = {
@@ -1585,8 +1622,7 @@ const G = {
   hitFlash: 0, hitFlashX: 0, hitFlashY: 0, hitFlashR: 160, // speed-scaled SMASH impact flash
   roomPulse: 0,             // room reactivity: decays, feeds the lamp-glow overlay
   saveT: 0,                 // save-moment puck glow timer
-  nearCd: 0, dipT: 0,       // near-miss cooldown + shared time-dip timer
-                              // (near-miss dip and SMASH slow-mo beat)
+  nearCd: 0,               // near-miss cooldown
   missGlow: null,           // { side, t } post glow after a near miss
   rattle: null,             // { side, t } goal-frame rattle after a hard frame hit
   goalFrameT: 0,            // goal-frame flash timer
@@ -1600,6 +1636,7 @@ const G = {
   goalMomentLabel: '',       // tie / lead / match-point context
   goalRewardLabel: '',       // earned shot craft: bank / counter / rally / rocket
   goalScorerLabel: '',       // YOU SCORE / ROOKIE SCORES / P1 SCORES
+  goalRallyBonus: 0,         // capped contextual goal-release accent
   goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
   inputDriveT: [0, 0],        // most recent relative/hover control activity per player side
   pausedGoalCeremony: null,   // semantic goal payload held across pause/focus loss
@@ -1607,7 +1644,8 @@ const G = {
 };
 function freshStats() {
   return {
-    topSpeed: 0, rally: 0, bestRally: 0, bestGoalRally: 0, bankGoals: [0, 0], rallyLastSide: -1,
+    topSpeed: 0, rally: 0, bestRally: 0, bestGoalRally: 0, bankGoals: [0, 0],
+    rallyLastSide: -1, rallyLastX: 0, rallyLastY: 0, rallyLastMs: 0,
     saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0],
   };
 }
@@ -2822,7 +2860,11 @@ function collideMallet(p, m, dt) {
     m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
     m.hitSqA = Math.atan2(ny, nx);
     noteRallyTouch(m.side);
-    onMalletHit(p.x, p.y, impact, nx, ny, savedThisHit);
+    onMalletHit(p.x, p.y, impact, nx, ny, savedThisHit, {
+      normalSpeed:-vn, malletDrive:Math.max(0, mvn), malletSpeed:msp0,
+      tangentialSpeed:rvx * -ny + rvy * nx, outgoingSpeed:hyp(p.vx, p.vy),
+      save:savedThisHit,
+    });
   }
   m.contactActive = true;
 }
@@ -2880,7 +2922,6 @@ function stepPhysics(dt) {
       G.nearCd = 1.5;
       Highlights.noteNearMiss(nearL ? 0 : 1);
       if (fxFlash()) {
-        G.dipT = 0.22;
         G.missGlow = { side: nearL ? 0 : 1, t: 0.7 };
       }
       AudioSys.blip(1500, 0.05, 0.10);
@@ -3758,44 +3799,34 @@ function impactFlashProfile(impact) {
   };
 }
 function noteRallyTouch(side) {
-  // Rally means alternating returns. Repeated traps/dribbles by the same
-  // mallet stay part of one possession instead of inflating the counter.
-  if (G.state !== 'play' || G.demo || !G.stats || side === G.stats.rallyLastSide) return;
-  G.stats.rallyLastSide = side;
-  G.stats.rally++;
-  if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
-  const rallyN = G.stats.rally;
-  if (G.mode === 'workshop') Practice.onRally(rallyN);
-  if (G.mode !== 'online') {
-    if (rallyN >= 5 && rallyN % 5 === 0) {
-      G.rallyHudN = rallyN; G.rallyHudT = 0.95;
-      addText(CX, CY - 72, 'RALLY ' + rallyN, THEME.gold || '#d8a93f', 30);
-    } else if (rallyN >= 3) {
-      G.rallyHudN = rallyN; G.rallyHudT = 0.46;
-    }
-  }
+  if (G.state !== 'play' || G.demo || !G.stats) return;
+  const st = G.stats;
+  const next = { side, x:G.puck.x, y:G.puck.y, ms:performance.now() };
+  const prev = { side:st.rallyLastSide, x:st.rallyLastX, y:st.rallyLastY, ms:st.rallyLastMs };
+  if (!Feel.meaningfulReturn(next, prev)) return;
+  st.rallyLastSide = side; st.rallyLastX = next.x; st.rallyLastY = next.y; st.rallyLastMs = next.ms;
+  st.rally++;
+  st.bestRally = Math.max(st.bestRally, st.rally);
+  if (G.mode === 'workshop') Practice.onRally(st.rally);
+  else MusicSys.setRally(Feel.rallyIntensity(st.rally));
+  // No giant combo counter: audio and trails communicate mounting pressure.
 }
-function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
+
+function onMalletHit(x, y, impact, nx, ny, suppressHaptic, contact = null) {
+  const perfect = !suppressHaptic && !!contact && Feel.perfectStrike(contact);
   const v = clamp(impact / 2200, 0, 1);
   const tier = hitTier(impact);
   const fxp = fxParticles();
-  // hit-stop: 1–2 frames, scaled - the brain reads it as weight
-  if (tier >= 1) G.freezeT = Math.max(G.freezeT, Math.min(tier === 2 ? 0.045 : 0.032, 0.010 + v * 0.022));
+  // No hit-stop on the authoritative gameplay clock.
   addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
   if (tier === 2) {
-    const flash = impactFlashProfile(impact);
+    const flash = perfect ? { energy:0.16, radius:92, room:0.45 } : impactFlashProfile(impact);
     if (fxFlash()) {
       G.hitFlash = Math.max(G.hitFlash, flash.energy);
       G.hitFlashX = x; G.hitFlashY = y; G.hitFlashR = flash.radius;
-      // SMASH slow-mo beat: ~90ms at the dip scale right after the 45ms
-      // hit-stop - the Holedown blend (freeze, then a near-halt beat, then
-      // full speed). Rides the shared dipT channel with the near-miss dip
-      // (Math.max: the two never stack or extend each other); play-state
-      // only, so it can never touch the goal ceremony's reserved slow-mo.
-      G.dipT = Math.max(G.dipT, 0.09);
     }
     if (fxRoom()) G.roomPulse = Math.max(G.roomPulse, flash.room);
-    if (!suppressHaptic) Haptics.fire('smash');
+    if (!suppressHaptic && !perfect) Haptics.fire('smash');
   }
   // puck squash along the impact normal, 10–20%. Restarts the recovery
   // spring from rest at the deformed shape.
@@ -3809,8 +3840,13 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
     G.scuffs.push({ x, y, a: 0.20, ang: Math.atan2(ny, nx) + Math.PI / 2, len: 26 + v * 40 });
   }
   const rallyN = G.stats ? G.stats.rally : 0;
-  AudioSys.hit(v, 1 + Math.min(rallyN, 12) * 0.03);
-  if (!suppressHaptic && tier < 2 && v > 0.55) Haptics.fire('strike');
+  if (perfect) {
+    AudioSys.perfectCrack();
+    Haptics.fire('perfect');
+  } else {
+    AudioSys.hit(v, 1 + Feel.rallyIntensity(rallyN) * 0.10);
+    if (!suppressHaptic && tier < 2 && v > 0.55) Haptics.fire('strike');
+  }
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
   Highlights.noteRail(x, y, isPost);
@@ -3823,7 +3859,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
     G.puckSqA = Math.atan2(ny, nx);
     G.puckSqV = 0;
   }
-  if (impact > 1100) { G.freezeT = Math.max(G.freezeT, 0.012); addTrauma(0.12 + v * 0.2); }
+  if (impact > 1100) addTrauma(0.12 + v * 0.2);
   if (impact > 300) burst(x, y, Math.max(1, Math.round((3 + v * 6) * fxParticles())), THEME.particle, 140 + v * 260, 2.5);
   if (isPost && impact > 900) {
     // the goal frame rattles: a hard frame hit earns a low clank and a
@@ -3957,6 +3993,7 @@ function dismissHint(markSeen) {
 }
 function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
+  MusicSys.setRally(0);
   if (G.score[0] === 0 && G.score[1] === 0) MusicSys.setIntensity(0); // fresh match: the bed at rest
   MusicSys.alignBeat(); // both peers start the same phrase on the countdown downbeat
   G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
@@ -4029,6 +4066,8 @@ function onGoal(scorer) {
     RivalLab.onGoal(scorer);
     return;
   }
+  G.goalRallyBonus = Feel.goalRelease(G.stats ? G.stats.rally : 0);
+  MusicSys.setRally(0);
   G.score[scorer]++; // the single place a goal changes the score
   // match-point lift: the music gains its pulse layer when someone is one away
   MusicSys.setIntensity(G.score[0] >= Settings.firstTo - 1 || G.score[1] >= Settings.firstTo - 1 ? 1 : 0);
@@ -4125,8 +4164,8 @@ function beginGoalCeremony(scorer) {
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
   G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
   const yours = goalIsYours(scorer);
-  G.flashA = yours ? 1 : 0.65;
-  G.goalFrameT = yours ? 1 : 0.5;
+  G.flashA = Math.min(1, (yours ? 1 : 0.65) + G.goalRallyBonus * 0.20);
+  G.goalFrameT = Math.min(1, (yours ? 1 : 0.5) + G.goalRallyBonus * 0.32);
   $('topbar').classList.add('hidden'); // ceremony is cinematic - no mis-taps
   const gx = scorer === 0 ? PX + PW : PX;
   const fxp = fxParticles();
@@ -4154,7 +4193,7 @@ function beginGoalCeremony(scorer) {
   // Human-owned goals keep the full room signature. Conceded/exhibition goals
   // use only the opening interval and a lighter swell so the mix mirrors the
   // existing visual/haptic hierarchy instead of celebrating both sides equally.
-  const goalEnergy = yours ? (winningGoal ? 1.12 : 1.0) : (winningGoal ? 0.62 : 0.52);
+  const goalEnergy = Math.min(1.15, (yours ? (winningGoal ? 1.12 : 1.0) : (winningGoal ? 0.62 : 0.52)) + G.goalRallyBonus);
   AudioSys.goalChord(yours ? goalNotes : goalNotes.slice(0, 2), goalEnergy);
   MusicSys.goalSwell(goalEnergy);
   Haptics.fire(yours ? 'goal' : 'concede');
@@ -4540,14 +4579,13 @@ function frame(t) {
   // the canvas until focus returns. lastT still updates above, preventing a
   // resume time-jump while avoiding wasted GPU work behind the veil.
   if (G.focusLost) return;
-  if (G.freezeT > 0) { G.freezeT -= rdt; render(); return; } // hit-stop
+  // Never stop physics or the online pump for a cosmetic impact.
   G.trauma = Math.max(0, G.trauma - rdt * 1.7);
   // juice timers decay every frame, whatever the state
   G.hitFlash = Math.max(0, G.hitFlash - rdt * 3);
   G.roomPulse = Math.max(0, G.roomPulse - rdt * 1.4);
   G.saveT = Math.max(0, G.saveT - rdt);
   G.nearCd = Math.max(0, G.nearCd - rdt);
-  G.dipT = Math.max(0, G.dipT - rdt);
   G.rallyHudT = Math.max(0, G.rallyHudT - rdt);
   Replay.tickOffer(rdt);
   if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
@@ -4597,17 +4635,13 @@ function frame(t) {
       // ONLINE: the guest does not simulate - the host owns the physics.
       // The guest only drives their own mallet; puck and rival mallet arrive
       // over the wire (dead-reckoned in Net.pump).
-      // Near-miss dip: the reserved channel is goals' slow-mo, but a 0.22s
-      // 0.55x dip on a post kiss - and the ~90ms SMASH slow-mo beat on
-      // SMASH-tier mallet hits - are smaller beats that share this channel
-      // (Math.max, never stacking). Never overlaps the ceremony (state
-      // leaves 'play' first).
+      // Cosmetic feedback never changes the live simulation clock.
       if (G.mode === 'online' && onlineIsPlayer() && !onlineIsAuthority()) {
         const local = onlineLocalMallet();
         if (local) driveMallet(local, rdt, PLAYER_CAP);
       }
       else if (G.mode === 'online' && Net.role === 'spectator') { /* snapshots drive the gallery view */ }
-      else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
+      else playStep(rdt);
       updateParts(rdt);
       break;
     case 'replay':
