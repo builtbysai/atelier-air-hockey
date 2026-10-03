@@ -44,3 +44,31 @@ test('long-rally release is subtle, capped and immune to invalid values', () => 
   assert.equal(Feel.goalRelease(50),0.12);
   assert.equal(Feel.goalRelease(NaN),0);
 });
+
+test('bounded live tuning updates strike detection without modifying shipped defaults', () => {
+  assert.equal(Feel.tune('minNormalSpeed', 1700), true);
+  const clean = { normalSpeed:1420, malletDrive:1080, malletSpeed:1130,
+    tangentialSpeed:180, outgoingSpeed:1860 };
+  assert.equal(Feel.perfectStrike(clean), false);
+  assert.equal(Feel.defaults.minNormalSpeed, 1000);
+  assert.equal(Feel.tune('minNormalSpeed', 999999), true);
+  assert.equal(Feel.tuning.minNormalSpeed, 1700);
+  assert.equal(Feel.tune('notASetting', 10), false);
+  assert.equal(Feel.tune('minNormalSpeed', NaN), false);
+  Feel.reset();
+  assert.equal(Feel.perfectStrike(clean), true);
+});
+test('preset capture, validated imports and reset are transient and safe', () => {
+  Feel.tune('rallyStart', 5);
+  Feel.tune('goalReleaseCap', 0.09);
+  const saved = Feel.preset();
+  Feel.reset();
+  assert.equal(Feel.goalRelease(15), 0.12);
+  assert.equal(Feel.applyPreset(saved), true);
+  assert.equal(Feel.rallyIntensity(5), 0);
+  assert.equal(Feel.goalRelease(15), 0.09);
+  assert.equal(Feel.applyPreset({ rallyStart:NaN }), false);
+  assert.equal(Feel.applyPreset({ __proto__:null, unknown:100 }), false);
+  Feel.reset();
+  assert.equal(Feel.goalRelease(15), 0.12);
+});
