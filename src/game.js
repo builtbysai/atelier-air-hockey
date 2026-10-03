@@ -81,7 +81,7 @@ function loadSettings() {
 // Physics, pacing, and AI never consult these.
 const fxParticles = () => Settings.effects === 'minimal' ? 0.35 : Settings.effects === 'subtle' ? 0.65 : 1;
 const fxTrail = () => (Settings.effects === 'minimal' ? 0.5 : Settings.effects === 'subtle' ? 0.75 : 1) *
-  (1 + Feel.rallyIntensity(G.stats ? G.stats.rally : 0) * 0.25);
+  (1 + Feel.rallyIntensity(G.stats ? G.stats.rally : 0) * Feel.tuning.rallyTrailLift);
 const fxRoom = () => Settings.effects === 'full' && !PRM.reduce;   // room reactivity
 const fxFlash = () => Settings.effects !== 'minimal' && !PRM.reduce; // flashes & glows
 function saveSettings() {
@@ -674,7 +674,7 @@ const AudioSys = {
     const bp = ac.createBiquadFilter(); bp.type = 'bandpass';
     bp.frequency.value = 2850; bp.Q.value = 0.85;
     const g = ac.createGain();
-    g.gain.setValueAtTime(0.28, t);
+    g.gain.setValueAtTime(Feel.tuning.perfectCrackGain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.042);
     src.connect(bp); bp.connect(g); g.connect(this.sfxBus);
     src.start(t, rnd(1.7)); src.stop(t + 0.05);
@@ -1168,7 +1168,7 @@ const MusicSys = {
   ac() { return AudioSys.ctx; },
   // User music volume lives on AudioSys.musicBus so it scales both the
   // generative score and room ambience together. Per-room dynamics stay here.
-  targetLevel() { return this.cfg().level * (this.intensity ? 1.3 : 1) * (1 + this.rally * 0.045); },
+  targetLevel() { return this.cfg().level * (this.intensity ? 1.3 : 1) * (1 + this.rally * Feel.tuning.rallyMusicLift); },
   applyVolume() { AudioSys.syncMusic(); },
   // --- lifecycle ---
   prime() { // first-user-gesture path, via AudioSys.init()
@@ -1516,9 +1516,9 @@ const MusicSys = {
     this.padChord((this.curChord ? this.curChord.t : c.prog[0].t).map(s => this.mf(c.root + s)),
       t + 0.05, 1.4 + e, 0.090 * e);
   },
-  setRally(level) {
+  setRally(level, force = false) {
     level = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 0));
-    if (this.rally === level) return;
+    if (!force && this.rally === level) return;
     this.rally = level;
     const n = this.nodes, ac = this.ac();
     if (n && ac) n.musicG.gain.setTargetAtTime(this.targetLevel(), ac.currentTime, 0.45);
@@ -1559,8 +1559,8 @@ const Haptics = {
   fire(name) {
     try {
       if (!interacted || !Settings.haptics || !navigator.vibrate) return false;
-      const pattern = HAPTIC_PATTERNS[name];
-      if (pattern == null) return false;
+      const pattern = name === 'perfect' ? Feel.tuning.perfectHapticMs : HAPTIC_PATTERNS[name];
+      if (pattern == null || pattern === 0) return false;
       const now = performance.now();
       const cooldown = HAPTIC_COOLDOWN[name] || 0;
       if (now - (this.last[name] || -1e9) < cooldown) return false;
@@ -3809,6 +3809,7 @@ function noteRallyTouch(side) {
   st.bestRally = Math.max(st.bestRally, st.rally);
   if (G.mode === 'workshop') Practice.onRally(st.rally);
   else MusicSys.setRally(Feel.rallyIntensity(st.rally));
+  if (typeof FeelLab !== 'undefined') FeelLab.recordRally(st.rally);
   // No giant combo counter: audio and trails communicate mounting pressure.
 }
 
@@ -3820,7 +3821,7 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic, contact = null) {
   // No hit-stop on the authoritative gameplay clock.
   addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
   if (tier === 2) {
-    const flash = perfect ? { energy:0.16, radius:92, room:0.45 } : impactFlashProfile(impact);
+    const flash = perfect ? { energy:Feel.tuning.perfectFlashEnergy, radius:92, room:0.45 } : impactFlashProfile(impact);
     if (fxFlash()) {
       G.hitFlash = Math.max(G.hitFlash, flash.energy);
       G.hitFlashX = x; G.hitFlashY = y; G.hitFlashR = flash.radius;
@@ -3844,9 +3845,11 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic, contact = null) {
     AudioSys.perfectCrack();
     Haptics.fire('perfect');
   } else {
-    AudioSys.hit(v, 1 + Feel.rallyIntensity(rallyN) * 0.10);
+    AudioSys.hit(v, 1 + Feel.rallyIntensity(rallyN) * Feel.tuning.rallyPitchLift);
     if (!suppressHaptic && tier < 2 && v > 0.55) Haptics.fire('strike');
   }
+  if (typeof FeelLab !== 'undefined' && G.state === 'play' && !G.demo)
+    FeelLab.recordHit({ perfect, impact });
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
   Highlights.noteRail(x, y, isPost);
@@ -4067,6 +4070,7 @@ function onGoal(scorer) {
     return;
   }
   G.goalRallyBonus = Feel.goalRelease(G.stats ? G.stats.rally : 0);
+  if (typeof FeelLab !== 'undefined') FeelLab.recordGoal(G.stats ? G.stats.rally : 0);
   MusicSys.setRally(0);
   G.score[scorer]++; // the single place a goal changes the score
   // match-point lift: the music gains its pulse layer when someone is one away
