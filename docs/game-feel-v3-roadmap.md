@@ -13,7 +13,15 @@ First playable slice in PR #134:
 - Updated PWA precache/hash, syntax/static checks and purposeful VM/integration tests. 11 focused feel tests and independent build checks pass. The full suite shows the same **21 baseline failures** documented in issue #136, independently reproduced without Game Feel V3 changes; do not misreport whole-suite green.
 - **Not yet shipped by this slice:** complete Feel Lab sliders, cross-peer authoritative feel-event IDs/context, guest perfect-hit reconciliation, context-aware goal-type variants, fast restart, replay-specific audio/timeline effects, room-specific props, spectator emoji transport.
 
-Next engineering priority: minimal hidden Feel Lab for rapid tuning, then gameplay-event schema and context-synced goals. Before any additional online spectator protocol changes, stabilize the pre-existing Online V2 failures tracked in issue #136.
+A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, current-tab preset capture/apply/reset, diagnostic hit/rally counters, keyboard support, URL opt-in only). First playable V3 slice remains PR #134. Next engineering priority: semantic event IDs and context-synced goals. Before spectator transport changes, stabilize Online V2 failures in #136.
+
+## Live Feel Lab (PR #137)
+
+- Open on an installed/live build using `?feelLab=1`; button remains collapsed by default. No panel or extra controls without the URL flag.
+- Tunable parameters are local to the current tab and clamped by the pure Feel module; they are not saved, broadcast, or able to change puck physics.
+- Edit clean-hit geometry/flash/sound/haptic, meaningful-return distance/time, rally music/trail/brightness and capped long-rally release. Presets can be captured and validated/pasted as JSON; Reset restores shipping defaults.
+- Live event counters provide immediate feedback for balancing actual play. This is a small tuning panel, not yet a full scenario-generation/visual profiling suite.
+- Keep the remaining roadmap phases unchanged until each lands. Do not claim the Online V2 baseline suite is green: inherited failing tests are tracked in #136.
 
 ## Vision
 

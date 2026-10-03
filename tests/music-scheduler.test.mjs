@@ -35,6 +35,7 @@ function mockAudioContext() {
 async function loadGame() {
   const sb = await readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  const feel = await readFile(new URL('../src/feel-events.js', import.meta.url), 'utf8');
   const G = { mode: 'ai', state: 'menu', difficulty: 1, watch: null, onlineFlip: false, themeId: 'deco', score: [0, 0] };
   const ac = mockAudioContext();
   const context = vm.createContext({
@@ -60,7 +61,7 @@ async function loadGame() {
     requestAnimationFrame() {}, setTimeout: (fn) => 0, clearTimeout() {}, setInterval: () => 123, clearInterval() {},
     performance: { now: () => 0 },
   });
-  vm.runInContext(`${sb}\n${source}\nthis.__t = { MusicSys, MUSIC, AudioSys };`,
+  vm.runInContext(`${sb}\n${feel}\n${source}\nthis.__t = { MusicSys, MUSIC, AudioSys };`,
     context, { filename: 'src/game.js' });
   // inject the mock AudioContext into the source's own AudioSys, and give it
   // a master bus so buildBus() can wire up

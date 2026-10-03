@@ -25,6 +25,7 @@ const [index, template, net, game, ui, boards, themes, css] = await Promise.all(
 ]);
 assert.equal(index, template, 'index.html must be generated from src/template.html');
 assert.ok(index.indexOf('src/feel-events.js') < index.indexOf('src/game.js'), 'Feel classifier must load before game runtime');
+assert.ok(index.indexOf('src/ui.js') < index.indexOf('src/feel-lab.js'), 'Feel Lab loads after gameplay bootstrap');
 const sw = await readFile('sw.js', 'utf8');
 assert.match(sw, new RegExp("^const CACHE = '" + await appCacheName() + "';"),
   'sw.js cache identity must match the built app');
