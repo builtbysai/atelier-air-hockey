@@ -1,8 +1,19 @@
 # Game Feel V3 and Spectator Reactions Roadmap
 
 **Planning date:** 2026-10-03  
-**Status:** Research/planning only. No listed feature is implemented by this document.  
+**Status:** In development. First playable strike/rally slice: PR #134; remaining phases below are planned.  
 **Relationship:** Supplements `docs/online-v2-roadmap.md`; do not displace Online V2 correctness and real-device gates.
+
+## Implementation checkpoint (2026-10-03)
+
+First playable slice in PR #134:
+- Added pure `src/feel-events.js`: geometry-based perfect-strike classifier, spaced meaningful returns, capped rally intensity and goal-release weighting.
+- Connected real collision metadata to the existing procedural audio, haptics, impact flash, rally stats, music bus/ambience, short pulse layer, trails and goal-frame energy. Kept the main UI clear of routine rally counters.
+- Removed gameplay-clock hit-stop and hard-hit/near-miss slow-motion dips. The post-goal presentation and optional replay still own their own visual phases.
+- Updated PWA precache/hash, syntax/static checks and purposeful VM/integration tests. 11 focused feel tests and independent build checks pass. The full suite shows the same **21 baseline failures** documented in issue #136, independently reproduced without Game Feel V3 changes; do not misreport whole-suite green.
+- **Not yet shipped by this slice:** complete Feel Lab sliders, cross-peer authoritative feel-event IDs/context, guest perfect-hit reconciliation, context-aware goal-type variants, fast restart, replay-specific audio/timeline effects, room-specific props, spectator emoji transport.
+
+Next engineering priority: minimal hidden Feel Lab for rapid tuning, then gameplay-event schema and context-synced goals. Before any additional online spectator protocol changes, stabilize the pre-existing Online V2 failures tracked in issue #136.
 
 ## Vision
 
