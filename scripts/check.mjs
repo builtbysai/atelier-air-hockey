@@ -24,10 +24,11 @@ const [index, template, net, game, ui, boards, themes, css] = await Promise.all(
   readFile('src/themes.js','utf8'), readFile('src/styles.css','utf8')
 ]);
 assert.equal(index, template, 'index.html must be generated from src/template.html');
+assert.ok(index.indexOf('src/feel-events.js') < index.indexOf('src/game.js'), 'Feel classifier must load before game runtime');
 const sw = await readFile('sw.js', 'utf8');
 assert.match(sw, new RegExp("^const CACHE = '" + await appCacheName() + "';"),
   'sw.js cache identity must match the built app');
-for (const f of ['styles.css','themes.js','scoreboards.js','net.js','game.js','ui.js']) assert.match(index, new RegExp('src/' + f.replace('.', '\\.')));
+for (const f of ['styles.css','themes.js','scoreboards.js','net.js','feel-events.js','game.js','ui.js']) assert.match(index, new RegExp('src/' + f.replace('.', '\\.')));
 assert.doesNotMatch(index, /src\/app\.js/); assert.doesNotMatch(index, /<style>/); assert.doesNotMatch(index, /<script>\s/);
 assert.match(net, /\.onMessage\s*=/); assert.match(net, /\{ target: Net\.peerId \}/); assert.match(net, /onPeerJoin\s*=/);
 assert.doesNotMatch(net, /const \[sendSt/); assert.doesNotMatch(net, /createStubPair|netstub/);
