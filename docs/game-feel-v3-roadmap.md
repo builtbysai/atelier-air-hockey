@@ -1,7 +1,7 @@
 # Game Feel V3 and Spectator Reactions Roadmap
 
 **Planning date:** 2026-10-03  
-**Status:** In development. First playable strike/rally slice: PR #134; remaining phases below are planned.  
+**Status:** Phases 0–1 partially shipped (PRs #134, #137); contextual-goal and goal-first visual slices shipped (#138, #139). Other items remain planned.  
 **Relationship:** Supplements `docs/online-v2-roadmap.md`; do not displace Online V2 correctness and real-device gates.
 
 ## Implementation checkpoint (2026-10-03)
@@ -13,7 +13,7 @@ First playable slice in PR #134:
 - Updated PWA precache/hash, syntax/static checks and purposeful VM/integration tests. 11 focused feel tests and independent build checks pass. The full suite shows the same **21 baseline failures** documented in issue #136, independently reproduced without Game Feel V3 changes; do not misreport whole-suite green.
 - **Not yet shipped by this slice:** complete Feel Lab sliders, cross-peer authoritative feel-event IDs/context, guest perfect-hit reconciliation, context-aware goal-type variants, fast restart, replay-specific audio/timeline effects, room-specific props, spectator emoji transport.
 
-A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, current-tab preset capture/apply/reset, diagnostic hit/rally counters, keyboard support, URL opt-in only). First playable V3 slice remains PR #134. Goal context classifier and compact authority-owned reliable event payload are implemented in the next slice (pending PR). Next: full event IDs and physical goal-first animation with replay/resurrection parity. Before spectator transport changes, stabilize Online V2 failures in #136.
+A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, current-tab preset capture/apply/reset, diagnostic hit/rally counters, keyboard support, URL opt-in only). First playable V3 slice remains PR #134. Authority-owned compact goal context is merged in PR #138 and a first-frame physical goal reflection is merged in PR #139. Next: epoch-safe feel-event IDs, score-device punch, compact/skip-friendly ceremonies and replay/resurrection parity. Before spectator transport changes, stabilize Online V2 failures in #136.
 
 ## Live Feel Lab (PR #137)
 
@@ -23,19 +23,19 @@ A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, cu
 - Live event counters provide immediate feedback for balancing actual play. This is a small tuning panel, not yet a full scenario-generation/visual profiling suite.
 - Keep the remaining roadmap phases unchanged until each lands. Do not claim the Online V2 baseline suite is green: inherited failing tests are tracked in #136.
 
-## Authority-owned goal context (next slice)
+## Authority-owned goal context (merged PR #138)
 
 - Pure `Feel.goalContext` classifies winning, comeback, match-point, bank, long-rally and rocket using existing Highlights metadata. Winning/comeback context takes priority over shot craft; one short craft descriptor may accompany it. OWN GOAL and ANGLE remain pending until contact/trajectory proof exists.
 - Online authority now collects bank/rail evidence without recording guest-side replay clips. The existing *reliable* goal event carries a bounded optional `fx` summary to the guest and passive spectator room. Invalid or missing fields fall back to conservative visuals; no score/physics changes and no new realtime stream.
 - The ceremony uses the same validated classification across devices and adds a restrained rhythm difference for meaningful finishes. Snapshot-only goal recovery is intentionally generic until an epoch-safe context replay mechanism is implemented.
 - This does not resolve the inherited baseline Online V2 failures in issue #136; keep reliability gating before adding spectator reaction transport.
 
-## Physical goal-first follow-up (development branch)
+## Physical goal-first follow-up (merged PR #139)
 
 - Add a very thin, directional 170ms mouth reflection that begins on the first confirmed goal frame, moves *into* the scored-on goal, and fades before the ceremony panel takes over. All three shallow arcs share pure timing/geometry and stay within the opening.
 - Top-down and 2.5D cameras render the same world-space wave; rendering is gated by reduced-motion/Minimal effects and never changes puck coordinates, AI, simulation delta or snapshot cadence.
 - The host sends one optional, rounded mouth crossing Y value inside the existing reliable goal event for guest/spectator visual alignment. Legacy events still work by falling back to the last rendered puck Y, bounded within the actual goal mouth.
-- Focused tests exercise first-frame direction, timing fade, goal bounds, render hooks, and the optional online visual coordinate. Next: device-level visual tuning and physical scoreboard-specific punch.
+- Focused tests verify first-frame direction, timing fade, goal bounds, render hooks, and online visual-position parity. PR #139 focused test group: 27/27 passing; independent build checks passing. The full suite has the same 21 pre-existing failures in issue #136. Next: device-level visual tuning and physical scoreboard-specific punch.
 
 ## Vision
 
