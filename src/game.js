@@ -2860,7 +2860,11 @@ function collideMallet(p, m, dt) {
     m.hitSq = 1 - clamp(impact / 2600, 0, 0.34);
     m.hitSqA = Math.atan2(ny, nx);
     noteRallyTouch(m.side);
-    onMalletHit(p.x, p.y, impact, nx, ny, savedThisHit);
+    onMalletHit(p.x, p.y, impact, nx, ny, savedThisHit, {
+      normalSpeed:-vn, malletDrive:Math.max(0, mvn), malletSpeed:msp0,
+      tangentialSpeed:rvx * -ny + rvy * nx, outgoingSpeed:hyp(p.vx, p.vy),
+      save:savedThisHit,
+    });
   }
   m.contactActive = true;
 }
@@ -3796,44 +3800,34 @@ function impactFlashProfile(impact) {
   };
 }
 function noteRallyTouch(side) {
-  // Rally means alternating returns. Repeated traps/dribbles by the same
-  // mallet stay part of one possession instead of inflating the counter.
-  if (G.state !== 'play' || G.demo || !G.stats || side === G.stats.rallyLastSide) return;
-  G.stats.rallyLastSide = side;
-  G.stats.rally++;
-  if (G.stats.rally > G.stats.bestRally) G.stats.bestRally = G.stats.rally;
-  const rallyN = G.stats.rally;
-  if (G.mode === 'workshop') Practice.onRally(rallyN);
-  if (G.mode !== 'online') {
-    if (rallyN >= 5 && rallyN % 5 === 0) {
-      G.rallyHudN = rallyN; G.rallyHudT = 0.95;
-      addText(CX, CY - 72, 'RALLY ' + rallyN, THEME.gold || '#d8a93f', 30);
-    } else if (rallyN >= 3) {
-      G.rallyHudN = rallyN; G.rallyHudT = 0.46;
-    }
-  }
+  if (G.state !== 'play' || G.demo || !G.stats) return;
+  const st = G.stats;
+  const next = { side, x:G.puck.x, y:G.puck.y, ms:performance.now() };
+  const prev = { side:st.rallyLastSide, x:st.rallyLastX, y:st.rallyLastY, ms:st.rallyLastMs };
+  if (!Feel.meaningfulReturn(next, prev)) return;
+  st.rallyLastSide = side; st.rallyLastX = next.x; st.rallyLastY = next.y; st.rallyLastMs = next.ms;
+  st.rally++;
+  st.bestRally = Math.max(st.bestRally, st.rally);
+  if (G.mode === 'workshop') Practice.onRally(st.rally);
+  else MusicSys.setRally(Feel.rallyIntensity(st.rally));
+  // No giant combo counter: audio and trails communicate mounting pressure.
 }
-function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
+
+function onMalletHit(x, y, impact, nx, ny, suppressHaptic, contact = null) {
+  const perfect = !suppressHaptic && !!contact && Feel.perfectStrike(contact);
   const v = clamp(impact / 2200, 0, 1);
   const tier = hitTier(impact);
   const fxp = fxParticles();
-  // hit-stop: 1–2 frames, scaled - the brain reads it as weight
-  if (tier >= 1) G.freezeT = Math.max(G.freezeT, Math.min(tier === 2 ? 0.045 : 0.032, 0.010 + v * 0.022));
+  // No hit-stop on the authoritative gameplay clock.
   addTrauma(tier === 2 ? 0.55 + v * 0.45 : 0.18 + v * 0.5);
   if (tier === 2) {
-    const flash = impactFlashProfile(impact);
+    const flash = perfect ? { energy:0.16, radius:92, room:0.45 } : impactFlashProfile(impact);
     if (fxFlash()) {
       G.hitFlash = Math.max(G.hitFlash, flash.energy);
       G.hitFlashX = x; G.hitFlashY = y; G.hitFlashR = flash.radius;
-      // SMASH slow-mo beat: ~90ms at the dip scale right after the 45ms
-      // hit-stop - the Holedown blend (freeze, then a near-halt beat, then
-      // full speed). Rides the shared dipT channel with the near-miss dip
-      // (Math.max: the two never stack or extend each other); play-state
-      // only, so it can never touch the goal ceremony's reserved slow-mo.
-      G.dipT = Math.max(G.dipT, 0.09);
     }
     if (fxRoom()) G.roomPulse = Math.max(G.roomPulse, flash.room);
-    if (!suppressHaptic) Haptics.fire('smash');
+    if (!suppressHaptic && !perfect) Haptics.fire('smash');
   }
   // puck squash along the impact normal, 10–20%. Restarts the recovery
   // spring from rest at the deformed shape.
@@ -3847,8 +3841,13 @@ function onMalletHit(x, y, impact, nx, ny, suppressHaptic) {
     G.scuffs.push({ x, y, a: 0.20, ang: Math.atan2(ny, nx) + Math.PI / 2, len: 26 + v * 40 });
   }
   const rallyN = G.stats ? G.stats.rally : 0;
-  AudioSys.hit(v, 1 + Math.min(rallyN, 12) * 0.03);
-  if (!suppressHaptic && tier < 2 && v > 0.55) Haptics.fire('strike');
+  if (perfect) {
+    AudioSys.perfectCrack();
+    Haptics.fire('perfect');
+  } else {
+    AudioSys.hit(v, 1 + Feel.rallyIntensity(rallyN) * 0.10);
+    if (!suppressHaptic && tier < 2 && v > 0.55) Haptics.fire('strike');
+  }
 }
 function onRailHit(x, y, impact, isPost, nx, ny) {
   Highlights.noteRail(x, y, isPost);
@@ -3861,7 +3860,7 @@ function onRailHit(x, y, impact, isPost, nx, ny) {
     G.puckSqA = Math.atan2(ny, nx);
     G.puckSqV = 0;
   }
-  if (impact > 1100) { G.freezeT = Math.max(G.freezeT, 0.012); addTrauma(0.12 + v * 0.2); }
+  if (impact > 1100) addTrauma(0.12 + v * 0.2);
   if (impact > 300) burst(x, y, Math.max(1, Math.round((3 + v * 6) * fxParticles())), THEME.particle, 140 + v * 260, 2.5);
   if (isPost && impact > 900) {
     // the goal frame rattles: a hard frame hit earns a low clank and a
