@@ -4854,13 +4854,13 @@ function goalWavePaths() {
   const dir = G.goalSide === 0 ? 1 : -1;
   const gx = dir === 1 ? PX + PW : PX;
   const half = goalW()/2;
-  const y = clamp(G.goalShockY, CY-half+18, CY+half-18);
+  const y = clamp(G.goalShockY, CY-half+wave.span+4, CY+half-wave.span-4);
   const paths = [];
   for (let i=0;i<3;i++) {
     const points = [], span = wave.span * (1-i*0.18);
     for (let j=0;j<=6;j++) {
       const u = j/3 - 1;
-      points.push([gx + dir*(wave.advance-i*10+12*(1-u*u)), y+u*span]);
+      points.push([gx + dir*(Math.max(1,wave.advance-i*7)+12*(1-u*u)), y+u*span]);
     }
     paths.push(points);
   }
