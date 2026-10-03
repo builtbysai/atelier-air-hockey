@@ -96,7 +96,7 @@ assert.match(game, /const MusicSys = \{/, 'MusicSys object missing');
 assert.match(game, /MusicSys\.prime\(\)/, 'music must prime on first user gesture (AudioSys.init)');
 assert.match(game, /MusicSys\.goalSwell\(goalEnergy\)/, 'goal ceremony should scale the music swell by goal hierarchy');
 assert.match(game, /AudioSys\.goalChord\(yours \? goalNotes : goalNotes\.slice\(0, 2\), goalEnergy\)/, 'conceded goals should use the restrained two-note chord treatment');
-assert.match(game, /goalEnergy = yours \? \(winningGoal \? 1\.12 : 1\.0\) : \(winningGoal \? 0\.62 : 0\.52\)/, 'owned and conceded goals should keep distinct audio energy');
+assert.match(game, /const goalEnergy = Math\.min\(1\.15,[^\n]*winningGoal \? 1\.12 : 1\.0[^\n]*winningGoal \? 0\.62 : 0\.52[^\n]*G\.goalRallyBonus\)/, 'goal energy preserves ownership while adding bounded long-rally release');
 assert.match(game, /MusicSys\.setIntensity\(/, 'match-point intensity hook missing');
 assert.match(game, /setSessionSeed\(s\)/, 'MusicSys.setSessionSeed missing');
 const net = await readFile('src/net.js', 'utf8');
