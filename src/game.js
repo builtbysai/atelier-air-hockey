@@ -1635,6 +1635,7 @@ const G = {
   goalStreakLabel: '',       // one concise earned callout during goal celebration
   goalMomentLabel: '',       // tie / lead / match-point context
   goalRewardLabel: '',       // earned shot craft: bank / counter / rally / rocket
+  goalContext: null,         // authority-owned bounded semantic goal presentation
   goalScorerLabel: '',       // YOU SCORE / ROOKIE SCORES / P1 SCORES
   goalRallyBonus: 0,         // capped contextual goal-release accent
   goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
@@ -1893,8 +1894,9 @@ const Highlights = {
     this.point = this.freshPoint(); this.latestGoal = null;
   },
   local() { return G.mode !== 'online' && G.mode !== 'workshop' && !G.demo; },
+  tracks() { return this.local() || (G.mode === 'online' && onlineIsAuthority()); },
   noteTouch(side) {
-    if (!this.local()) return;
+    if (!this.tracks()) return;
     this.touchSerial++;
     // A new mallet touch invalidates an earlier bank unless this same touch
     // later kisses a side rail before the goal.
@@ -1902,7 +1904,7 @@ const Highlights = {
     this.point.bankBy = -1; this.point.bankSerial = -1;
   },
   noteRail(x, y, isPost) {
-    if (!this.local()) return;
+    if (!this.tracks()) return;
     if (!this.point) this.point = this.freshPoint();
     const target = x < CX ? 0 : 1;
     if (isPost) {
@@ -1916,12 +1918,12 @@ const Highlights = {
     }
   },
   noteSave(side) {
-    if (!this.local()) return;
+    if (!this.tracks()) return;
     if (!this.point) this.point = this.freshPoint();
     this.point.saves[side]++;
   },
   noteNearMiss(targetSide) {
-    if (!this.local()) return;
+    if (!this.tracks()) return;
     if (!this.point) this.point = this.freshPoint();
     this.point.nearMisses[targetSide]++;
   },
@@ -4095,7 +4097,7 @@ function onGoal(scorer) {
   const goalClip = Replay.capture(scorer);
   Highlights.recordGoal(scorer, goalClip);
   beginGoalCeremony(scorer);
-  if (G.mode === 'online') Net.sendGoal(scorer); // ONLINE: tell the guest to play it
+  if (G.mode === 'online') Net.sendGoal(scorer); // reliable context travels with authoritative goal
 }
 // ONLINE: start the goal ceremony visuals only - no scoring, no sending.
 // The host scores first in onGoal; the guest's scores arrive final in the
@@ -4158,7 +4160,7 @@ function announceGoalStatus(scorer) {
   el.textContent = spokenSideLabel(scorer) + ' scores. Score ' +
     G.score[0] + ' to ' + G.score[1] + '.' + moment + reward;
 }
-function beginGoalCeremony(scorer) {
+function beginGoalCeremony(scorer, remoteGoalContext = null) {
   G.pausedGoalCeremony = null;
   boardKick(scorer);
   G.goalSide = scorer;
@@ -4182,15 +4184,28 @@ function beginGoalCeremony(scorer) {
     for (let c = 0; c < 3; c++) burst(gx, CY, Math.max(1, Math.round(n / 3)), cols[c % cols.length], 380 + c * 160, 4 + c);
   }
   addTrauma(0.85);
-  // Capture the goal itself before the puck eases into the net.
-  G.goalSpeedKmh = Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
+  // The host classifies once, then sends the same bounded visual facts to
+  // guest and gallery. Snapshot recovery without the event stays conservative.
+  const latest = Highlights.latestGoal;
+  const localFacts = G.mode !== 'online' || onlineIsAuthority();
+  const fresh = localFacts && latest && latest.scorer === scorer &&
+    latest.score && latest.score[0] === G.score[0] && latest.score[1] === G.score[1];
+  const facts = fresh ? { ...latest, target:Settings.firstTo } : {
+    scorer, score:G.score, target:Settings.firstTo, rally:0, speedKmh:0,
+  };
+  G.goalContext = remoteGoalContext && Feel.validGoalContext(remoteGoalContext,G.score,scorer,Settings.firstTo)
+    ? Object.freeze({kind:remoteGoalContext.kind,craft:remoteGoalContext.craft,
+      rally:remoteGoalContext.rally,speed:remoteGoalContext.speed})
+    : Feel.goalContext(facts);
+  G.goalRallyBonus = Feel.goalRelease(G.goalContext.rally);
+  // Keep local captured velocity for replays; remote display uses host truth.
+  G.goalSpeedKmh = (G.mode === 'online' && !onlineIsAuthority())
+    ? G.goalContext.speed : Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
   announceStreak(scorer);
   G.goalScorerLabel = goalScorerCallout(scorer);
-  G.goalMomentLabel = goalMomentContext(scorer);
-  const latestGoal = Highlights.latestGoal;
-  const currentLatest = latestGoal && latestGoal.scorer === scorer &&
-    latestGoal.score && latestGoal.score[0] === G.score[0] && latestGoal.score[1] === G.score[1];
-  G.goalRewardLabel = currentLatest ? Highlights.skillLabel(latestGoal) : '';
+  G.goalMomentLabel = G.goalContext.kind === 'comeback' ? 'COMEBACK' : goalMomentContext(scorer);
+  G.goalRewardLabel = Feel.craftLabel(G.goalContext) ||
+    (fresh && G.mode !== 'online' ? Highlights.skillLabel(latest) : '');
   announceGoalStatus(scorer);
   const winningGoal = G.score[scorer] >= Settings.firstTo;
   const goalNotes = THEME.goalChord || [523.25, 659.25, 783.99, 1046.5];
@@ -5040,7 +5055,11 @@ function drawGoalTextScreen(c, w, h) {
   const sub = getComputedStyle(document.documentElement).getPropertyValue('--sub').trim() || '#aa9a78';
   const t = clamp(G.goalT / 1.65, 0, 1);
   const alpha = clamp((G.letterT - 0.08) * 2.7, 0, 1) * clamp((1.12 - t) * 4.2, 0.35, 1);
-  const titlePop = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT * 1.35, 0, 1));
+  // Context changes the arrival rhythm a little, not the gameplay clock.
+  const specialFinish = G.goalContext &&
+    ['rocket','long-rally','comeback','winning'].includes(G.goalContext.kind);
+  const titlePop = PRM.reduce ? 1 : 1 + (easeOutBack(clamp(G.letterT * (specialFinish ? 1.55 : 1.35), 0, 1)) - 1) *
+    (specialFinish ? 1.08 : 1);
   const scorePop = PRM.reduce ? 1 : 0.94 + 0.06 * easeOutBack(clamp((G.goalT - 0.12) * 2.9, 0, 1));
   // Short landscape has a permanent scoreboard + rule plaque across the
   // upper band. Keep the cinematic beat below that chrome instead of letting

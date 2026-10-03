@@ -13,7 +13,7 @@ First playable slice in PR #134:
 - Updated PWA precache/hash, syntax/static checks and purposeful VM/integration tests. 11 focused feel tests and independent build checks pass. The full suite shows the same **21 baseline failures** documented in issue #136, independently reproduced without Game Feel V3 changes; do not misreport whole-suite green.
 - **Not yet shipped by this slice:** complete Feel Lab sliders, cross-peer authoritative feel-event IDs/context, guest perfect-hit reconciliation, context-aware goal-type variants, fast restart, replay-specific audio/timeline effects, room-specific props, spectator emoji transport.
 
-A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, current-tab preset capture/apply/reset, diagnostic hit/rally counters, keyboard support, URL opt-in only). First playable V3 slice remains PR #134. Next engineering priority: semantic event IDs and context-synced goals. Before spectator transport changes, stabilize Online V2 failures in #136.
+A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, current-tab preset capture/apply/reset, diagnostic hit/rally counters, keyboard support, URL opt-in only). First playable V3 slice remains PR #134. Goal context classifier and compact authority-owned reliable event payload are implemented in the next slice (pending PR). Next: full event IDs and physical goal-first animation with replay/resurrection parity. Before spectator transport changes, stabilize Online V2 failures in #136.
 
 ## Live Feel Lab (PR #137)
 
@@ -22,6 +22,13 @@ A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, cu
 - Edit clean-hit geometry/flash/sound/haptic, meaningful-return distance/time, rally music/trail/brightness and capped long-rally release. Presets can be captured and validated/pasted as JSON; Reset restores shipping defaults.
 - Live event counters provide immediate feedback for balancing actual play. This is a small tuning panel, not yet a full scenario-generation/visual profiling suite.
 - Keep the remaining roadmap phases unchanged until each lands. Do not claim the Online V2 baseline suite is green: inherited failing tests are tracked in #136.
+
+## Authority-owned goal context (next slice)
+
+- Pure `Feel.goalContext` classifies winning, comeback, match-point, bank, long-rally and rocket using existing Highlights metadata. Winning/comeback context takes priority over shot craft; one short craft descriptor may accompany it. OWN GOAL and ANGLE remain pending until contact/trajectory proof exists.
+- Online authority now collects bank/rail evidence without recording guest-side replay clips. The existing *reliable* goal event carries a bounded optional `fx` summary to the guest and passive spectator room. Invalid or missing fields fall back to conservative visuals; no score/physics changes and no new realtime stream.
+- The ceremony uses the same validated classification across devices and adds a restrained rhythm difference for meaningful finishes. Snapshot-only goal recovery is intentionally generic until an epoch-safe context replay mechanism is implemented.
+- This does not resolve the inherited baseline Online V2 failures in issue #136; keep reliability gating before adding spectator reaction transport.
 
 ## Vision
 
