@@ -4161,11 +4161,13 @@ function announceGoalStatus(scorer) {
   el.textContent = spokenSideLabel(scorer) + ' scores. Score ' +
     G.score[0] + ' to ' + G.score[1] + '.' + moment + reward;
 }
-function beginGoalCeremony(scorer, remoteGoalContext = null) {
+function beginGoalCeremony(scorer, remoteGoalContext = null, remoteGoalY = null) {
   G.pausedGoalCeremony = null;
   boardKick(scorer);
   G.goalSide = scorer;
-  G.goalShockY = clamp(G.puck.y, CY - goalW()/2 + 18, CY + goalW()/2 - 18);
+  // Remote viewers use the host's crossing position when available.
+  const crossingY = Number.isFinite(remoteGoalY) ? remoteGoalY : G.puck.y;
+  G.goalShockY = clamp(crossingY, CY - goalW()/2 + 18, CY + goalW()/2 - 18);
   if (G.stats) { G.stats.rally = 0; G.stats.rallyLastSide = -1; } // new exchange after each goal
   G.rallyHudT = 0; G.rallyHudN = 0;
   G.state = 'goal';
