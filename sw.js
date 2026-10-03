@@ -16,7 +16,8 @@ const CORE = [
   './src/feel-events.js',
   './src/game.js',
   './src/share.js',
-  './src/ui.js'
+  './src/ui.js',
+  './src/feel-lab.js'
 ];
 
 self.addEventListener('install', event => {
