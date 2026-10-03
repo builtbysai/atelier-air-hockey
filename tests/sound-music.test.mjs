@@ -49,6 +49,7 @@ function mockAudioContext() {
 async function loadGame(storageSeed) {
   const sb = await readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  const feel = await readFile(new URL('../src/feel-events.js', import.meta.url), 'utf8');
   const G = { mode: 'ai', state: 'menu', difficulty: 1, watch: null, onlineFlip: false, themeId: 'deco', score: [0, 0] };
   const ac = mockAudioContext();
   const storage = makeStorage(storageSeed);
@@ -81,7 +82,7 @@ async function loadGame(storageSeed) {
     clearTimeout() {}, setInterval: () => 123, clearInterval() {},
     performance: { now: () => 0 },
   });
-  vm.runInContext(`${sb}\n${source}\nthis.__t = { MusicSys, MUSIC, AudioSys, Settings, loadSettings, saveSettings, ROOM_AMB };`,
+  vm.runInContext(`${sb}\n${feel}\n${source}\nthis.__t = { MusicSys, MUSIC, AudioSys, Settings, loadSettings, saveSettings, ROOM_AMB };`,
     context, { filename: 'src/game.js' });
   const t = context.__t;
   // wire the two visible channel buses the way init() does
