@@ -2722,7 +2722,7 @@ Net.guestGoal = function (ev) {
   G.score = [ev.s0, ev.s1];
   if (ev.matchEnd && Net.role !== 'spectator') Net.rememberRival(G.score);
   if (Net.rsnap) { Net.rsnap.s0 = ev.s0; Net.rsnap.s1 = ev.s1; }
-  beginGoalCeremony(ev.scorer, accepted); // score already final; only visual metadata
+  beginGoalCeremony(ev.scorer, accepted, Number.isFinite(ev.gy) ? ev.gy : null); // visual metadata only
 };
 
 /* Remote pause without echoing an event back (the sender already sent it). */
@@ -3114,6 +3114,7 @@ Net.sendGoal = function (scorer) {
     t:'goal', scorer,
     s0:G.score[0], s1:G.score[1],
     matchEnd,
+    gy: Math.round(G.goalShockY), // visual crossing point; host-owned and bounded on receipt
   };
   if (typeof Feel !== 'undefined' &&
       Feel.validGoalContext(G.goalContext,G.score,scorer,Settings.firstTo)) {

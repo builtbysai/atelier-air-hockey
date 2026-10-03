@@ -1626,6 +1626,7 @@ const G = {
   missGlow: null,           // { side, t } post glow after a near miss
   rattle: null,             // { side, t } goal-frame rattle after a hard frame hit
   goalFrameT: 0,            // goal-frame flash timer
+  goalShockY: CY,            // visual-only mouth entry; never affects puck position
   board: freshBoard(),      // scoreboard animation state
   ai: null,                 // per-ai brain state
   stats: null,              // per-match stats (top speed, rally, time)
@@ -4160,10 +4161,13 @@ function announceGoalStatus(scorer) {
   el.textContent = spokenSideLabel(scorer) + ' scores. Score ' +
     G.score[0] + ' to ' + G.score[1] + '.' + moment + reward;
 }
-function beginGoalCeremony(scorer, remoteGoalContext = null) {
+function beginGoalCeremony(scorer, remoteGoalContext = null, remoteGoalY = null) {
   G.pausedGoalCeremony = null;
   boardKick(scorer);
   G.goalSide = scorer;
+  // Remote viewers use the host's crossing position when available.
+  const crossingY = Number.isFinite(remoteGoalY) ? remoteGoalY : G.puck.y;
+  G.goalShockY = clamp(crossingY, CY - goalW()/2 + 18, CY + goalW()/2 - 18);
   if (G.stats) { G.stats.rally = 0; G.stats.rallyLastSide = -1; } // new exchange after each goal
   G.rallyHudT = 0; G.rallyHudN = 0;
   G.state = 'goal';
@@ -4841,6 +4845,42 @@ function drawTableFlat(c) {
   }
 }
 
+// Two renderers share identical world-space wave geometry. No particles,
+// world displacement, timer or extra simulation. Curves stay inside the mouth.
+function goalWavePaths() {
+  if (G.state !== 'goal' || !fxFlash()) return null;
+  const wave = Feel.goalWave(G.goalT);
+  if (!wave) return null;
+  const dir = G.goalSide === 0 ? 1 : -1;
+  const gx = dir === 1 ? PX + PW : PX;
+  const half = goalW()/2;
+  const y = clamp(G.goalShockY, CY-half+wave.span+4, CY+half-wave.span-4);
+  const paths = [];
+  for (let i=0;i<3;i++) {
+    const points = [], span = wave.span * (1-i*0.18);
+    for (let j=0;j<=6;j++) {
+      const u = j/3 - 1;
+      points.push([gx + dir*(Math.max(1,wave.advance-i*7)+12*(1-u*u)), y+u*span]);
+    }
+    paths.push(points);
+  }
+  return {paths,alpha:wave.alpha};
+}
+function drawGoalWaveFlat(c) {
+  const w = goalWavePaths();
+  if (!w) return;
+  c.save(); c.strokeStyle = THEME.gold || '#d8a93f';
+  c.lineCap = 'round';
+  for(let i=0;i<w.paths.length;i++) {
+    c.globalAlpha = w.alpha * (1-i*0.25);
+    c.lineWidth = 1.75-i*0.25;
+    c.beginPath();
+    w.paths[i].forEach(([x,y],j)=>j?c.lineTo(x,y):c.moveTo(x,y));
+    c.stroke();
+  }
+  c.restore();
+}
+
 // Surface-bound motion FX: mallet trails, possession ring, particle streaks,
 // save pulses, impact flash. Stays with the table in every camera.
 function drawFxFlat(c) {
@@ -4901,6 +4941,7 @@ function drawFxFlat(c) {
     c.fillRect(gx - 430, CY - 430, 860, 860);
     c.restore();
   }
+  drawGoalWaveFlat(c);
 
   // SMASH-tier impact flash: speed-scaled, short, and warm enough to read
   // as an impact glint without washing the whole table white.
@@ -5502,6 +5543,22 @@ function drawMallet25(cam, m) {
   ctx.lineWidth = Math.max(1, 1.6 * cap.s); ctx.strokeStyle = S.ring; ctx.stroke();
 }
 
+// Project the same brief room-bound reflection into the elevated cameras.
+function drawGoalWave25(cam) {
+  const w = goalWavePaths();
+  if (!w) return;
+  ctx.save(); ctx.strokeStyle = THEME.gold || '#d8a93f'; ctx.lineCap = 'round';
+  for(let i=0;i<w.paths.length;i++) {
+    const projected = w.paths[i].map(([x,y])=>camProject(cam,x,y,0));
+    if(projected.some(p=>!p))continue;
+    ctx.globalAlpha = w.alpha * (1-i*0.25);
+    ctx.lineWidth = Math.max(0.7, (1.75-i*0.25)*projected[3].s);
+    ctx.beginPath();
+    projected.forEach((p,j)=>j?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 function drawGoalPocket25(cam, side) {
   const frontX = side === 0 ? PX : PX + PW;
   const backX = frontX + (side === 0 ? -72 : 72);
@@ -5618,6 +5675,7 @@ function drawDynTable25(cam) {
     drawTrim25(cam, side);
   }
   if (freeHit) drawPracticeTarget25(cam);
+  drawGoalWave25(cam);
   // goal-frame flash: the scored-on frame lights up in theme gold
   if (G.goalFrameT > 0 && fxFlash()) {
     const fgx = G.goalSide === 0 ? PX + PW : PX, gw = goalW();

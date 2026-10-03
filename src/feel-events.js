@@ -113,4 +113,16 @@ const Feel = Object.freeze({
     if (c.craft==='rocket')return 'ROCKET · '+c.speed+' KM/H';
     return '';
   },
+  // A render-only wave: within the first 170ms it travels into the scored
+  // goal. Tiny opacity and a fixed particle-free profile protect readability.
+  goalWave(t) {
+    if (!Number.isFinite(t) || t < 0 || t >= 0.17) return null;
+    const p = t / 0.17;
+    const ease = 1 - (1-p)*(1-p);
+    return Object.freeze({
+      advance: 4 + 48 * ease,
+      span: 16 + 23 * ease,
+      alpha: 0.27 * Math.pow(1-p, 1.5),
+    });
+  },
 });
