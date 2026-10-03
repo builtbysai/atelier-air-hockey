@@ -66,7 +66,7 @@ assert.doesNotMatch(ambience, /connect\(this\.sfxBus\)/, 'room ambience one-shot
 assert.match(boards, /Math\.max\(11, target \+ 1\)/); assert.match(boards, /chars\.split/);
 assert.match(ui, /installDialogA11y/); assert.match(ui, /dialogs\[dialogs\.length - 1\]/,
   'dialog focus management must follow the topmost visible layer');
-assert.match(ui, /\[role="option"\]/); assert.match(ui, /guestOwnsRight/); assert.match(ui, /'progress'/);
+assert.match(ui, /\[role="option"\]/); assert.match(ui, /const ownsRight = G\.mode === 'online' && onlinePlayerSide\(\) === 1/); assert.match(ui, /'progress'/);
 assert.match(ui, /btnWatch/); assert.match(ui, /btnHouse/); assert.match(ui, /btnOnline/); assert.match(ui, /watchSel/); assert.match(ui, /G\.watch/); assert.match(ui, /selectWatch/);
 assert.match(game, /mode === 'watch'/); assert.match(game, /G\.watch\s*=\s*\{ a:/);
 assert.match(template, />1 \/ 10</); assert.match(template, /id="settingsTitle"/); assert.match(template, /id="rulesTitle"/); assert.match(template, /id="pauseTitle"/);
