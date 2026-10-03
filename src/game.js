@@ -665,6 +665,29 @@ const AudioSys = {
     o.connect(g2); g2.connect(this.sfxBus);
     o.start(t); o.stop(t + 0.12);
   },
+  // Dry, ultra-short perfect-strike signature; no ordinary hit on top.
+  perfectCrack() {
+    if (!this.ctx || this.muted) return;
+    const ac = this.ctx, t = ac.currentTime;
+    const src = ac.createBufferSource(); src.buffer = this._noiseBuf();
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass';
+    bp.frequency.value = 2850; bp.Q.value = 0.85;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.042);
+    src.connect(bp); bp.connect(g); g.connect(this.sfxBus);
+    src.start(t, rnd(1.7)); src.stop(t + 0.05);
+    src.onended = () => { try { src.disconnect(); bp.disconnect(); g.disconnect(); } catch (e) {} };
+    const o = ac.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(460, t);
+    o.frequency.exponentialRampToValueAtTime(240, t + 0.035);
+    const bg = ac.createGain();
+    bg.gain.setValueAtTime(0.14, t);
+    bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.043);
+    o.connect(bg); bg.connect(this.sfxBus);
+    o.start(t); o.stop(t + 0.048);
+    o.onended = () => { try { o.disconnect(); bg.disconnect(); } catch (e) {} };
+  },
   // mallet whoosh: fast flicks get an airy sweep before the clack lands
   whoosh(power) {
     if (!this.ctx || this.muted) return;
@@ -1134,7 +1157,7 @@ const MUSIC = {
 };
 
 const MusicSys = {
-  key: 'deco', pendingKey: 'deco', intensity: 0,
+  key: 'deco', pendingKey: 'deco', intensity: 0, rally: 0,
   timer: 0, nodes: null, nextT: 0, beat: 0,
   rng: null, progIdx: 0, curChord: null, xfade: 0, sessionSeed: 0,
   bassHit: 0, bassPat: null, kickPat: null, snarePat: null, hatPat: null, prevPad: null,
@@ -1144,7 +1167,7 @@ const MusicSys = {
   ac() { return AudioSys.ctx; },
   // User music volume lives on AudioSys.musicBus so it scales both the
   // generative score and room ambience together. Per-room dynamics stay here.
-  targetLevel() { return this.cfg().level * (this.intensity ? 1.3 : 1); },
+  targetLevel() { return this.cfg().level * (this.intensity ? 1.3 : 1) * (1 + this.rally * 0.045); },
   applyVolume() { AudioSys.syncMusic(); },
   // --- lifecycle ---
   prime() { // first-user-gesture path, via AudioSys.init()
@@ -1276,6 +1299,7 @@ const MusicSys = {
     if (c.bass) this.bass16(t, n, spb, dens.bass);
     if (c.drums && dens.drums > 0) this.drums16(t, n, spb, dens);
     if (this.intensity && c.pulse && pn % 2 === 0) this.pulseTok(t); // match-point motorik
+    else if (this.rally >= 0.68 && c.pulse && pn % 4 === 0) this.pulseTok(t, this.rally * 0.19);
     if (c.shimmer && this.rng() < 0.10 * dens.mel) this.shimmerTone(t);
   },
   // Phrase start: advance the composed progression (the bridge chords every
@@ -1450,14 +1474,14 @@ const MusicSys = {
     setTimeout(() => { try { lp.disconnect(); g.disconnect(); } catch (e) {} },
       Math.max(0, (t + dur + 0.6 - ac.currentTime) * 1000) + 400);
   },
-  pulseTok(t) { // soft motorik tick for the match-point lift
+  pulseTok(t, gain = 1) { // quieter variant supports rally tension
     const ac = this.ac(), n = this.nodes;
     if (!n) return;
     const o = ac.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(210, t);
     o.frequency.exponentialRampToValueAtTime(105, t + 0.05);
     const g = ac.createGain();
-    g.gain.setValueAtTime(0.090, t);
+    g.gain.setValueAtTime(0.090 * gain, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
     o.connect(g); g.connect(n.musicG);
     o.start(t); o.stop(t + 0.1);
@@ -1491,6 +1515,17 @@ const MusicSys = {
     this.padChord((this.curChord ? this.curChord.t : c.prog[0].t).map(s => this.mf(c.root + s)),
       t + 0.05, 1.4 + e, 0.090 * e);
   },
+  setRally(level) {
+    level = Math.max(0, Math.min(1, Number.isFinite(level) ? level : 0));
+    if (this.rally === level) return;
+    this.rally = level;
+    const n = this.nodes, ac = this.ac();
+    if (n && ac) n.musicG.gain.setTargetAtTime(this.targetLevel(), ac.currentTime, 0.45);
+    // The existing room bed ducks very slightly as meaningful returns build.
+    const amb = AudioSys.amb;
+    if (amb && ac && amb.g && amb.cfg)
+      amb.g.gain.setTargetAtTime(amb.cfg.bed.g * (1 - level * 0.14), ac.currentTime, 0.38);
+  },
   setIntensity(i) {
     i = i ? 1 : 0;
     if (i === this.intensity) return;
@@ -1503,6 +1538,7 @@ const MusicSys = {
 };
 const HAPTIC_PATTERNS = Object.freeze({
   strike: 10,
+  perfect: 7,
   smash: [16, 22, 26],
   rail: 7,
   post: [12, 18, 14],
@@ -1514,7 +1550,7 @@ const HAPTIC_PATTERNS = Object.freeze({
   loss: [18, 32, 18],
 });
 const HAPTIC_COOLDOWN = Object.freeze({
-  strike: 70, smash: 110, rail: 100, post: 140, save: 260,
+  strike: 70, perfect: 140, smash: 110, rail: 100, post: 140, save: 260,
   serve: 500, goal: 700, concede: 700, win: 1200, loss: 1200,
 });
 const Haptics = {
@@ -1600,6 +1636,7 @@ const G = {
   goalMomentLabel: '',       // tie / lead / match-point context
   goalRewardLabel: '',       // earned shot craft: bank / counter / rally / rocket
   goalScorerLabel: '',       // YOU SCORE / ROOKIE SCORES / P1 SCORES
+  goalRallyBonus: 0,         // capped contextual goal-release accent
   goalSpeedKmh: 0,           // speed at the instant the puck crossed the line
   inputDriveT: [0, 0],        // most recent relative/hover control activity per player side
   pausedGoalCeremony: null,   // semantic goal payload held across pause/focus loss
@@ -1607,7 +1644,8 @@ const G = {
 };
 function freshStats() {
   return {
-    topSpeed: 0, rally: 0, bestRally: 0, bestGoalRally: 0, bankGoals: [0, 0], rallyLastSide: -1,
+    topSpeed: 0, rally: 0, bestRally: 0, bestGoalRally: 0, bankGoals: [0, 0],
+    rallyLastSide: -1, rallyLastX: 0, rallyLastY: 0, rallyLastMs: 0,
     saves: [0, 0], t0: 0, streak: [0, 0], bestStreak: [0, 0], worstDef: [0, 0],
   };
 }
