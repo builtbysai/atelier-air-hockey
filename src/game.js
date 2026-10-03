@@ -4197,7 +4197,7 @@ function beginGoalCeremony(scorer, remoteGoalContext = null) {
     ? Object.freeze({kind:remoteGoalContext.kind,craft:remoteGoalContext.craft,
       rally:remoteGoalContext.rally,speed:remoteGoalContext.speed})
     : Feel.goalContext(facts);
-  if (remoteGoalContext) G.goalRallyBonus = Feel.goalRelease(G.goalContext.rally);
+  G.goalRallyBonus = Feel.goalRelease(G.goalContext.rally);
   // Keep local captured velocity for replays; remote display uses host truth.
   G.goalSpeedKmh = (G.mode === 'online' && !onlineIsAuthority())
     ? G.goalContext.speed : Math.round(puckSpeed() * (2.4384 / PW) * 3.6);
@@ -5055,7 +5055,11 @@ function drawGoalTextScreen(c, w, h) {
   const sub = getComputedStyle(document.documentElement).getPropertyValue('--sub').trim() || '#aa9a78';
   const t = clamp(G.goalT / 1.65, 0, 1);
   const alpha = clamp((G.letterT - 0.08) * 2.7, 0, 1) * clamp((1.12 - t) * 4.2, 0.35, 1);
-  const titlePop = PRM.reduce ? 1 : easeOutBack(clamp(G.letterT * 1.35, 0, 1));
+  // Context changes the arrival rhythm a little, not the gameplay clock.
+  const specialFinish = G.goalContext &&
+    ['rocket','long-rally','comeback','winning'].includes(G.goalContext.kind);
+  const titlePop = PRM.reduce ? 1 : 1 + (easeOutBack(clamp(G.letterT * (specialFinish ? 1.55 : 1.35), 0, 1)) - 1) *
+    (specialFinish ? 1.08 : 1);
   const scorePop = PRM.reduce ? 1 : 0.94 + 0.06 * easeOutBack(clamp((G.goalT - 0.12) * 2.9, 0, 1));
   // Short landscape has a permanent scoreboard + rule plaque across the
   // upper band. Keep the cinematic beat below that chrome instead of letting
