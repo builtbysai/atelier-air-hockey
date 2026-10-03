@@ -1621,8 +1621,7 @@ const G = {
   hitFlash: 0, hitFlashX: 0, hitFlashY: 0, hitFlashR: 160, // speed-scaled SMASH impact flash
   roomPulse: 0,             // room reactivity: decays, feeds the lamp-glow overlay
   saveT: 0,                 // save-moment puck glow timer
-  nearCd: 0, dipT: 0,       // near-miss cooldown + shared time-dip timer
-                              // (near-miss dip and SMASH slow-mo beat)
+  nearCd: 0,               // near-miss cooldown
   missGlow: null,           // { side, t } post glow after a near miss
   rattle: null,             // { side, t } goal-frame rattle after a hard frame hit
   goalFrameT: 0,            // goal-frame flash timer
@@ -2922,7 +2921,6 @@ function stepPhysics(dt) {
       G.nearCd = 1.5;
       Highlights.noteNearMiss(nearL ? 0 : 1);
       if (fxFlash()) {
-        G.dipT = 0.22;
         G.missGlow = { side: nearL ? 0 : 1, t: 0.7 };
       }
       AudioSys.blip(1500, 0.05, 0.10);
@@ -3994,6 +3992,7 @@ function dismissHint(markSeen) {
 }
 function startCount() {
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
+  MusicSys.setRally(0);
   if (G.score[0] === 0 && G.score[1] === 0) MusicSys.setIntensity(0); // fresh match: the bed at rest
   MusicSys.alignBeat(); // both peers start the same phrase on the countdown downbeat
   G.puck.x = CX; G.puck.y = CY; G.puck.vx = 0; G.puck.vy = 0;
@@ -4066,6 +4065,8 @@ function onGoal(scorer) {
     RivalLab.onGoal(scorer);
     return;
   }
+  G.goalRallyBonus = Feel.goalRelease(G.stats ? G.stats.rally : 0);
+  MusicSys.setRally(0);
   G.score[scorer]++; // the single place a goal changes the score
   // match-point lift: the music gains its pulse layer when someone is one away
   MusicSys.setIntensity(G.score[0] >= Settings.firstTo - 1 || G.score[1] >= Settings.firstTo - 1 ? 1 : 0);
@@ -4191,7 +4192,7 @@ function beginGoalCeremony(scorer) {
   // Human-owned goals keep the full room signature. Conceded/exhibition goals
   // use only the opening interval and a lighter swell so the mix mirrors the
   // existing visual/haptic hierarchy instead of celebrating both sides equally.
-  const goalEnergy = yours ? (winningGoal ? 1.12 : 1.0) : (winningGoal ? 0.62 : 0.52);
+  const goalEnergy = Math.min(1.15, (yours ? (winningGoal ? 1.12 : 1.0) : (winningGoal ? 0.62 : 0.52)) + G.goalRallyBonus);
   AudioSys.goalChord(yours ? goalNotes : goalNotes.slice(0, 2), goalEnergy);
   MusicSys.goalSwell(goalEnergy);
   Haptics.fire(yours ? 'goal' : 'concede');
@@ -4577,14 +4578,13 @@ function frame(t) {
   // the canvas until focus returns. lastT still updates above, preventing a
   // resume time-jump while avoiding wasted GPU work behind the veil.
   if (G.focusLost) return;
-  if (G.freezeT > 0) { G.freezeT -= rdt; render(); return; } // hit-stop
+  // Never stop physics or the online pump for a cosmetic impact.
   G.trauma = Math.max(0, G.trauma - rdt * 1.7);
   // juice timers decay every frame, whatever the state
   G.hitFlash = Math.max(0, G.hitFlash - rdt * 3);
   G.roomPulse = Math.max(0, G.roomPulse - rdt * 1.4);
   G.saveT = Math.max(0, G.saveT - rdt);
   G.nearCd = Math.max(0, G.nearCd - rdt);
-  G.dipT = Math.max(0, G.dipT - rdt);
   G.rallyHudT = Math.max(0, G.rallyHudT - rdt);
   Replay.tickOffer(rdt);
   if (G.missGlow) { G.missGlow.t -= rdt; if (G.missGlow.t <= 0) G.missGlow = null; }
@@ -4634,17 +4634,13 @@ function frame(t) {
       // ONLINE: the guest does not simulate - the host owns the physics.
       // The guest only drives their own mallet; puck and rival mallet arrive
       // over the wire (dead-reckoned in Net.pump).
-      // Near-miss dip: the reserved channel is goals' slow-mo, but a 0.22s
-      // 0.55x dip on a post kiss - and the ~90ms SMASH slow-mo beat on
-      // SMASH-tier mallet hits - are smaller beats that share this channel
-      // (Math.max, never stacking). Never overlaps the ceremony (state
-      // leaves 'play' first).
+      // Cosmetic feedback never changes the live simulation clock.
       if (G.mode === 'online' && onlineIsPlayer() && !onlineIsAuthority()) {
         const local = onlineLocalMallet();
         if (local) driveMallet(local, rdt, PLAYER_CAP);
       }
       else if (G.mode === 'online' && Net.role === 'spectator') { /* snapshots drive the gallery view */ }
-      else playStep(rdt * G.timeScale * (G.dipT > 0 ? 0.55 : 1));
+      else playStep(rdt);
       updateParts(rdt);
       break;
     case 'replay':
