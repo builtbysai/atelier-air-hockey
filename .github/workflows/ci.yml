@@ -14,7 +14,7 @@ jobs:
         with:
           node-version: 22
       - name: Focused game-feel regressions
-        run: node --test tests/feel-events.test.mjs tests/rally-feedback.test.mjs tests/feel-lab.test.mjs
+        run: node --test tests/feel-events.test.mjs tests/rally-feedback.test.mjs tests/feel-lab.test.mjs tests/goal-context.test.mjs
       - name: Build and verify
         run: npm test
       - name: Independent build integrity
