@@ -27,7 +27,9 @@ test('goal ceremony records the shot at the crossing moment', () => {
   const start = game.indexOf('function beginGoalCeremony');
   const end = game.indexOf('function updateGoal', start);
   const block = game.slice(start, end);
-  assert.match(block, /G\.goalSpeedKmh = Math\.round\(puckSpeed\(\)/);
+  assert.match(block, /G\.goalSpeedKmh = \(G\.mode === 'online' && !onlineIsAuthority\(\)\)/);
+  assert.match(block, /\? G\.goalContext\.speed : Math\.round\(puckSpeed\(\)/);
+  assert.match(block, /Feel\.validGoalContext\(remoteGoalContext/);
   assert.ok(block.indexOf('G.goalSpeedKmh') < block.indexOf('AudioSys.goalChord'),
     'goal speed/copy should be frozen before the ceremony continues');
 });
