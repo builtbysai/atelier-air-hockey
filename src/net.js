@@ -2711,11 +2711,18 @@ Net.onCountdown = function (ev) {
  * are also stamped into the snapshot cache so the per-frame apply can't
  * regress them with a stale pre-goal snapshot. */
 Net.guestGoal = function (ev) {
+  // A missing/invalid context is a generic goal, not a rejected score.
+  // This never changes authority, awards, puck state, or snapshot parsing.
+  const fx = ev.fx, context = fx && typeof fx === 'object' ? {
+    kind:fx.k, craft:fx.c, rally:fx.r, speed:fx.v,
+  } : null;
+  const accepted = typeof Feel !== 'undefined' &&
+    Feel.validGoalContext(context,[ev.s0,ev.s1],ev.scorer,Settings.firstTo) ? context : null;
   Net.clearGuestPrediction();
   G.score = [ev.s0, ev.s1];
   if (ev.matchEnd && Net.role !== 'spectator') Net.rememberRival(G.score);
   if (Net.rsnap) { Net.rsnap.s0 = ev.s0; Net.rsnap.s1 = ev.s1; }
-  beginGoalCeremony(ev.scorer); // visuals only - no scoring, no send
+  beginGoalCeremony(ev.scorer, accepted); // score already final; only visual metadata
 };
 
 /* Remote pause without echoing an event back (the sender already sent it). */
@@ -3108,6 +3115,11 @@ Net.sendGoal = function (scorer) {
     s0:G.score[0], s1:G.score[1],
     matchEnd,
   };
+  if (typeof Feel !== 'undefined' &&
+      Feel.validGoalContext(G.goalContext,G.score,scorer,Settings.firstTo)) {
+    const c = G.goalContext;
+    ev.fx = { k:c.kind, c:c.craft, r:c.rally, v:c.speed };
+  }
   Net.wire.sendEv(ev);
   void Net.spectatorSendEvent(ev);
   if (matchEnd) Net.rememberRival(G.score);
