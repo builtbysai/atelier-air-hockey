@@ -47,13 +47,13 @@ assert.ok(guestStart>0&&guestEnd>guestStart&&sendStart>0&&sendEnd>sendStart);
 function netHarness() {
   const sent=[],watch=[],ceremonies=[];
   const state={
-    G:{score:[2,1],state:'play',goalContext:null},
+    G:{score:[2,1],state:'play',goalContext:null,goalShockY:551},
     Settings:{firstTo:7},Net:{
       wire:{sendEv:v=>sent.push(v)},active:true,role:'host',rsnap:{s0:2,s1:1},
       clearGuestPrediction(){},spectatorSendEvent:v=>{watch.push(v);return Promise.resolve();},
       rememberRival(){},
     },
-    beginGoalCeremony:(scorer,context)=>ceremonies.push([scorer,context]),
+    beginGoalCeremony:(scorer,context,goalY)=>ceremonies.push([scorer,context,goalY]),
   };
   const api=vm.runInNewContext(feelSource+'\n'+net.slice(guestStart,guestEnd)+'\n'+net.slice(sendStart,sendEnd)+'\nNet;',state);
   return {Net:api,G:state.G,sent,watch,ceremonies};
@@ -65,15 +65,17 @@ test('authority sends the same compact goal context to rival and spectator', () 
   h.Net.sendGoal(0);
   assert.equal(h.sent.length,1);
   assert.equal(h.watch.length,1);
+  assert.equal(h.sent[0].gy,551);
   assert.deepEqual(JSON.parse(JSON.stringify(h.watch[0])),JSON.parse(JSON.stringify(h.sent[0])));
   assert.deepEqual(JSON.parse(JSON.stringify(h.sent[0].fx)),{k:'rocket',c:'rocket',r:2,v:27});
 });
 test('guests render accepted authority context, never increment a delivered score', () => {
   const h=netHarness();
   const fx={k:'bank',c:'bank',r:13,v:26};
-  h.Net.guestGoal({scorer:0,s0:3,s1:1,fx});
+  h.Net.guestGoal({scorer:0,s0:3,s1:1,fx,gy:550});
   assert.equal(h.G.score[0],3);
   assert.equal(h.ceremonies[0][0],0);
+  assert.equal(h.ceremonies[0][2],550);
   assert.deepEqual(JSON.parse(JSON.stringify(h.ceremonies[0][1])),
     {kind:'bank',craft:'bank',rally:13,speed:26});
   assert.equal(h.Net.rsnap.s0,3);
