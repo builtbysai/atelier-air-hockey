@@ -80,7 +80,8 @@ function loadSettings() {
 // Effects scalers - one place to look up how much spectacle is allowed.
 // Physics, pacing, and AI never consult these.
 const fxParticles = () => Settings.effects === 'minimal' ? 0.35 : Settings.effects === 'subtle' ? 0.65 : 1;
-const fxTrail = () => Settings.effects === 'minimal' ? 0.5 : Settings.effects === 'subtle' ? 0.75 : 1;
+const fxTrail = () => (Settings.effects === 'minimal' ? 0.5 : Settings.effects === 'subtle' ? 0.75 : 1) *
+  (1 + Feel.rallyIntensity(G.stats ? G.stats.rally : 0) * 0.25);
 const fxRoom = () => Settings.effects === 'full' && !PRM.reduce;   // room reactivity
 const fxFlash = () => Settings.effects !== 'minimal' && !PRM.reduce; // flashes & glows
 function saveSettings() {
@@ -4163,8 +4164,8 @@ function beginGoalCeremony(scorer) {
   G.goalT = 0; G.goalSlowT = 0; G.letterT = 0;
   G.timeScale = 0.22; // the reserved channel: slow-mo belongs to goals
   const yours = goalIsYours(scorer);
-  G.flashA = yours ? 1 : 0.65;
-  G.goalFrameT = yours ? 1 : 0.5;
+  G.flashA = Math.min(1, (yours ? 1 : 0.65) + G.goalRallyBonus * 0.20);
+  G.goalFrameT = Math.min(1, (yours ? 1 : 0.5) + G.goalRallyBonus * 0.32);
   $('topbar').classList.add('hidden'); // ceremony is cinematic - no mis-taps
   const gx = scorer === 0 ? PX + PW : PX;
   const fxp = fxParticles();
