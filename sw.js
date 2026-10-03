@@ -13,6 +13,7 @@ const CORE = [
   './src/scoreboards.js',
   './src/vendor/qrcode.js',
   './src/net.js',
+  './src/feel-events.js',
   './src/game.js',
   './src/share.js',
   './src/ui.js'
