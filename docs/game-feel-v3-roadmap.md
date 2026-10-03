@@ -30,6 +30,13 @@ A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, cu
 - The ceremony uses the same validated classification across devices and adds a restrained rhythm difference for meaningful finishes. Snapshot-only goal recovery is intentionally generic until an epoch-safe context replay mechanism is implemented.
 - This does not resolve the inherited baseline Online V2 failures in issue #136; keep reliability gating before adding spectator reaction transport.
 
+## Physical goal-first follow-up (development branch)
+
+- Add a very thin, directional 170ms mouth reflection that begins on the first confirmed goal frame, moves *into* the scored-on goal, and fades before the ceremony panel takes over. All three shallow arcs share pure timing/geometry and stay within the opening.
+- Top-down and 2.5D cameras render the same world-space wave; rendering is gated by reduced-motion/Minimal effects and never changes puck coordinates, AI, simulation delta or snapshot cadence.
+- The host sends one optional, rounded mouth crossing Y value inside the existing reliable goal event for guest/spectator visual alignment. Legacy events still work by falling back to the last rendered puck Y, bounded within the actual goal mouth.
+- Focused tests exercise first-frame direction, timing fade, goal bounds, render hooks, and the optional online visual coordinate. Next: device-level visual tuning and physical scoreboard-specific punch.
+
 ## Vision
 
 Make Atelier teach precise striking through a recognizable sound and tactile signature, progressively build tension through meaningful rallies and close matches, then resolve that tension in context-aware, physical-feeling goals. Keep the UI restrained and gameplay fully fair. Give online spectators small social reactions that never jeopardize physics or network smoothness.
