@@ -5129,11 +5129,14 @@ function drawGoalTextScreen(c, w, h) {
   // This soft elliptical falloff is room-colored, not an opaque modal/card:
   // the rest of the table, scored-on goal and physical scoreboard stay visible.
   c.save();
+  // The ink settles before the lettering finishes arriving, so the rink
+  // centerline cannot still cut through the first 100ms of the GOAL title.
+  c.globalAlpha = Math.min(1, alpha * 1.5);
   c.translate(w * 0.5, cy);
   c.scale(Math.max(1, panelW * 0.43), Math.max(1, panelH * 0.48));
   const inkCloud = c.createRadialGradient(0, 0, 0, 0, 0, 1);
-  inkCloud.addColorStop(0, 'rgba(6,5,4,0.82)');
-  inkCloud.addColorStop(0.56, 'rgba(6,5,4,0.70)');
+  inkCloud.addColorStop(0, 'rgba(6,5,4,0.92)');
+  inkCloud.addColorStop(0.56, 'rgba(6,5,4,0.82)');
   inkCloud.addColorStop(1, 'rgba(6,5,4,0)');
   c.fillStyle = inkCloud; c.fillRect(-1, -1, 2, 2);
   c.restore();
