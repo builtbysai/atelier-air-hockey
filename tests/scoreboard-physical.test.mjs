@@ -91,3 +91,12 @@ test('visual-review finding: only one numeral face at a time on flap and neon de
   assert.equal(done.texts.filter(x=>x==='3').length,1);
   assert.equal(done.texts.filter(x=>x==='4').length,1);
 });
+
+test('actual-game QA seeded scores match physical boards and capture early impact',()=>{
+  const ui=readFileSync(new URL('../src/ui.js',import.meta.url),'utf8');
+  const game=readFileSync(new URL('../src/game.js',import.meta.url),'utf8');
+  assert.match(ui,/G\.board\.shown = G\.score\.slice\(\)/);
+  assert.match(ui,/case 'goal-impact':[\s\S]*?boardKick\(0\)/);
+  assert.match(ui,/G\.goalT = 0\.08; G\.goalSlowT = 0\.08;/);
+  assert.match(game,/wash\.addColorStop\(0\.58, 'rgba\(8,7,5,\.17\)'\)/);
+});
