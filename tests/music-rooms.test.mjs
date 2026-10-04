@@ -42,7 +42,6 @@ function mockAudioContext() {
 async function loadGame() {
   const sb = await readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  const feel = await readFile(new URL('../src/feel-events.js', import.meta.url), 'utf8');
   const G = { mode: 'ai', state: 'menu', difficulty: 1, watch: null, onlineFlip: false, themeId: 'deco', score: [0, 0] };
   const ac = mockAudioContext();
   const timers = [];
@@ -74,7 +73,7 @@ async function loadGame() {
     clearTimeout() {}, setInterval: () => 123, clearInterval() {},
     performance: { now: () => 0 },
   });
-  vm.runInContext(`${sb}\n${feel}\n${source}\nthis.__t = { MusicSys, MUSIC, AudioSys, Settings, loadSettings, ROOM_AMB, G };`,
+  vm.runInContext(`${sb}\n${source}\nthis.__t = { MusicSys, MUSIC, AudioSys, Settings, loadSettings, ROOM_AMB, G };`,
     context, { filename: 'src/game.js' });
   const t = context.__t;
   t.AudioSys.ctx = ac;

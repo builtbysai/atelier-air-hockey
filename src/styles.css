@@ -769,12 +769,6 @@
     #game{ width:100vw; height:100dvh; }
   }
 
-  /* Compact topbar maintains corner clearance through narrow tablets. */
-  @media (min-width:601px) and (max-width:760px){
-    #topbar{ flex-direction:column; align-items:flex-end; gap:6px; }
-    #topbar .connchip{ order:-1; }
-  }
-
   @media (max-width:600px){
     #topbar{
       flex-direction:column; align-items:flex-end; gap:6px;

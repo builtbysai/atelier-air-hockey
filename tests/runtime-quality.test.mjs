@@ -95,8 +95,8 @@ test('gameplay routes meaningful events into semantic haptics', () => {
 test('save haptic is not overwritten by the generic strike from the same contact', () => {
   assert.match(game, /let savedThisHit = false/);
   assert.match(game, /Haptics\.fire\('save'\);\s*savedThisHit = true/);
-  assert.match(game, /onMalletHit\(p\.x, p\.y, impact, nx, ny, savedThisHit, \{/);
-  assert.match(game, /if \(!suppressHaptic && !perfect\) Haptics\.fire\('smash'\)/);
+  assert.match(game, /onMalletHit\(p\.x, p\.y, impact, nx, ny, savedThisHit\)/);
+  assert.match(game, /if \(!suppressHaptic\) Haptics\.fire\('smash'\)/);
   assert.match(game, /if \(!suppressHaptic && tier < 2 && v > 0\.55\) Haptics\.fire\('strike'\)/);
 });
 

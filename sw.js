@@ -1,4 +1,4 @@
-const CACHE = 'atelier-air-hockey-3d6962058030';
+const CACHE = 'atelier-air-hockey-6fdc0083978b';
 const CORE = [
   './',
   './index.html',
@@ -13,11 +13,9 @@ const CORE = [
   './src/scoreboards.js',
   './src/vendor/qrcode.js',
   './src/net.js',
-  './src/feel-events.js',
   './src/game.js',
   './src/share.js',
-  './src/ui.js',
-  './src/feel-lab.js'
+  './src/ui.js'
 ];
 
 self.addEventListener('install', event => {

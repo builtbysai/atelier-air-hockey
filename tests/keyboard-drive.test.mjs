@@ -11,7 +11,6 @@ import vm from 'node:vm';
 async function loadWorld() {
   const sb = await readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  const feel = await readFile(new URL('../src/feel-events.js', import.meta.url), 'utf8');
   const audioStub = new Proxy({}, { get: () => () => {} });
   const elStub = () => ({ getContext: () => ({}), addEventListener() {}, style: {}, classList: { add() {}, remove() {} }, width: 0, height: 0 });
   const context = vm.createContext({
@@ -39,7 +38,7 @@ async function loadWorld() {
   });
   // NOTE: game.js declares its own const G; the harness G below would be
   // shadowed, so the tests drive the REAL internal G exposed here.
-  vm.runInContext(`${sb}\n${feel}\n${source}\nthis.__t = { playStep, mkBrain, G, get pointers() { return pointers; } };`,
+  vm.runInContext(`${sb}\n${source}\nthis.__t = { playStep, mkBrain, G, get pointers() { return pointers; } };`,
     context, { filename: 'src/game.js' });
   const t = context.__t;
   // minimal 1p play world (mirrors what startGame builds, without DOM)

@@ -15,17 +15,6 @@
 function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
 function easeOutBackS(t) { const c = 1.2; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
 
-// Transient scoring energy is derived from the existing physical-device
-// timeline. No second timer, no simulation writes and no replay flicker.
-function scoreImpact(B, side) {
-  if ((typeof PRM !== 'undefined' && PRM.reduce) ||
-      (typeof Settings !== 'undefined' && Settings.effects === 'minimal')) return 0;
-  const a = B && B.anim && B.anim[side];
-  if (!a || a.from === B.shown[side]) return 0;
-  const t = clamp(a.t / 0.58, 0, 1);
-  return (1 - t) * (1 - t);
-}
-
 const Scoreboards = {
 
   /* ---------- SOLARI split-flap (default) ----------
@@ -44,9 +33,7 @@ const Scoreboards = {
         const cx = CX + (i === 0 ? -1 : 1) * (modW / 2 + gap / 2 + 8);
         const hx = cx - modW / 2 - 9, hy = y, hw = modW + 18, hh = modH + 30;
         const mp = scores[i] === target - 1;
-        const kick = scoreImpact(B, i);
         ctx.save();
-        ctx.translate(0, -1.6 * kick);
         if (mp) { ctx.shadowColor = 'rgba(255,170,60,0.9)'; ctx.shadowBlur = 22; }
         rr(ctx, hx, hy, hw, hh, 10);
         const hg = ctx.createLinearGradient(hx, hy, hx, hy + hh);
@@ -79,29 +66,22 @@ const Scoreboards = {
           ctx.restore();
         };
         if (A.t < 1 && from !== shown) {
-          // A real split-flap has one legible number at a time. The former
-          // version drew both numerals together for 150ms (a visual collision).
-          // Darken the upper flap then snap the new face in under the seam.
+          // new digit sits behind; old flap falls away from the seam
+          drawDigit(shown, 1);
           const k = clamp(A.t / 0.55, 0, 1);
-          if (k < 0.24) {
-            drawDigit(from, 1);
-            ctx.fillStyle = 'rgba(0,0,0,' + (0.36 * k / 0.24).toFixed(3) + ')';
-            ctx.fillRect(fx, fy, modW, modH / 2);
-          } else {
-            drawDigit(shown, 1);
-            const reveal = (k - 0.24) / 0.76;
-            ctx.fillStyle = 'rgba(0,0,0,' + (0.20 * (1 - reveal)).toFixed(3) + ')';
-            ctx.fillRect(fx, fy + modH / 2, modW, modH / 2);
-          }
+          ctx.save();
+          ctx.beginPath(); ctx.rect(fx, fy, modW, modH / 2); ctx.clip();
+          drawDigit(from, 1 - k * 0.4, 0, Math.max(0.001, 1 - k));
+          ctx.restore();
+          ctx.save();
+          ctx.beginPath(); ctx.rect(fx, fy + modH / 2, modW, modH / 2); ctx.clip();
+          drawDigit(from, 1 - k, 0, 1);
+          ctx.restore();
         } else {
           drawDigit(shown, 1);
         }
         // center seam
         ctx.fillStyle = T.seam; ctx.fillRect(fx, fy + modH / 2 - 1, modW, 2);
-        if (kick > 0) {
-          ctx.fillStyle = 'rgba(255,226,161,' + (0.22 * kick).toFixed(3) + ')';
-          ctx.fillRect(fx, fy + modH / 2 - 1, modW, 2);
-        }
         // label + MP tag
         ctx.fillStyle = 'rgba(240,233,214,0.55)';
         ctx.font = '600 13px Georgia, serif';
@@ -145,17 +125,10 @@ const Scoreboards = {
         const cx = CX + (i === 0 ? -1 : 1) * (winW / 2 + gap / 2 + 12);
         const fx = cx - winW / 2 - 10, fy = y, fw = winW + 20, fh = winH + 34;
         const mp = scores[i] === target - 1;
-        const kick = scoreImpact(B, i);
         ctx.save();
-        ctx.translate(0, 1.7 * kick);
         rr(ctx, fx, fy, fw, fh, 8);
         ctx.fillStyle = T.frame; ctx.fill();
         ctx.lineWidth = 3; ctx.strokeStyle = T.frameEdge; ctx.stroke();
-        if (kick > 0) {
-          ctx.strokeStyle = 'rgba(255,235,175,' + (0.35 * kick).toFixed(3) + ')';
-          ctx.lineWidth = 1;
-          rr(ctx, fx + 2, fy + 2, fw - 4, fh - 4, 6); ctx.stroke();
-        }
         ctx.fillStyle = 'rgba(0,0,0,0.25)';
         rr(ctx, fx + 5, fy + 5, fw - 10, fh - 10, 5); ctx.stroke();
         const wx = cx - winW / 2, wy = y + 8;
@@ -258,8 +231,7 @@ const Scoreboards = {
           ctx.beginPath(); ctx.arc(hx - 1.6, ty - 1.6, 2.2, 0, TAU); ctx.fill();
         }
         const A = B.anim[i], shown = B.shown[i], from = A.from;
-        const kick = scoreImpact(B, i);
-        const peg = (n, alpha, hopK, earned = false) => {
+        const peg = (n, alpha, hopK) => {
           let px = holeX(clamp(n, 0, N - 1)), py = ty;
           if (hopK != null && hopK < 1) {
             const x0 = holeX(clamp(from, 0, N - 1));
@@ -268,12 +240,6 @@ const Scoreboards = {
           }
           ctx.save();
           ctx.globalAlpha = alpha;
-          if (earned && kick > 0) {
-            ctx.beginPath(); ctx.arc(px, py, 10 + 5 * (1 - kick), 0, TAU);
-            ctx.strokeStyle = 'rgba(240,212,139,' + (0.35 * kick).toFixed(3) + ')';
-            ctx.lineWidth = 1.2; ctx.stroke();
-            ctx.shadowColor = T.pegHi; ctx.shadowBlur = 7 * kick;
-          }
           const pg = ctx.createRadialGradient(px - 2, py - 3, 1, px, py, 8);
           pg.addColorStop(0, T.pegHi); pg.addColorStop(0.55, T.peg); pg.addColorStop(1, '#6a4a12');
           ctx.fillStyle = pg;
@@ -284,7 +250,7 @@ const Scoreboards = {
         };
         // rear peg marks the previous score (authentic leapfrog)
         if (shown > 0) peg(shown - 1, 0.45);
-        if (A.t < 1 && from !== shown) peg(shown, 1, easeOutCubic(clamp(A.t / 0.6, 0, 1)), true);
+        if (A.t < 1 && from !== shown) peg(shown, 1, easeOutCubic(clamp(A.t / 0.6, 0, 1)));
         else peg(shown, 1);
         ctx.fillStyle = 'rgba(240,230,200,0.6)';
         ctx.font = '600 12px Georgia, serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
@@ -347,9 +313,7 @@ const Scoreboards = {
             if (animK < 1) {
               const stagger = ((r * 5 + c + seed) % 35) / 35 * 0.5;
               const local = clamp((animK - stagger) / 0.5, 0, 1);
-              // Stable for the same animation time (including paused/replayed frames).
-              const phase = (r * 17 + c * 11 + seed * 7 + Math.floor(animK * 12) * 13) % 7;
-              a = local <= 0 ? 0 : (local < 0.25 ? (phase < 3 ? 0.3 : 0.9) : local);
+              a = local <= 0 ? 0 : (local < 0.25 ? (Math.random() < 0.5 ? 0.3 : 0.9) : local);
             }
             if (a <= 0) {
               ctx.fillStyle = T.bulbDim;
@@ -371,7 +335,6 @@ const Scoreboards = {
       for (let i = 0; i < 2; i++) {
         const cx = CX + (i === 0 ? -1 : 1) * 108;
         const A = B.anim[i], shown = B.shown[i];
-        const kick = scoreImpact(B, i);
         const animK = A.t < 1 && A.from !== shown ? clamp(A.t / 0.7, 0, 1) : 1;
         const mp = scores[i] === target - 1;
         if (mp) {
@@ -382,14 +345,6 @@ const Scoreboards = {
           ctx.strokeStyle = 'rgba(255,207,122,' + (0.35 + 0.4 * pulse).toFixed(2) + ')';
           ctx.lineWidth = 3;
           rr(ctx, cx - dw / 2 - 8, y + 12, dw + 16, dh + 8, 6); ctx.stroke();
-          ctx.restore();
-        }
-        if (kick > 0) {
-          ctx.save();
-          ctx.shadowColor = T.bulb; ctx.shadowBlur = 13 * kick;
-          ctx.strokeStyle = 'rgba(255,207,122,' + (0.42 * kick).toFixed(3) + ')';
-          ctx.lineWidth = 1.6;
-          rr(ctx, cx - dw / 2 - 5, y + 13, dw + 10, dh + 5, 5); ctx.stroke();
           ctx.restore();
         }
         const chars = String(Math.max(0, Math.min(99, Math.round(shown))));
@@ -427,7 +382,6 @@ const Scoreboards = {
         const cx = CX + (i === 0 ? -1 : 1) * (modW / 2 + gap / 2 + 8);
         const hx = cx - modW / 2 - 9, hy = y, hw = modW + 18, hh = modH + 30;
         const mp = scores[i] === target - 1;
-        const kick = scoreImpact(B, i);
         ctx.save();
         // black glass housing
         rr(ctx, hx, hy, hw, hh, 10);
@@ -436,9 +390,8 @@ const Scoreboards = {
         ctx.fillStyle = hg; ctx.fill();
         // neon edge pinline
         ctx.strokeStyle = mp ? T.digitDim : T.digit;
-        ctx.globalAlpha = 0.75 + 0.15 * kick; ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.75; ctx.lineWidth = 2;
         if (mp) { ctx.shadowColor = T.digitDim; ctx.shadowBlur = 18; }
-        else if (kick > 0) { ctx.shadowColor = T.digit; ctx.shadowBlur = 11 * kick; }
         rr(ctx, hx, hy, hw, hh, 10); ctx.stroke();
         ctx.shadowBlur = 0; ctx.globalAlpha = 1;
         const A = B.anim[i], shown = B.shown[i], from = A.from;
@@ -449,7 +402,7 @@ const Scoreboards = {
           ctx.globalAlpha = alpha;
           ctx.translate(cx, y + 9 + modH / 2 + (dy || 0));
           ctx.font = '700 62px Impact, "Arial Black", sans-serif';
-          ctx.shadowColor = T.digit; ctx.shadowBlur = 22 + 12 * kick;
+          ctx.shadowColor = T.digit; ctx.shadowBlur = 22;
           ctx.fillStyle = T.digit;
           ctx.fillText(dig(d), 0, 2);
           // white-hot core over the glow
@@ -459,11 +412,9 @@ const Scoreboards = {
           ctx.restore();
         };
         if (A.t < 1 && from !== shown) {
-          // The old tube dims before the new one ignites. Never superimpose
-          // two full luminous numerals (visually read as an illegible 8).
           const k = clamp(A.t / 0.55, 0, 1);
-          if (k < 0.22) drawDigit(from, 1 - 0.70 * k / 0.22, 0);
-          else drawDigit(shown, clamp(0.72 + (k - 0.22) / 0.78 * 0.28, 0.72, 1), 0);
+          drawDigit(shown, 1);
+          drawDigit(from, 1 - k * 0.5, -k * modH * 0.9);
         } else {
           drawDigit(shown, 1);
         }
@@ -496,18 +447,6 @@ const Scoreboards = {
     }
   },
 };
-
-// The HUD and the visual QA harness consume the same corner clearance
-// calculation. Desktop topbar is horizontal; narrow topbar is vertical.
-function scoreboardHudLayout(w, mode) {
-  const compactBar = w <= 760;
-  const rightReserve = compactBar ? (mode === 'online' ? 104 : 58)
-    : (mode === 'online' ? 190 : 112);
-  const maxHudW = Math.min(440, Math.max(0, w - rightReserve - 16));
-  const hs = clamp(Math.min(1, maxHudW / 400), 0.34, 1);
-  const hudCenter = Math.min(w * 0.5, w - rightReserve - 8 - 200 * hs);
-  return { hs, hudCenter, rightReserve };
-}
 
 /* engine-side animation state */
 function freshBoard() {

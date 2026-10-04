@@ -7,22 +7,22 @@ const matrix = [
   {
     dir: 'compact',
     viewport: { width: 360, height: 640 },
-    states: ['menu','rules','preferences','workshop-menu','workshop','goal','goal-impact','replay','pause','win','update'],
+    states: ['menu','rules','preferences','workshop-menu','workshop','goal','replay','pause','win','update'],
   },
   {
     dir: 'mobile',
     viewport: { width: 390, height: 844 },
-    states: ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','goal-impact','goal-rival','replay','pause','win','update'],
+    states: ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','goal-rival','replay','pause','win','update'],
   },
   {
     dir: 'landscape',
     viewport: { width: 844, height: 390 },
-    states: ['menu','workshop-menu','workshop','workshop-free','surface','goal','goal-impact','goal-rival','win'],
+    states: ['menu','workshop-menu','workshop','workshop-free','surface','goal','goal-rival','win'],
   },
   {
     dir: 'desktop',
     viewport: { width: 1440, height: 900 },
-    states: ['menu','workshop-menu','progress','top','elevated','surface','goal-impact','win','update'],
+    states: ['menu','workshop-menu','progress','top','elevated','surface','win','update'],
   },
 ];
 
@@ -44,27 +44,13 @@ try {
       pageErrors = [];
       const url = new URL(BASE);
       url.searchParams.set('qa', state);
-      const response = await page.goto(url.href, { waitUntil: 'domcontentloaded' });
-      try {
-        if (!response?.ok()) throw new Error('Visual QA HTTP status ' + response?.status());
-        await page.waitForFunction(expected =>
-          window.__atelierVisualQA?.freeze === true &&
-          window.__atelierVisualQA?.state === expected,
-          state,
-          { timeout: 5000 }
-        );
-      } catch (error) {
-        const status = await page.evaluate(() => ({
-          title: document.title,
-          ready: document.readyState,
-          fixture: window.__atelierVisualQA || null,
-        })).catch(e => ({ inspectError:String(e) }));
-        console.error('VISUAL_QA_BOOT', JSON.stringify({
-          group:group.dir,state,url:url.href,http:response?.status(),
-          pageErrors,status,
-        }));
-        throw error;
-      }
+      await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(expected =>
+        window.__atelierVisualQA?.freeze === true &&
+        window.__atelierVisualQA?.state === expected,
+        state,
+        { timeout: 5000 }
+      );
       await page.waitForTimeout(120);
 
       if (pageErrors.length) {

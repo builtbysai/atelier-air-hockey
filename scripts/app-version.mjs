@@ -9,8 +9,8 @@ const coreFiles = [
   'assets/icon.svg', 'assets/icon-maskable.svg',
   'assets/icon-180.png', 'assets/icon-192.png', 'assets/icon-512.png',
   'src/styles.css', 'src/themes.js', 'src/scoreboards.js',
-  'src/vendor/qrcode.js', 'src/net.js', 'src/feel-events.js', 'src/game.js',
-  'src/share.js', 'src/ui.js', 'src/feel-lab.js',
+  'src/vendor/qrcode.js', 'src/net.js', 'src/game.js',
+  'src/share.js', 'src/ui.js',
 ];
 
 export async function appCacheName() {

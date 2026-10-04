@@ -112,8 +112,7 @@ test('Pause and Audio are hidden while Preferences or Pause overlays are open', 
 test('rally and match-point feedback share one calm lane below the scoreboard', () => {
   assert.match(game, /drawPlaque\(c, CX, 164, status/);
   assert.match(game, /return 'RALLY · ' \+ G\.rallyHudN/);
-  assert.match(game, /Feel\.meaningfulReturn\(next, prev\)/);
-  assert.match(game, /MusicSys\.setRally\(Feel\.rallyIntensity\(st\.rally\)\)/);
+  assert.match(game, /rallyN >= 5 && rallyN % 5 === 0/);
   assert.doesNotMatch(game, /RALLY ×/);
 });
 

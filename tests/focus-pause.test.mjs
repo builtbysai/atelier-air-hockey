@@ -35,7 +35,6 @@ function chainCtx() {
 async function loadGame() {
   const sb = await readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
-  const feel = await readFile(new URL('../src/feel-events.js', import.meta.url), 'utf8');
   const els = {};
   const audioCalls = [];
   const ac = {
@@ -91,7 +90,7 @@ async function loadGame() {
     performance: { now: () => 1000 },
   });
   vm.runInContext(
-    `${sb}\n${feel}\n${source}\nthis.__t = { G, Net, AudioSys, MusicSys, Settings, togglePause, pauseForFocusLoss, resumeFromFocusLoss, frame, mkBrain };`,
+    `${sb}\n${source}\nthis.__t = { G, Net, AudioSys, MusicSys, Settings, togglePause, pauseForFocusLoss, resumeFromFocusLoss, frame, mkBrain };`,
     context, { filename: 'src/game.js' });
   const t = context.__t;
   t.AudioSys.ctx = ac;
@@ -266,7 +265,7 @@ test('focus loss during a goal uses the same preserved-ceremony pause path', asy
 test('focus-loss freeze skips canvas repaint while keeping the frame heartbeat', async () => {
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
   const start = source.indexOf('// Focus-loss freeze:');
-  const end = source.indexOf('G.trauma =', start);
+  const end = source.indexOf('if (G.freezeT > 0)', start);
   const frozen = source.slice(start, end);
   assert.match(frozen, /if \(G\.focusLost\) return;/,
     'focus loss should return before the render path');

@@ -997,9 +997,7 @@ function applyVisualQaState(name) {
   const baseMatch = camera => {
     hideAll(); Replay.reset(); Highlights.reset(); Practice.cancel();
     G.mode = 'ai'; G.difficulty = 1; G.demo = false; G.onlineFlip = false; G.focusLost = false;
-    G.score = [3,2]; G.winSide = 0; G.board = freshBoard();
-    G.board.shown = G.score.slice(); // frozen QA screenshot reflects actual scoreboard truth
-    G.stats = freshStats();
+    G.score = [3,2]; G.winSide = 0; G.board = freshBoard(); G.stats = freshStats();
     G.stats.t0 = performance.now() - 83000; G.stats.topSpeed = 2380; G.stats.bestRally = 12; G.stats.saves = [4,3];
     resetPositions();
     G.puck.x = CX + 86; G.puck.y = CY - 34; G.puck.vx = 920; G.puck.vy = -280;
@@ -1035,23 +1033,13 @@ function applyVisualQaState(name) {
     case 'surface':
       baseMatch(name); break;
     case 'goal':
-      baseMatch('top'); G.score = [4,2]; boardKick(0); G.board.anim[0].t = 1;
-      G.goalSide = 0; G.goalT = 0.72; G.goalSlowT = 0.72;
+      baseMatch('top'); G.score = [4,2]; G.goalSide = 0; G.goalT = 0.72; G.goalSlowT = 0.72;
       G.letterT = 1; G.goalStreakLabel = 'TWO IN A ROW'; G.goalMomentLabel = 'TWO IN A ROW';
       G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 24;
       G.state = 'goal'; $('topbar').classList.add('hidden'); break;
-    case 'goal-impact':
-      baseMatch('top'); PRM.reduce = false; Settings.effects = 'full';
-      G.score = [4,2]; boardKick(0); G.board.anim[0].t = 0.16;
-      G.goalSide = 0; G.goalShockY = CY + 20;
-      G.goalT = 0.08; G.goalSlowT = 0.08; G.goalFrameT = 0.72; G.flashA = 0.32;
-      G.letterT = 0.36; G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 24;
-      G.goalMomentLabel = 'BANK SHOT'; G.goalRewardLabel = '';
-      G.state = 'goal'; $('topbar').classList.add('hidden'); break;
     case 'goal-rival':
       baseMatch('top'); PRM.reduce = false; Settings.effects = 'full'; G.difficulty = 1;
-      G.score = [4,2]; boardKick(0); G.board.anim[0].t = 1;
-      G.goalSide = 0; G.goalT = 0.52; G.goalSlowT = 0.52;
+      G.score = [4,2]; G.goalSide = 0; G.goalT = 0.52; G.goalSlowT = 0.52;
       G.letterT = 1; G.goalStreakLabel = ''; G.goalMomentLabel = 'LEAD TAKEN';
       G.goalScorerLabel = 'YOU SCORE'; G.goalSpeedKmh = 22;
       G.state = 'goal'; $('topbar').classList.add('hidden'); break;

@@ -25,7 +25,7 @@ test('Workshop is a real playable practice surface', () => {
 });
 
 test('Workshop drills use live match events without awarding normal match progression', () => {
-  assert.ok(game.includes('Practice.onRally(st.rally)'));
+  assert.ok(game.includes('Practice.onRally(rallyN)'));
   assert.ok(game.includes('Practice.onSave(m.side)'));
   assert.ok(game.includes('Practice.onGoal(scorer, kmh)'));
   assert.ok(game.includes("if (G.mode === 'workshop')"));
