@@ -5131,11 +5131,11 @@ function drawGoalTextScreen(c, w, h) {
   c.save();
   c.translate(w * 0.5, cy);
   c.scale(Math.max(1, panelW * 0.43), Math.max(1, panelH * 0.48));
-  const ink = c.createRadialGradient(0, 0, 0, 0, 0, 1);
-  ink.addColorStop(0, 'rgba(6,5,4,0.82)');
-  ink.addColorStop(0.56, 'rgba(6,5,4,0.70)');
-  ink.addColorStop(1, 'rgba(6,5,4,0)');
-  c.fillStyle = ink; c.fillRect(-1, -1, 2, 2);
+  const inkCloud = c.createRadialGradient(0, 0, 0, 0, 0, 1);
+  inkCloud.addColorStop(0, 'rgba(6,5,4,0.82)');
+  inkCloud.addColorStop(0.56, 'rgba(6,5,4,0.70)');
+  inkCloud.addColorStop(1, 'rgba(6,5,4,0)');
+  c.fillStyle = inkCloud; c.fillRect(-1, -1, 2, 2);
   c.restore();
 
   const lineA = yours ? 0.78 : 0.40;
