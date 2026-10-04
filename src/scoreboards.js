@@ -79,17 +79,20 @@ const Scoreboards = {
           ctx.restore();
         };
         if (A.t < 1 && from !== shown) {
-          // new digit sits behind; old flap falls away from the seam
-          drawDigit(shown, 1);
+          // A real split-flap has one legible number at a time. The former
+          // version drew both numerals together for 150ms (a visual collision).
+          // Darken the upper flap then snap the new face in under the seam.
           const k = clamp(A.t / 0.55, 0, 1);
-          ctx.save();
-          ctx.beginPath(); ctx.rect(fx, fy, modW, modH / 2); ctx.clip();
-          drawDigit(from, 1 - k * 0.4, 0, Math.max(0.001, 1 - k));
-          ctx.restore();
-          ctx.save();
-          ctx.beginPath(); ctx.rect(fx, fy + modH / 2, modW, modH / 2); ctx.clip();
-          drawDigit(from, 1 - k, 0, 1);
-          ctx.restore();
+          if (k < 0.32) {
+            drawDigit(from, 1);
+            ctx.fillStyle = 'rgba(0,0,0,' + (0.36 * k / 0.32).toFixed(3) + ')';
+            ctx.fillRect(fx, fy, modW, modH / 2);
+          } else {
+            drawDigit(shown, 1);
+            const reveal = (k - 0.32) / 0.68;
+            ctx.fillStyle = 'rgba(0,0,0,' + (0.20 * (1 - reveal)).toFixed(3) + ')';
+            ctx.fillRect(fx, fy + modH / 2, modW, modH / 2);
+          }
         } else {
           drawDigit(shown, 1);
         }
@@ -456,9 +459,11 @@ const Scoreboards = {
           ctx.restore();
         };
         if (A.t < 1 && from !== shown) {
+          // The old tube dims before the new one ignites. Never superimpose
+          // two full luminous numerals (visually read as an illegible 8).
           const k = clamp(A.t / 0.55, 0, 1);
-          drawDigit(shown, 1);
-          drawDigit(from, 1 - k * 0.5, -k * modH * 0.9);
+          if (k < 0.22) drawDigit(from, 1 - 0.70 * k / 0.22, 0);
+          else drawDigit(shown, clamp(0.72 + (k - 0.22) / 0.78 * 0.28, 0.72, 1), 0);
         } else {
           drawDigit(shown, 1);
         }
