@@ -44,13 +44,27 @@ try {
       pageErrors = [];
       const url = new URL(BASE);
       url.searchParams.set('qa', state);
-      await page.goto(url.href, { waitUntil: 'domcontentloaded' });
-      await page.waitForFunction(expected =>
-        window.__atelierVisualQA?.freeze === true &&
-        window.__atelierVisualQA?.state === expected,
-        state,
-        { timeout: 5000 }
-      );
+      const response = await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+      try {
+        if (!response?.ok()) throw new Error('Visual QA HTTP status ' + response?.status());
+        await page.waitForFunction(expected =>
+          window.__atelierVisualQA?.freeze === true &&
+          window.__atelierVisualQA?.state === expected,
+          state,
+          { timeout: 5000 }
+        );
+      } catch (error) {
+        const status = await page.evaluate(() => ({
+          title: document.title,
+          ready: document.readyState,
+          fixture: window.__atelierVisualQA || null,
+        })).catch(e => ({ inspectError:String(e) }));
+        console.error('VISUAL_QA_BOOT', JSON.stringify({
+          group:group.dir,state,url:url.href,http:response?.status(),
+          pageErrors,status,
+        }));
+        throw error;
+      }
       await page.waitForTimeout(120);
 
       if (pageErrors.length) {
