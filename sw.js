@@ -1,4 +1,4 @@
-const CACHE = 'atelier-air-hockey-3ce0f4976280';
+const CACHE = 'atelier-air-hockey-d9799d785fbd';
 const CORE = [
   './',
   './index.html',
