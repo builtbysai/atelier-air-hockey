@@ -27,6 +27,18 @@ jobs:
         env:
           ATELIER_QA_BROWSER: chrome
         run: node scripts/visual-qa.mjs
+      # Temporary branch-scoped inspection of the actual game, separate
+      # from the isolated scoreboard renderer. No image logs on normal PRs.
+      - name: Inspect actual game screenshots
+        if: github.head_ref == 'feat/scoreboard-punch-20261003'
+        run: |
+          for shot in mobile/goal.png landscape/goal.png desktop/top.png; do
+            test -s "visual-artifacts/$shot"
+            echo "ATELIER_LIVE_BEGIN $shot"
+            base64 -w 1600 "visual-artifacts/$shot"
+            echo
+            echo "ATELIER_LIVE_END $shot"
+          done
       - name: Run deterministic rival soak
         env:
           ATELIER_QA_BROWSER: chrome
