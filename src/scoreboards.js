@@ -83,13 +83,13 @@ const Scoreboards = {
           // version drew both numerals together for 150ms (a visual collision).
           // Darken the upper flap then snap the new face in under the seam.
           const k = clamp(A.t / 0.55, 0, 1);
-          if (k < 0.32) {
+          if (k < 0.24) {
             drawDigit(from, 1);
-            ctx.fillStyle = 'rgba(0,0,0,' + (0.36 * k / 0.32).toFixed(3) + ')';
+            ctx.fillStyle = 'rgba(0,0,0,' + (0.36 * k / 0.24).toFixed(3) + ')';
             ctx.fillRect(fx, fy, modW, modH / 2);
           } else {
             drawDigit(shown, 1);
-            const reveal = (k - 0.32) / 0.68;
+            const reveal = (k - 0.24) / 0.76;
             ctx.fillStyle = 'rgba(0,0,0,' + (0.20 * (1 - reveal)).toFixed(3) + ')';
             ctx.fillRect(fx, fy + modH / 2, modW, modH / 2);
           }
