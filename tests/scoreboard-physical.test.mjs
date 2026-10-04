@@ -103,5 +103,5 @@ test('actual-game QA seeded scores match physical boards and capture early impac
   assert.match(ui,/case 'goal-impact':[\s\S]*?boardKick\(0\)/);
   assert.match(ui,/G\.goalT = 0\.08; G\.goalSlowT = 0\.08;/);
   assert.match(game,/wash\.addColorStop\(0\.58, 'rgba\(8,7,5,\.17\)'\)/);
-  assert.match(game,/ink\.addColorStop\(0\.56, 'rgba\(6,5,4,0\.70\)'\)/);
+  assert.match(game,/inkCloud\.addColorStop\(0\.56, 'rgba\(6,5,4,0\.70\)'\)/);
 });
