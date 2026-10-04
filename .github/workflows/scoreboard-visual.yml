@@ -1,0 +1,45 @@
+name: Visual scoreboard review
+on:
+  pull_request:
+    paths:
+      - src/scoreboards.js
+      - src/game.js
+      - src/styles.css
+      - tests/visual-scoreboards.html
+      - .github/workflows/scoreboard-visual.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capture actual scoring devices in three viewports
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$CHROME"
+          mkdir -p visual-samples
+          for board in solari reels cribbage bulbs neon; do
+            for vp in '360,740,phone' '844,390,landscape' '1280,720,desktop'; do
+              IFS=, read -r width height label <<< "$vp"
+              outfile="$PWD/visual-samples/${board}-${label}.png"
+              "$CHROME" --headless=new --disable-gpu --no-sandbox \
+                --disable-dev-shm-usage --allow-file-access-from-files \
+                --hide-scrollbars --force-device-scale-factor=1 \
+                --window-size="${width},${height}" --virtual-time-budget=700 \
+                --screenshot="$outfile" \
+                "file://$PWD/tests/visual-scoreboards.html?board=${board}&mode=online&side=0&stage=impact" \
+                >/dev/null 2>&1
+              test -s "$outfile"
+              test "$(stat -c%s "$outfile")" -gt 4000
+            done
+          done
+          file visual-samples/*.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scoreboard-visual-review
+          path: visual-samples/*.png
+          retention-days: 14
