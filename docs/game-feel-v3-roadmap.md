@@ -37,6 +37,12 @@ A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, cu
 - The host sends one optional, rounded mouth crossing Y value inside the existing reliable goal event for guest/spectator visual alignment. Legacy events still work by falling back to the last rendered puck Y, bounded within the actual goal mouth.
 - Focused tests verify first-frame direction, timing fade, goal bounds, render hooks, and online visual-position parity. PR #139 focused test group: 27/27 passing; independent build checks passing. The full suite has the same 21 pre-existing failures in issue #136. Next: device-level visual tuning and physical scoreboard-specific punch.
 
+## Physical scoreboard and responsive layout pass (in progress)
+- Use the existing 0.5-second scoreboard animation as the only clock for a short earned scoring response: Solari flap recoil, reel catch, cribbage landing ring, deterministic bulb ignition and localized neon glow. Respect Reduced Motion and Minimal effects. No generic entire-board scaling or permanent extra UI.
+- Use a shared `scoreboardHudLayout` function in the live game and an isolated actual-renderer visual review harness. Reserve the mobile/tablet top-right control region, including the wider online quality chip, at narrow portrait/landscape/desktop viewport widths.
+- Generate screenshot artifacts of all five physical scoring devices across phone portrait, phone landscape and desktop in GitHub Actions. Screenshots are representative renderer fixtures, not a substitute for real-device end-to-end review.
+- No transport or physics behavior changes. Keep the inherited 21-failure baseline in issue #136 visible.
+
 ## Vision
 
 Make Atelier teach precise striking through a recognizable sound and tactile signature, progressively build tension through meaningful rallies and close matches, then resolve that tension in context-aware, physical-feeling goals. Keep the UI restrained and gameplay fully fair. Give online spectators small social reactions that never jeopardize physics or network smoothness.
