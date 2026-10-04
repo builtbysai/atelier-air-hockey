@@ -5125,6 +5125,18 @@ function drawGoalTextScreen(c, w, h) {
   wash.addColorStop(0.58, 'rgba(8,7,5,.17)');
   wash.addColorStop(1, 'rgba(4,3,3,.03)');
   c.fillStyle = wash; c.fillRect(0, 0, w, h);
+  // Keep the actual puck and centerline from cutting through the lettering.
+  // This soft elliptical falloff is room-colored, not an opaque modal/card:
+  // the rest of the table, scored-on goal and physical scoreboard stay visible.
+  c.save();
+  c.translate(w * 0.5, cy);
+  c.scale(Math.max(1, panelW * 0.43), Math.max(1, panelH * 0.48));
+  const ink = c.createRadialGradient(0, 0, 0, 0, 0, 1);
+  ink.addColorStop(0, 'rgba(6,5,4,0.82)');
+  ink.addColorStop(0.56, 'rgba(6,5,4,0.70)');
+  ink.addColorStop(1, 'rgba(6,5,4,0)');
+  c.fillStyle = ink; c.fillRect(-1, -1, 2, 2);
+  c.restore();
 
   const lineA = yours ? 0.78 : 0.40;
   c.strokeStyle = hexA(gold, lineA); c.lineWidth = 1;
