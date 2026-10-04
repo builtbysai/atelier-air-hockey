@@ -492,6 +492,18 @@ const Scoreboards = {
   },
 };
 
+// The HUD and the visual QA harness consume the same corner clearance
+// calculation. Desktop topbar is horizontal; narrow topbar is vertical.
+function scoreboardHudLayout(w, mode) {
+  const compactBar = w <= 760;
+  const rightReserve = compactBar ? (mode === 'online' ? 104 : 58)
+    : (mode === 'online' ? 190 : 112);
+  const maxHudW = Math.min(440, Math.max(0, w - rightReserve - 16));
+  const hs = clamp(Math.min(1, maxHudW / 400), 0.34, 1);
+  const hudCenter = Math.min(w * 0.5, w - rightReserve - 8 - 200 * hs);
+  return { hs, hudCenter, rightReserve };
+}
+
 /* engine-side animation state */
 function freshBoard() {
   return { shown: [0, 0], anim: [{ t: 1, from: 0 }, { t: 1, from: 0 }] };
