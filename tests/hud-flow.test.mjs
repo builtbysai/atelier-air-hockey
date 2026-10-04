@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [game, template] = await Promise.all([
+const [game, template, scoreboards] = await Promise.all([
   readFile(new URL('../src/game.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/template.html', import.meta.url), 'utf8'),
+  readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8'),
 ]);
 
 test('all cameras share one screen-space score and status HUD', () => {
@@ -12,7 +13,9 @@ test('all cameras share one screen-space score and status HUD', () => {
   assert.match(game, /function renderTail\(w, h\) \{ renderScreenTail\(w, h\); \}/);
   assert.match(game, /function renderTail25\(w, h\) \{ renderScreenTail\(w, h\); \}/);
   assert.match(game, /function drawHudCore\(c, w, h\)/);
-  assert.match(game, /const controlLane = w <= 600 \? 112 : 150/);
+  assert.match(game, /const \{ hs, hudCenter \} = scoreboardHudLayout\(w, G\.mode\)/);
+  assert.match(scoreboards, /function scoreboardHudLayout\(w, mode\)/);
+  assert.match(scoreboards, /hudCenter = Math\.min\(w \* 0\.5, w - rightReserve - 8 - 200 \* hs\)/);
 });
 
 test('top-down restores world transforms before drawing HUD', () => {

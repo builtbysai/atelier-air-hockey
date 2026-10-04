@@ -37,6 +37,15 @@ A minimal hidden Feel Lab is implemented on PR #137 (15 live sliders, bounds, cu
 - The host sends one optional, rounded mouth crossing Y value inside the existing reliable goal event for guest/spectator visual alignment. Legacy events still work by falling back to the last rendered puck Y, bounded within the actual goal mouth.
 - Focused tests verify first-frame direction, timing fade, goal bounds, render hooks, and online visual-position parity. PR #139 focused test group: 27/27 passing; independent build checks passing. The full suite has the same 21 pre-existing failures in issue #136. Next: device-level visual tuning and physical scoreboard-specific punch.
 
+## Physical scoreboard and responsive layout pass (PR #141)
+- Use the existing 0.5-second scoreboard animation as the only clock for a short earned scoring response: Solari flap recoil, reel catch, cribbage landing ring, deterministic bulb ignition and localized neon glow. Respect Reduced Motion and Minimal effects. No generic entire-board scaling or permanent extra UI.
+- Use a shared `scoreboardHudLayout` function in the live game and an isolated actual-renderer visual review harness. Reserve the mobile/tablet top-right control region, including the wider online quality chip, at narrow portrait/landscape/desktop viewport widths.
+- Generate screenshot artifacts of all five physical scoring devices across phone portrait, phone landscape and desktop in GitHub Actions. Screenshots are representative renderer fixtures, not a substitute for real-device end-to-end review.
+- Actual screenshots revealed two distinct defects: Solari and Neon overlaid old/new digits, and seeded 4–2 goal screenshots showed a stale 0–0 physical board. Fixed the transitions, accelerated the Solari face turnover into the first 100ms, and corrected frozen visual-QA fixtures.
+- Inspected real game screenshots at mobile/landscape/desktop. A subtle, locally bounded ink falloff now keeps the GOAL and score lettering readable over the central puck/centerline without an opaque card. QA includes a first-80ms goal-impact scenario and full-game Chrome captures, in addition to isolated all-device screenshots.
+- Focused game-feel/score tests: 33 passing. Whole-suite CI remains at the same 21 inherited failures in issue #136; the independent build and browser Visual QA pass. This is not a substitute for live user device testing.
+- No transport or physics changes. Preserve the online reliability priority tracked in #136.
+
 ## Vision
 
 Make Atelier teach precise striking through a recognizable sound and tactile signature, progressively build tension through meaningful rallies and close matches, then resolve that tension in context-aware, physical-feeling goals. Keep the UI restrained and gameplay fully fair. Give online spectators small social reactions that never jeopardize physics or network smoothness.

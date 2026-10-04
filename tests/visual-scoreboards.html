@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atelier visual regression: physical scoring devices</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#16130e;color:#e7d29d;font-family:Georgia,serif}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#topbar{position:fixed;z-index:1;right:12px;top:10px;display:flex;gap:8px}
+#topbar button{width:44px;height:44px;border:1px solid #9c8246;background:#332e24;color:#f2deaa;border-radius:50%;font-size:16px}
+#topbar .connchip{align-self:center;min-width:78px;padding:8px;border:1px solid #9c8246;border-radius:99px;font:12px system-ui}
+@media(max-width:760px){#topbar{flex-direction:column;align-items:flex-end;gap:6px;right:8px;top:8px}#topbar button{width:40px;height:40px}#topbar .connchip{order:-1}}
+#meta{position:fixed;left:12px;bottom:10px;max-width:calc(100% - 24px);font:11px system-ui;color:#bba780;background:#15120dbb;padding:6px}
+</style></head>
+<body><canvas id="sample"></canvas>
+<div id="topbar"><span class="connchip">● 48ms</span><button aria-label="Pause">Ⅱ</button><button aria-label="Sound">♫</button></div>
+<div id="meta"></div>
+<script>
+const TAU=2*Math.PI,CX=720,G={},PRM={reduce:false},Settings={effects:'full',firstTo:7};
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x)),lerp=(a,b,t)=>a+(b-a)*t;
+function rr(c,x,y,w,h,r){c.beginPath();c.roundRect(x,y,w,h,r);}
+function easeOutCubic(t){return 1-Math.pow(1-t,3);}
+const sideLabel=i=>i===0?'YOU':'RIVAL';
+</script><script src="../src/scoreboards.js"></script>
+<script>
+const qp=new URLSearchParams(location.search);
+const theme=qp.get('board')||'solari';
+const mode=qp.get('mode')||'online';
+const active=qp.get('side')==='1'?1:0;
+const stage=qp.get('stage')||'impact';
+PRM.reduce=qp.get('reduce')==='1';Settings.effects=qp.get('minimal')==='1'?'minimal':'full';
+document.querySelector('.connchip').style.display=mode==='online'?'':'none';
+const canvas=document.getElementById('sample');
+function draw() {
+ const w=innerWidth,h=innerHeight;
+ canvas.width=w*devicePixelRatio;canvas.height=h*devicePixelRatio;
+ const c=canvas.getContext('2d');c.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+ const bg=c.createLinearGradient(0,0,0,h);bg.addColorStop(0,'#1d1b16');bg.addColorStop(1,'#0b0b0a');c.fillStyle=bg;c.fillRect(0,0,w,h);
+ const tx=Math.max(16,w*.06),tw=w-2*tx,ty=h*.32,th=h*.55;
+ c.fillStyle='#224440';c.fillRect(tx,ty,tw,th);c.strokeStyle='#ae9259';c.lineWidth=7;c.strokeRect(tx,ty,tw,th);
+ c.strokeStyle='#ded9c840';c.lineWidth=1;c.setLineDash([6,5]);c.beginPath();c.moveTo(w*.5,ty);c.lineTo(w*.5,ty+th);c.stroke();c.setLineDash([]);
+ c.fillStyle='#e3d4ab';c.beginPath();c.arc(w*.57,ty+th*.52,Math.min(w,h)*.028,0,TAU);c.fill();
+ const scores=active===0?[4,3]:[3,4],B=freshBoard();
+ B.shown=scores;B.anim[active]={t:stage==='impact'?.16:stage==='start'?0:1,from:scores[active]-1};
+ const {hs,hudCenter,rightReserve}=scoreboardHudLayout(w,mode);
+ c.save();c.translate(hudCenter-CX*hs,Math.max(5,h*.008));c.scale(hs,hs);
+ (Scoreboards[theme]||Scoreboards.solari).draw(c,scores[0],scores[1],7,null,B,['YOU','RIVAL']);c.restore();
+ document.getElementById('meta').textContent=theme+' · '+mode+' · '+stage+' · '+w+'×'+h+' · HUD right '+Math.round(hudCenter+200*hs)+' / controls begin '+(w-rightReserve);
+}
+draw();addEventListener('resize',draw);
+</script></body></html>

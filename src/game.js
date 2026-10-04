@@ -5056,12 +5056,11 @@ function hudStatusText() {
 // is standardized so controls, labels, and camera transforms cannot collide.
 function drawHudCore(c, w, h) {
   if (G.demo || G.mode === 'workshop') return;
-  const controlLane = w <= 600 ? 112 : 150;
-  const maxHudW = Math.max(190, Math.min(440, w - controlLane));
-  const hs = clamp(maxHudW / 440, 0.43, 1);
+  // The real-device HUD and visual harness use the same safe-corner layout.
+  const { hs, hudCenter } = scoreboardHudLayout(w, G.mode);
   const top = Math.max(5, h * 0.008);
   c.save();
-  c.translate(w * 0.5 - CX * hs, top);
+  c.translate(hudCenter - CX * hs, top);
   c.scale(hs, hs);
   drawScoreboard(c);
   const status = hudStatusText();
@@ -5119,9 +5118,28 @@ function drawGoalTextScreen(c, w, h) {
   // A cinematic wash makes the beat legible without replacing the table
   // with a modal card. Your goals get more light; conceded goals stay quiet.
   const wash = c.createRadialGradient(w * 0.5, cy, 0, w * 0.5, cy, Math.max(w, h) * 0.55);
-  wash.addColorStop(0, yours ? 'rgba(8,7,5,.22)' : 'rgba(8,7,5,.34)');
-  wash.addColorStop(1, 'rgba(4,3,3,.04)');
+  // The actual game has a bright centerline, puck and mallets underneath
+  // this screen-space copy. A restrained central wash protects GOAL/score
+  // legibility without covering the board with an opaque modal.
+  wash.addColorStop(0, yours ? 'rgba(8,7,5,.46)' : 'rgba(8,7,5,.49)');
+  wash.addColorStop(0.58, 'rgba(8,7,5,.17)');
+  wash.addColorStop(1, 'rgba(4,3,3,.03)');
   c.fillStyle = wash; c.fillRect(0, 0, w, h);
+  // Keep the actual puck and centerline from cutting through the lettering.
+  // This soft elliptical falloff is room-colored, not an opaque modal/card:
+  // the rest of the table, scored-on goal and physical scoreboard stay visible.
+  c.save();
+  // The ink settles before the lettering finishes arriving, so the rink
+  // centerline cannot still cut through the first 100ms of the GOAL title.
+  c.globalAlpha = Math.min(1, alpha * 1.5);
+  c.translate(w * 0.5, cy);
+  c.scale(Math.max(1, panelW * 0.43), Math.max(1, panelH * 0.48));
+  const inkCloud = c.createRadialGradient(0, 0, 0, 0, 0, 1);
+  inkCloud.addColorStop(0, 'rgba(6,5,4,0.92)');
+  inkCloud.addColorStop(0.56, 'rgba(6,5,4,0.82)');
+  inkCloud.addColorStop(1, 'rgba(6,5,4,0)');
+  c.fillStyle = inkCloud; c.fillRect(-1, -1, 2, 2);
+  c.restore();
 
   const lineA = yours ? 0.78 : 0.40;
   c.strokeStyle = hexA(gold, lineA); c.lineWidth = 1;
