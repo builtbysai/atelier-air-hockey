@@ -79,10 +79,14 @@ test('bulb score lighting has no frame-to-frame random jitter',()=>{
 
 test('visual-review finding: only one numeral face at a time on flap and neon devices',()=>{
   const w=world(),B=w.freshBoard();B.shown=[4,3];
-  B.anim[0]={t:.16,from:3};B.anim[1]={t:1,from:3};
+  B.anim[0]={t:.08,from:3};B.anim[1]={t:1,from:3};
   const flap=canvas();w.Scoreboards.solari.draw(flap,4,3,7,null,B,['YOU','RIVAL']);
   assert.equal(flap.texts.filter(x=>x==='3').length,2,'old flap and rival only');
   assert.equal(flap.texts.filter(x=>x==='4').length,0,'new flap waits for turnover');
+  B.anim[0].t=.16; // the physical face has flipped inside 100ms
+  const early=canvas();w.Scoreboards.solari.draw(early,4,3,7,null,B,['YOU','RIVAL']);
+  assert.equal(early.texts.filter(x=>x==='3').length,1,'only rival old score remains');
+  assert.equal(early.texts.filter(x=>x==='4').length,1,'earned numeral appears early');
   const neon=canvas();w.Scoreboards.neon.draw(neon,4,3,7,null,B,['YOU','RIVAL']);
   assert.equal(neon.texts.filter(x=>x==='3').length,2,'only rival numeral lit');
   assert.equal(neon.texts.filter(x=>x==='4').length,2,'new neon tube drawn once');
@@ -99,4 +103,5 @@ test('actual-game QA seeded scores match physical boards and capture early impac
   assert.match(ui,/case 'goal-impact':[\s\S]*?boardKick\(0\)/);
   assert.match(ui,/G\.goalT = 0\.08; G\.goalSlowT = 0\.08;/);
   assert.match(game,/wash\.addColorStop\(0\.58, 'rgba\(8,7,5,\.17\)'\)/);
+  assert.match(game,/ink\.addColorStop\(0\.56, 'rgba\(6,5,4,0\.70\)'\)/);
 });
