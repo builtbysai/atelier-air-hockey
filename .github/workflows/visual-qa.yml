@@ -27,6 +27,9 @@ jobs:
         env:
           ATELIER_QA_BROWSER: chrome
         run: node scripts/visual-qa.mjs
+      - name: Print local server diagnostics on capture failure
+        if: failure()
+        run: tail -n 60 /tmp/atelier-visual-qa.log || true
       # Temporary branch-scoped inspection of the actual game, separate
       # from the isolated scoreboard renderer. No image logs on normal PRs.
       - name: Inspect actual game screenshots
