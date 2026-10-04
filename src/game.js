@@ -5118,8 +5118,12 @@ function drawGoalTextScreen(c, w, h) {
   // A cinematic wash makes the beat legible without replacing the table
   // with a modal card. Your goals get more light; conceded goals stay quiet.
   const wash = c.createRadialGradient(w * 0.5, cy, 0, w * 0.5, cy, Math.max(w, h) * 0.55);
-  wash.addColorStop(0, yours ? 'rgba(8,7,5,.22)' : 'rgba(8,7,5,.34)');
-  wash.addColorStop(1, 'rgba(4,3,3,.04)');
+  // The actual game has a bright centerline, puck and mallets underneath
+  // this screen-space copy. A restrained central wash protects GOAL/score
+  // legibility without covering the board with an opaque modal.
+  wash.addColorStop(0, yours ? 'rgba(8,7,5,.46)' : 'rgba(8,7,5,.49)');
+  wash.addColorStop(0.58, 'rgba(8,7,5,.17)');
+  wash.addColorStop(1, 'rgba(4,3,3,.03)');
   c.fillStyle = wash; c.fillRect(0, 0, w, h);
 
   const lineA = yours ? 0.78 : 0.40;
