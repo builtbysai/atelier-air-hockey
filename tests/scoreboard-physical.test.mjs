@@ -42,13 +42,13 @@ test('scoreboard layout avoids controls at narrow phone, landscape, tablet and d
   assert.match(css,/@media \(min-width:601px\) and \(max-width:760px\)/);
 });
 function canvas(){
-  const log=[];
+  const log=[],texts=[];
   const gradients=()=>({addColorStop(){}});
   return new Proxy({},{
-    get(o,k){if(k==='log')return log;if(k==='createLinearGradient'||k==='createRadialGradient')return gradients;
+    get(o,k){if(k==='log')return log;if(k==='texts')return texts;if(k==='createLinearGradient'||k==='createRadialGradient')return gradients;
       if(k==='measureText')return str=>({width:String(str).length*10});
       if(k in o)return o[k];
-      return (...args)=>{if(['translate','scale','arc','rect','fillRect','lineTo'].includes(k))
+      return (...args)=>{if(k==='fillText')texts.push(String(args[0]));if(['translate','scale','arc','rect','fillRect','lineTo'].includes(k))
         assert.ok(args.every(Number.isFinite),String(k)+' has nonfinite coordinates: '+args);log.push(k)};
     },set(o,k,v){o[k]=v;return true;}
   });
@@ -75,4 +75,19 @@ test('bulb score lighting has no frame-to-frame random jitter',()=>{
   // Math.random in the sandbox throws: drawing animated bulbs must not call it.
   w.Scoreboards.bulbs.draw(c,4,3,7,null,w.state.G.board,['YOU','RIVAL']);
   assert.ok(c.log.length>0);
+});
+
+test('visual-review finding: only one numeral face at a time on flap and neon devices',()=>{
+  const w=world(),B=w.freshBoard();B.shown=[4,3];
+  B.anim[0]={t:.16,from:3};B.anim[1]={t:1,from:3};
+  const flap=canvas();w.Scoreboards.solari.draw(flap,4,3,7,null,B,['YOU','RIVAL']);
+  assert.equal(flap.texts.filter(x=>x==='3').length,2,'old flap and rival only');
+  assert.equal(flap.texts.filter(x=>x==='4').length,0,'new flap waits for turnover');
+  const neon=canvas();w.Scoreboards.neon.draw(neon,4,3,7,null,B,['YOU','RIVAL']);
+  assert.equal(neon.texts.filter(x=>x==='3').length,2,'only rival numeral lit');
+  assert.equal(neon.texts.filter(x=>x==='4').length,2,'new neon tube drawn once');
+  B.anim[0].t=.42;
+  const done=canvas();w.Scoreboards.solari.draw(done,4,3,7,null,B,['YOU','RIVAL']);
+  assert.equal(done.texts.filter(x=>x==='3').length,1);
+  assert.equal(done.texts.filter(x=>x==='4').length,1);
 });
