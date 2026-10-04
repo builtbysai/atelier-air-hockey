@@ -35,14 +35,6 @@ jobs:
                 >/dev/null 2>&1
               test -s "$outfile"
               test "$(stat -c%s "$outfile")" -gt 4000
-              case "${board}-${label}" in
-                solari-phone|neon-desktop|cribbage-landscape)
-                  echo "ATELIER_VISUAL_BEGIN ${board}-${label}"
-                  base64 -w 1600 "$outfile"
-                  echo
-                  echo "ATELIER_VISUAL_END ${board}-${label}"
-                  ;;
-              esac
             done
           done
           file visual-samples/*.png
