@@ -5056,16 +5056,8 @@ function hudStatusText() {
 // is standardized so controls, labels, and camera transforms cannot collide.
 function drawHudCore(c, w, h) {
   if (G.demo || G.mode === 'workshop') return;
-  // On compact devices the controls own the upper-right corner. Center
-  // the physical board inside the remaining safe region, not over the pause
-  // button or the wider online connection chip.
-  const compactBar = w <= 760;
-  const rightReserve = compactBar
-    ? (G.mode === 'online' ? 104 : 58)
-    : (G.mode === 'online' ? 190 : 112);
-  const maxHudW = Math.min(440, Math.max(0, w - rightReserve - 16));
-  const hs = clamp(Math.min(1, maxHudW / 400), 0.34, 1);
-  const hudCenter = Math.min(w * 0.5, w - rightReserve - 8 - 200 * hs);
+  // The real-device HUD and visual harness use the same safe-corner layout.
+  const { hs, hudCenter } = scoreboardHudLayout(w, G.mode);
   const top = Math.max(5, h * 0.008);
   c.save();
   c.translate(hudCenter - CX * hs, top);
