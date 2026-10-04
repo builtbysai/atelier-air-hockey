@@ -344,7 +344,9 @@ const Scoreboards = {
             if (animK < 1) {
               const stagger = ((r * 5 + c + seed) % 35) / 35 * 0.5;
               const local = clamp((animK - stagger) / 0.5, 0, 1);
-              a = local <= 0 ? 0 : (local < 0.25 ? (Math.random() < 0.5 ? 0.3 : 0.9) : local);
+              // Stable for the same animation time (including paused/replayed frames).
+              const phase = (r * 17 + c * 11 + seed * 7 + Math.floor(animK * 12) * 13) % 7;
+              a = local <= 0 ? 0 : (local < 0.25 ? (phase < 3 ? 0.3 : 0.9) : local);
             }
             if (a <= 0) {
               ctx.fillStyle = T.bulbDim;
@@ -366,6 +368,7 @@ const Scoreboards = {
       for (let i = 0; i < 2; i++) {
         const cx = CX + (i === 0 ? -1 : 1) * 108;
         const A = B.anim[i], shown = B.shown[i];
+        const kick = scoreImpact(B, i);
         const animK = A.t < 1 && A.from !== shown ? clamp(A.t / 0.7, 0, 1) : 1;
         const mp = scores[i] === target - 1;
         if (mp) {
@@ -376,6 +379,14 @@ const Scoreboards = {
           ctx.strokeStyle = 'rgba(255,207,122,' + (0.35 + 0.4 * pulse).toFixed(2) + ')';
           ctx.lineWidth = 3;
           rr(ctx, cx - dw / 2 - 8, y + 12, dw + 16, dh + 8, 6); ctx.stroke();
+          ctx.restore();
+        }
+        if (kick > 0) {
+          ctx.save();
+          ctx.shadowColor = T.bulb; ctx.shadowBlur = 13 * kick;
+          ctx.strokeStyle = 'rgba(255,207,122,' + (0.42 * kick).toFixed(3) + ')';
+          ctx.lineWidth = 1.6;
+          rr(ctx, cx - dw / 2 - 5, y + 13, dw + 10, dh + 5, 5); ctx.stroke();
           ctx.restore();
         }
         const chars = String(Math.max(0, Math.min(99, Math.round(shown))));
@@ -413,6 +424,7 @@ const Scoreboards = {
         const cx = CX + (i === 0 ? -1 : 1) * (modW / 2 + gap / 2 + 8);
         const hx = cx - modW / 2 - 9, hy = y, hw = modW + 18, hh = modH + 30;
         const mp = scores[i] === target - 1;
+        const kick = scoreImpact(B, i);
         ctx.save();
         // black glass housing
         rr(ctx, hx, hy, hw, hh, 10);
@@ -421,8 +433,9 @@ const Scoreboards = {
         ctx.fillStyle = hg; ctx.fill();
         // neon edge pinline
         ctx.strokeStyle = mp ? T.digitDim : T.digit;
-        ctx.globalAlpha = 0.75; ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.75 + 0.15 * kick; ctx.lineWidth = 2;
         if (mp) { ctx.shadowColor = T.digitDim; ctx.shadowBlur = 18; }
+        else if (kick > 0) { ctx.shadowColor = T.digit; ctx.shadowBlur = 11 * kick; }
         rr(ctx, hx, hy, hw, hh, 10); ctx.stroke();
         ctx.shadowBlur = 0; ctx.globalAlpha = 1;
         const A = B.anim[i], shown = B.shown[i], from = A.from;
@@ -433,7 +446,7 @@ const Scoreboards = {
           ctx.globalAlpha = alpha;
           ctx.translate(cx, y + 9 + modH / 2 + (dy || 0));
           ctx.font = '700 62px Impact, "Arial Black", sans-serif';
-          ctx.shadowColor = T.digit; ctx.shadowBlur = 22;
+          ctx.shadowColor = T.digit; ctx.shadowBlur = 22 + 12 * kick;
           ctx.fillStyle = T.digit;
           ctx.fillText(dig(d), 0, 2);
           // white-hot core over the glow
