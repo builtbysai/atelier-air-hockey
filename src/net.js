@@ -467,7 +467,7 @@ const NET_RT_VERSION = 1;
 const NET_RT_STATE = 1;
 const NET_RT_INPUT = 2;
 const NET_RT_ACK = 3;
-const NET_RT_MAX_BUFFERED = 32 * 1024;
+const NET_RT_MAX_BUFFERED = 8 * 1024;
 // The fast lane is an optimization, never the only path to a playable match.
 // Even while it is healthy, a tiny reliable safety stream keeps both sides
 // recoverable from browser/data-channel edge cases and asymmetric packet loss.
@@ -1059,6 +1059,12 @@ Net.encodeSnapshot = function () {
   else if (G.state === 'pause') flags |= 8;
   else if (G.state === 'win') flags |= 16;
   if ((G.score[0] === Settings.firstTo - 1 || G.score[1] === Settings.firstTo - 1) && (flags & 3)) flags |= 32;
+  // Sim-time dilation rides in the two free flag bits so the guest's dead
+  // reckoning dilates WITH the host: the hit-stop freeze (64) and the smash /
+  // near-miss slow-mo beat (128) stay in sync instead of rubber-banding.
+  // Freeze wins while both are armed - the host sim is fully held then.
+  if (G.freezeT > 0) flags |= 64;
+  else if (G.dipT > 0) flags |= 128;
   return [_r1(p.x), _r1(p.y), _r1(p.vx), _r1(p.vy),
     _r1(G.m1.x), _r1(G.m1.y), _r1(G.m2.x), _r1(G.m2.y),
     G.score[0], G.score[1], flags,
@@ -1077,6 +1083,11 @@ Net.decodeSnapshot = function (a) {
     svx: a.length > 15 ? a[15] : undefined,
     svy: a.length > 16 ? a[16] : undefined,
     sdir: a.length > 17 ? a[17] : undefined,
+    // ts: the host's effective sim-time scale at snapshot time. 1 = realtime,
+    // 0.55 = the smash/near-miss slow-mo beat, 0 = hit-stop freeze. The guest
+    // multiplies its dead-reckoning velocity by this so both peers dilate
+    // together. Old snapshots (bits unset) decode to 1.
+    ts: (a[10] & 64) ? 0 : (a[10] & 128) ? 0.55 : 1,
     // New peers append one transport-independent state sequence. Old peers
     // omit it and remain fully compatible.
     seq: a.length > 18 && Number.isInteger(a[18]) ? (a[18] & 0xffff) : null,
@@ -1576,7 +1587,8 @@ Net.sendRealtime = function (buffer) {
   if (!Net.rtReady || !ch || ch.readyState !== 'open') return false;
   // Fresh position/state replaces old position/state. Under backpressure,
   // dropping a packet is better than queueing stale physics behind it.
-  if (ch.bufferedAmount > NET_RT_MAX_BUFFERED) { Net.rtDropped++; return true; }
+  // Report the drop honestly: callers fall back to the reliable lane.
+  if (ch.bufferedAmount > NET_RT_MAX_BUFFERED) { Net.rtDropped++; return false; }
   try { ch.send(buffer); return true; }
   catch (e) { Net.rtReady = false; Net.logErr(e); return false; }
 };
@@ -2338,7 +2350,8 @@ Net.paintConn = function () {
   const route = Net.rtc.route === 'relay' ? 'Relayed' : Net.rtc.route === 'nearby' ? 'Nearby' :
     Net.rtc.route === 'direct' ? 'Direct' : 'Connection';
   const protocol = Net.rtc.protocol ? ' · ' + Net.rtc.protocol.toUpperCase() : '';
-  chip.title = route + protocol + ' · ' + rtt + ' ms';
+  chip.title = route + protocol + ' · ' + rtt + ' ms' +
+    (Net.rtDropped > 0 ? ' · ' + Net.rtDropped + ' fast-lane pkts dropped' : '');
 };
 
 Net.peerConnection = function () {
@@ -2779,6 +2792,7 @@ Net.realtimeWritable = function () {
 Net.clearGuestPrediction = function () {
   Net.guestPrediction = null;
   Net.guestContactLatch = false;
+  Net.gerr = null; Net.lastErrSnapT = -1;
 };
 
 Net.predictionTarget = function () {
@@ -2786,9 +2800,10 @@ Net.predictionTarget = function () {
   if (!s) return null;
   const sinceArrival = Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000);
   const age = Math.min(0.22, sinceArrival + Net.renderLeadSeconds());
+  const tsc = (typeof s.ts === 'number' && s.ts >= 0 && s.ts <= 1) ? s.ts : 1;
   return {
-    x: Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * age)),
-    y: Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * age)),
+    x: Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * tsc * age)),
+    y: Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * tsc * age)),
     vx: s.pvx, vy: s.pvy,
   };
 };
@@ -2858,9 +2873,14 @@ Net.advanceGuestPrediction = function (rdt) {
 
   // Lightweight copy of free-flight behavior. We intentionally do not
   // predict goals, scoring, rail juice or stats; those remain host-owned.
-  const damp = typeof paceDamp === 'function' ? Math.exp(-paceDamp() * rdt) : Math.exp(-0.08 * rdt);
+  // The speculative sim dilates with the host's sim-time scale so a smash
+  // slow-mo beat doesn't make the prediction sprint ahead of the authority.
+  const tsc = (Net.rsnap && typeof Net.rsnap.ts === 'number' && Net.rsnap.ts >= 0 && Net.rsnap.ts <= 1)
+    ? Net.rsnap.ts : 1;
+  const sdt = rdt * tsc;
+  const damp = typeof paceDamp === 'function' ? Math.exp(-paceDamp() * sdt) : Math.exp(-0.08 * sdt);
   gv.pvx *= damp; gv.pvy *= damp;
-  gv.px += gv.pvx * rdt; gv.py += gv.pvy * rdt;
+  gv.px += gv.pvx * sdt; gv.py += gv.pvy * sdt;
 
   const wall = typeof paceWall === 'function' ? paceWall() : 0.92;
   if (gv.py < PY + PUCK_R) { gv.py = PY + PUCK_R; if (gv.pvy < 0) gv.pvy = -gv.pvy * wall; }
@@ -3033,13 +3053,13 @@ Net.easeSpectatorMallets = function (rdt) {
   G.m2.y += (Net.rsnap.m2y - G.m2.y) * k;
 };
 
-/* Guest per-frame: predict from the freshest snapshot (bounded age), ease the
- * reckoning model toward the PREDICTED position with a time-based exponential
- * coefficient, then publish to G for the renderer. The old code lerped 50%
- * toward the same stale snapshot every frame - frame-rate dependent, and it
- * pinned the puck to old data until the next snapshot jumped it. Predicting
- * from snapshot + velocity keeps the puck gliding instead of stuttering.
- * Scores and win-card stats follow the wire. */
+/* Guest per-frame: predict from the freshest snapshot (bounded age, dilated by
+ * the host's sim-time scale), render the exact prediction plus a decaying
+ * error offset that absorbs each snapshot jump. Predicting from snapshot +
+ * velocity keeps the puck gliding instead of stuttering; the error offset
+ * (not an ease on absolute position) is what smooths corrections, so the
+ * puck never trails a constant v/20 behind. Scores and win-card stats follow
+ * the wire. */
 Net.guestApply = function (rdt) {
   const s = Net.rsnap, gv = Net.gview;
   if (!s || !gv) return;
@@ -3050,12 +3070,29 @@ Net.guestApply = function (rdt) {
     const sinceArrival = Math.max(0, (performance.now() - (Net.snapT || 0)) / 1000);
     // Include a bounded RTT/2 lead so the guest does not intentionally render
     // a full one-way trip behind the authority. Corrections remain visual only.
+    // The host's sim-time dilation rides along: during a hit-stop freeze or a
+    // slow-mo beat the dead reckoning dilates with the host instead of
+    // overshooting at full speed and rubber-banding back.
+    const tsc = (typeof s.ts === 'number' && s.ts >= 0 && s.ts <= 1) ? s.ts : 1;
     const age = Math.min(0.22, sinceArrival + Net.renderLeadSeconds());
-    const tx = Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * age));
-    const ty = Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * age));
-    const k = 1 - Math.exp(-rdt * 20);
-    gv.px += (tx - gv.px) * k; gv.py += (ty - gv.py) * k;
-    gv.pvx = s.pvx; gv.pvy = s.pvy;
+    const tx = Math.min(PX + PW - PUCK_R, Math.max(PX + PUCK_R, s.px + s.pvx * tsc * age));
+    const ty = Math.min(PY + PH - PUCK_R, Math.max(PY + PUCK_R, s.py + s.pvy * tsc * age));
+    // Render the exact prediction; only the correction delta is smoothed. A
+    // persistent error offset absorbs each snapshot jump, then decays over
+    // ~80ms. The puck never trails behind at v/20 the way the old
+    // ease-toward-prediction did, and huge gaps still snap honestly.
+    if (!Net.gerr) Net.gerr = { x: 0, y: 0 };
+    if (Net.lastErrSnapT !== Net.snapT) {
+      Net.lastErrSnapT = Net.snapT;
+      Net.gerr.x = gv.px - tx; Net.gerr.y = gv.py - ty;
+      if (Net.gerr.x * Net.gerr.x + Net.gerr.y * Net.gerr.y > 180 * 180) {
+        Net.gerr.x = 0; Net.gerr.y = 0;
+      }
+    }
+    const dk = Math.exp(-rdt / 0.08);
+    Net.gerr.x *= dk; Net.gerr.y *= dk;
+    gv.px = tx + Net.gerr.x; gv.py = ty + Net.gerr.y;
+    gv.pvx = s.pvx * tsc; gv.pvy = s.pvy * tsc;
   } else {
     Net.advanceGuestPrediction(rdt);
   }
@@ -3124,9 +3161,10 @@ Net.sendInput = function (force = false) {
   if (!local) return null;
   const tx = _r1(local.tx), ty = _r1(local.ty), now = performance.now();
   // delta suppression: a stationary mallet re-sends nothing on the fast path.
-  // Heartbeat at least every 500ms because zero-retransmit packets may vanish.
+  // Heartbeat at least every 250ms because zero-retransmit packets may vanish;
+  // a single lost heartbeat must not flap the lane to degraded mode.
   if (!force && Net.lastIn && Math.abs(tx - Net.lastIn[0]) < 0.5 && Math.abs(ty - Net.lastIn[1]) < 0.5 &&
-      now - Net.lastInT < 500) return null;
+      now - Net.lastInT < 250) return null;
   Net.lastIn = [tx, ty]; Net.lastInT = now;
   if (Net.rtReady) {
     const packet = Net.encodeRealtimeInput(tx, ty);

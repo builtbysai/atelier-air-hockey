@@ -117,10 +117,35 @@ test('realtime backpressure drops replaceable state instead of queueing it', asy
     bufferedAmount: 40000,
     send() { sends++; },
   };
-  const consumed = Net.sendRealtime(new ArrayBuffer(12));
-  assert.equal(consumed, true);
+  const dropped = Net.sendRealtime(new ArrayBuffer(12));
+  // A drop must report honestly: the caller falls back to the reliable lane.
+  assert.equal(dropped, false);
   assert.equal(sends, 0);
   assert.equal(Net.rtDropped, 1);
+});
+
+test('snapshot flags carry sim-time dilation for guest dead reckoning', async () => {
+  const { Net, context } = await loadNet();
+  context.G = {
+    puck: { x: 400, y: 300, vx: 900, vy: 0 },
+    m1: { x: 100, y: 300 }, m2: { x: 700, y: 300 },
+    state: 'play', score: [0, 0], stats: null,
+    serveVX: 0, serveVY: 0, serveDir: 0,
+    freezeT: 0, dipT: 0,
+  };
+  context.Settings = { firstTo: 7 };
+  // Realtime: full speed.
+  assert.equal(Net.decodeSnapshot(Net.encodeSnapshot()).ts, 1);
+  // Smash / near-miss slow-mo beat.
+  context.G.dipT = 0.2;
+  assert.equal(Net.decodeSnapshot(Net.encodeSnapshot()).ts, 0.55);
+  // Hit-stop freeze wins while both are armed.
+  context.G.freezeT = 0.03;
+  assert.equal(Net.decodeSnapshot(Net.encodeSnapshot()).ts, 0);
+  // The dilation survives the binary fast-lane codec untouched.
+  context.G.freezeT = 0; context.G.dipT = 0.15;
+  const wire = Net.decodeRealtimeState(new DataView(Net.encodeRealtimeState()));
+  assert.equal(Net.decodeSnapshot(wire).ts, 0.55);
 });
 
 test('realtime channel failure preserves the reliable fallback path', async () => {
