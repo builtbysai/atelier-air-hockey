@@ -7,22 +7,22 @@ const matrix = [
   {
     dir: 'compact',
     viewport: { width: 360, height: 640 },
-    states: ['menu','rules','preferences','workshop-menu','workshop','goal','replay','pause','win','update'],
+    states: ['menu','rules','preferences','workshop-menu','workshop','goal','goal-impact','replay','pause','win','update'],
   },
   {
     dir: 'mobile',
     viewport: { width: 390, height: 844 },
-    states: ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','goal-rival','replay','pause','win','update'],
+    states: ['menu','rules','preferences','workshop-menu','workshop','workshop-free','progress','top','elevated','surface','goal','goal-impact','goal-rival','replay','pause','win','update'],
   },
   {
     dir: 'landscape',
     viewport: { width: 844, height: 390 },
-    states: ['menu','workshop-menu','workshop','workshop-free','surface','goal','goal-rival','win'],
+    states: ['menu','workshop-menu','workshop','workshop-free','surface','goal','goal-impact','goal-rival','win'],
   },
   {
     dir: 'desktop',
     viewport: { width: 1440, height: 900 },
-    states: ['menu','workshop-menu','progress','top','elevated','surface','win','update'],
+    states: ['menu','workshop-menu','progress','top','elevated','surface','goal-impact','win','update'],
   },
 ];
 
