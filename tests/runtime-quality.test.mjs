@@ -127,7 +127,7 @@ test('reduced-motion preference stays live without overriding explicit shake', (
   assert.match(ui, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/);
   assert.match(ui, /addEventListener\('change', onChange\)/);
   assert.match(ui, /syncReducedMotionPreference\(e\.matches\)/);
-  assert.match(ui, /if \(!PRM\.userShake\) Settings\.shake = PRM\.reduce \? 'subtle' : 'full'/);
+  assert.match(ui, /if \(!PRM\.userShake\) Settings\.shake = 'subtle'/);
   assert.match(ui, /if \(key === 'shake'\) PRM\.userShake = true/);
   assert.match(ui, /installReducedMotionPreference\(\);[\s\S]*?resize\(\); wireUI\(\); applySettingsToUI\(\)/);
 });

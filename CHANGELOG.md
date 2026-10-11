@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-11: comfortable first-run defaults, noir scrollbars
+
+- New-player defaults retuned to the comfortable middle: screen shake Full -> Subtle, effects Full -> Subtle, SFX volume 100 -> 80. Returning players keep their saved choices; physics and features untouched.
+- Dialog scrollbars (Preferences, How to play, Rules, etc.) now match the noir brass aesthetic instead of the default grey bars.
+
 ## 2026-09-28: gameplay and reliability pass
 
 - Saved settings and progress now recover safely from malformed local data instead of stopping startup or a later write.
