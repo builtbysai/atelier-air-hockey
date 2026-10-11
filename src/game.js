@@ -27,15 +27,15 @@ const TAU = Math.PI * 2;
 
 // ---------- user settings (persisted) ----------
 const Settings = {
-  shake: 'full',      // 'off' | 'subtle' | 'full'
-  soundVolume: 100,   // 0-100 - 0 is muted, 100 preserves today's calibrated SFX level
-  soundBeforeMute: 100, // remembered mix used by the global mute button
+  shake: 'subtle',    // 'off' | 'subtle' | 'full' - default is the comfortable middle: feedback without the quease
+  soundVolume: 80,    // 0-100 - 0 is muted; 80 is a comfortable first-run level (was 100)
+  soundBeforeMute: 80, // remembered mix used by the global mute button
   musicVolume: 70,    // 0-100 - whole music/ambience bus; 70 is the calibrated unity point
   musicBeforeMute: 70, // remembered mix used by the global mute button
   haptics: true,
   firstTo: 7,         // 5 | 7 | 11
   pace: 'classic',     // 'casual' | 'classic' | 'lightning'
-  effects: 'full',     // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics
+  effects: 'subtle',   // 'full' | 'subtle' | 'minimal' - spectacle scaler, never touches physics; default keeps the juice without the noise
   instantReplay: 'goals', // 'goals' | 'off' - local goal replays only
   goalW: 'standard',   // 'narrow' | 'standard' | 'wide' - goal-mouth width (v20)
   orientation: 'auto', // 'auto' | 'landscape' | 'portrait' - persisted display preference
@@ -58,9 +58,9 @@ function loadSettings() {
   PRM.userShake = Object.prototype.hasOwnProperty.call(stored, 'shake');
   for (const k of Object.keys(Settings)) if (stored[k] !== undefined) Settings[k] = stored[k];
   if (![5, 7, 11].includes(Settings.firstTo)) Settings.firstTo = 7;
-  if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'full';
+  if (!['off', 'subtle', 'full'].includes(Settings.shake)) Settings.shake = 'subtle';
   if (!['casual', 'classic', 'lightning'].includes(Settings.pace)) Settings.pace = 'classic';
-  if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'full';
+  if (!['full', 'subtle', 'minimal'].includes(Settings.effects)) Settings.effects = 'subtle';
   if (!['goals', 'off'].includes(Settings.instantReplay)) Settings.instantReplay = 'goals';
   if (!['narrow', 'standard', 'wide'].includes(Settings.goalW)) Settings.goalW = 'standard';
   if (!['auto', 'landscape', 'portrait'].includes(Settings.orientation)) Settings.orientation = 'auto';

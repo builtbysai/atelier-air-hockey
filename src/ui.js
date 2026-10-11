@@ -223,7 +223,8 @@ function syncReducedMotionPreference(reduce) {
   PRM.reduce = !!reduce;
   // System preference may choose the safe session default, but never overrides
   // a shake level the player explicitly picked and saved themselves.
-  if (!PRM.userShake) Settings.shake = PRM.reduce ? 'subtle' : 'full';
+  // The session default is 'subtle' (the comfortable middle), matching Settings.
+  if (!PRM.userShake) Settings.shake = 'subtle';
 }
 function installReducedMotionPreference() {
   try {

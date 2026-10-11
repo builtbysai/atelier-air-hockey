@@ -102,7 +102,7 @@ assert.match(game, /setSessionSeed\(s\)/, 'MusicSys.setSessionSeed missing');
 const net = await readFile('src/net.js', 'utf8');
 assert.match(net, /mseed/, 'hello handshake must carry the music session seed');
 assert.match(net, /MusicSys\.setSessionSeed\(/, 'guest must apply the host music seed');
-assert.match(game, /soundVolume:\s*100,/, 'Settings.soundVolume default missing');
+assert.match(game, /soundVolume:\s*80,/, 'Settings.soundVolume default missing');
 assert.match(game, /musicVolume:\s*70,/, 'Settings.musicVolume default missing');
 assert.match(ui, /MusicSys\.setTable\(id\)/, 'setTheme must switch the music table');
 assert.match(ui, /MusicSys\.syncEnabled\(\)/, 'settings apply must sync scheduler state from music volume');

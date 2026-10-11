@@ -156,6 +156,18 @@
     max-height:calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y:auto;
     margin:auto;
   }
+  /* dialog scrollbars that match the noir brass aesthetic (kills the default grey bars) */
+  .overlay, .card{
+    scrollbar-width:thin;
+    scrollbar-color:#8a6d2f rgba(0,0,0,0.45);
+  }
+  .overlay::-webkit-scrollbar, .card::-webkit-scrollbar{ width:8px; }
+  .overlay::-webkit-scrollbar-track, .card::-webkit-scrollbar-track{
+    background:rgba(0,0,0,0.45); border-radius:8px;
+  }
+  .overlay::-webkit-scrollbar-thumb, .card::-webkit-scrollbar-thumb{
+    background:#8a6d2f; border-radius:8px; border:2px solid rgba(0,0,0,0.45);
+  }
   .menusheet{ max-width:600px; }
   /* every dialog enters the same way: a short rise-and-settle. Still under
      prefers-reduced-motion (see the guard at the end of this sheet). */
