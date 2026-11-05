@@ -225,6 +225,17 @@ function netGenCode() {
   return c;
 }
 
+/* Transport mode. Peer-to-peer stays the default; ?netMode=server opts in to the
+ * dedicated Cloudflare server (src/net-server.js, infra/cloudflare/air-hockey-server). */
+const NET_SERVER_INPUT_HZ = 30;   // client->server input cadence (each input is a billed DO request, 20:1)
+Net.serverMode = function () {
+  try {
+    if (typeof location === 'undefined' || !location.href) return false;
+    return new URL(location.href).searchParams.get('netMode') === 'server';
+  } catch (e) { return false; }
+};
+Net.modeLabel = function () { return Net.serverMode() ? 'Dedicated server' : 'Peer to peer'; };
+
 Net.playerSide = function () {
   if (Net.side === 0 || Net.side === 1) return Net.side;
   if (Net.role === 'host') return 0;
@@ -370,6 +381,7 @@ Net.buildSessionCheckpoint = function () {
 };
 
 Net.saveSessionCheckpoint = function () {
+  if (Net.serverMode()) return false; // the server owns the match; the seat is resumed through NetServer.tryResume
   const checkpoint = Net.buildSessionCheckpoint();
   if (!checkpoint) return false;
   try {
@@ -477,12 +489,6 @@ const NET_ICE_RECOVERY_RETRY_MS = 2200;
 const NET_ICE_RECOVERY_MAX_ATTEMPTS = 3;
 const NET_RT_CHANNEL_ID = 61000;
 const NET_RT_PROTOCOL = 'atelier-rt-v1';
-const NET_RT_VERSION = 1;
-const NET_RT_STATE = 1;
-const NET_RT_INPUT = 2;
-const NET_RT_ACK = 3;
-const NET_RT_HIT_HINT = 4;          // additive: old peers ignore unknown realtime types
-const NET_RT_HIT_HINT_BYTES = 22;
 const NET_RT_MAX_BUFFERED = 32 * 1024;
 // The fast lane is an optimization, never the only path to a playable match.
 // Even while it is healthy, a tiny reliable safety stream keeps both sides
@@ -509,17 +515,7 @@ const NET_AUTHORITY_VERSION = 1;
 const NET_AUTHORITY_HANDSHAKE_TIMEOUT_MS = 2500;
 const NET_AUTHORITY_RECOVERY_MS = 30000;
 
-// Host-side lag compensation (docs/online-v2-lag-compensation.md). Starting
-// safety bounds, not promises about final game feel.
-const NET_LAG_HISTORY = 16;            // ~267 ms of state samples at 60 Hz (power of two)
-const NET_LAG_WARMUP_SAMPLES = 3;      // consecutive current-authority samples required
-const NET_LAG_MAX_REWIND_MS = 180;
-const NET_LAG_MAX_INPUT_LEAD = 32;
-const NET_LAG_CONTACT_TOLERANCE = 12;  // rink units
-const NET_LAG_SPEED_TOLERANCE = 1.10;  // x PLAYER_CAP
-const NET_LAG_SIDE_TOLERANCE = 0.5;    // float32 rounding slack on side bounds
-const NET_LAG_GHOST_S = 0.04;          // host mallet pass-through after a compensated hit it was already overlapping
-
+// <<SHARED-SIM:BEGIN>>
 /* ---------------------------------------------------------------------------
  * Shared mallet/puck normal-contact solver (pure, no side effects).
  *
@@ -570,6 +566,318 @@ function solveMalletImpulse(s) {
     impact: -hit.vn + Math.max(0, hit.mvn),
   };
 }
+
+/* ---------------------------------------------------------------------------
+ * Shared wire codecs, sequence math and the lag-compensation validator (pure).
+ *
+ * These are free functions of plain data so the browser (src/net.js) and the
+ * dedicated Cloudflare server (infra/cloudflare/air-hockey-server, bundled by
+ * its build.mjs straight out of this marked region) run the SAME bytes of
+ * code. The Net.* methods further down are thin wrappers over them.
+ * Physics constants (PX, PUCK_R, PLAYER_CAP, ...) resolve at call time from
+ * game.js in the browser and from the server's sim module in the Worker.
+ * ------------------------------------------------------------------------- */
+const NET_RT_VERSION = 1;
+const NET_RT_STATE = 1;
+const NET_RT_INPUT = 2;
+const NET_RT_ACK = 3;
+const NET_RT_HIT_HINT = 4;          // additive: old peers ignore unknown realtime types
+const NET_RT_HIT_HINT_BYTES = 22;
+
+// Host-side lag compensation (docs/online-v2-lag-compensation.md). Starting
+// safety bounds, not promises about final game feel.
+const NET_LAG_HISTORY = 16;            // ~267 ms of state samples at 60 Hz (power of two)
+const NET_LAG_WARMUP_SAMPLES = 3;      // consecutive current-authority samples required
+const NET_LAG_MAX_REWIND_MS = 180;
+const NET_LAG_MAX_INPUT_LEAD = 32;
+const NET_LAG_CONTACT_TOLERANCE = 12;  // rink units
+const NET_LAG_SPEED_TOLERANCE = 1.10;  // x PLAYER_CAP
+const NET_LAG_SIDE_TOLERANCE = 0.5;    // float32 rounding slack on side bounds
+const NET_LAG_GHOST_S = 0.04;          // authority mallet pass-through after a compensated hit it was already overlapping
+
+/* Wrap-safe 16-bit ordering: true when `next` is strictly newer than `previous`. */
+function rtSeqNewer(next, previous) {
+  if (previous === null || previous === undefined) return true;
+  const delta = (next - previous + 0x10000) & 0xffff;
+  return delta > 0 && delta < 0x8000;
+}
+
+/* 56-byte authoritative state packet. `a` is the compact snapshot array. */
+function rtEncodeState(a, seq) {
+  const buffer = new ArrayBuffer(56);
+  const v = new DataView(buffer);
+  v.setUint8(0, NET_RT_STATE); v.setUint8(1, NET_RT_VERSION);
+  v.setUint16(2, seq & 0xffff, true);
+  let o = 4;
+  for (let i = 0; i < 8; i++, o += 4) v.setFloat32(o, a[i], true);
+  v.setUint8(36, a[8] & 0xff); v.setUint8(37, a[9] & 0xff); v.setUint8(38, a[10] & 0xff);
+  v.setUint16(39, Math.max(0, Math.min(0xffff, a[11] | 0)), true);
+  v.setUint16(41, Math.max(0, Math.min(0xffff, a[12] | 0)), true);
+  v.setUint16(43, Math.max(0, Math.min(0xffff, a[13] | 0)), true);
+  v.setUint16(45, Math.max(0, Math.min(0xffff, a[14] | 0)), true);
+  v.setFloat32(47, Number.isFinite(a[15]) ? a[15] : 0, true);
+  v.setFloat32(51, Number.isFinite(a[16]) ? a[16] : 0, true);
+  v.setInt8(55, a[17] === -1 ? -1 : a[17] === 1 ? 1 : 0);
+  return buffer;
+}
+
+/* Returns {seq, a} or null; ordering is the caller's business. */
+function rtDecodeState(v) {
+  if (v.byteLength !== 56 || v.getUint8(1) !== NET_RT_VERSION) return null;
+  const seq = v.getUint16(2, true);
+  const a = [];
+  let o = 4;
+  for (let i = 0; i < 8; i++, o += 4) a.push(v.getFloat32(o, true));
+  a.push(v.getUint8(36), v.getUint8(37), v.getUint8(38));
+  a.push(v.getUint16(39, true), v.getUint16(41, true), v.getUint16(43, true), v.getUint16(45, true));
+  a.push(v.getFloat32(47, true), v.getFloat32(51, true), v.getInt8(55), seq);
+  return { seq, a };
+}
+
+function rtEncodeInput(seq, tx, ty) {
+  const buffer = new ArrayBuffer(12);
+  const v = new DataView(buffer);
+  v.setUint8(0, NET_RT_INPUT); v.setUint8(1, NET_RT_VERSION);
+  v.setUint16(2, seq & 0xffff, true);
+  v.setFloat32(4, tx, true); v.setFloat32(8, ty, true);
+  return buffer;
+}
+
+function rtDecodeInput(v) {
+  if (v.byteLength !== 12 || v.getUint8(1) !== NET_RT_VERSION) return null;
+  return { seq: v.getUint16(2, true), tx: v.getFloat32(4, true), ty: v.getFloat32(8, true) };
+}
+
+function rtEncodeAck(seq) {
+  const buffer = new ArrayBuffer(4);
+  const v = new DataView(buffer);
+  v.setUint8(0, NET_RT_ACK); v.setUint8(1, NET_RT_VERSION);
+  v.setUint16(2, seq & 0xffff, true);
+  return buffer;
+}
+
+/* 22-byte additive realtime message. Existing packet layouts are untouched. */
+function lagEncodeHint(h) {
+  const buffer = new ArrayBuffer(NET_RT_HIT_HINT_BYTES);
+  const v = new DataView(buffer);
+  v.setUint8(0, NET_RT_HIT_HINT); v.setUint8(1, NET_RT_VERSION);
+  v.setUint16(2, h.inputSeq & 0xffff, true);
+  v.setUint16(4, h.stateSeq & 0xffff, true);
+  v.setFloat32(6, h.malletX, true); v.setFloat32(10, h.malletY, true);
+  v.setFloat32(14, h.malletVx, true); v.setFloat32(18, h.malletVy, true);
+  return buffer;
+}
+
+function lagDecodeHint(v) {
+  if (v.byteLength !== NET_RT_HIT_HINT_BYTES || v.getUint8(0) !== NET_RT_HIT_HINT ||
+      v.getUint8(1) !== NET_RT_VERSION) return null;
+  return {
+    inputSeq: v.getUint16(2, true), stateSeq: v.getUint16(4, true),
+    malletX: v.getFloat32(6, true), malletY: v.getFloat32(10, true),
+    malletVx: v.getFloat32(14, true), malletVy: v.getFloat32(18, true),
+  };
+}
+
+function lagNearRail(x, y) {
+  const g = 2 * PUCK_R;
+  return x < PX + g || x > PX + PW - g || y < PY + g || y > PY + PH - g;
+}
+
+/* Earliest entry of a straight authoritative puck path into the contact circle
+ * around the claimed mallet. Returns t in [0,1] or null. */
+function lagSegmentEntry(a, b, mx, my, radius) {
+  const fx = a.puckX - mx, fy = a.puckY - my;
+  const c = fx * fx + fy * fy - radius * radius;
+  if (c <= 0) return 0;
+  const dx = b.puckX - a.puckX, dy = b.puckY - a.puckY;
+  const A = dx * dx + dy * dy;
+  if (A < 1e-9) return null;
+  const B = 2 * (fx * dx + fy * dy);
+  const disc = B * B - 4 * A * c;
+  if (disc < 0) return null;
+  const t = (-B - Math.sqrt(disc)) / (2 * A);
+  return t >= 0 && t <= 1 ? t : null;
+}
+
+/* History ring: an array of NET_LAG_HISTORY slots keyed by (seq & mask). */
+function lagRingNew() { return new Array(NET_LAG_HISTORY).fill(null); }
+
+function lagRingSample(ring, epoch, seq) {
+  const item = ring && ring[seq & (NET_LAG_HISTORY - 1)];
+  return item && item.seq === seq && item.epoch === epoch ? item : null;
+}
+
+/* Contiguous same-continuity run around a referenced sample. `forward` is the
+ * authoritative trajectory from the reference onward; `run` counts consecutive
+ * live-play samples of one point/touch on both sides of it (warm-up gate). */
+function lagRingTrajectory(ring, epoch, ref) {
+  const same = (n) => n.pointSerial === ref.pointSerial && n.touchSerial === ref.touchSerial && n.state === 'play';
+  const forward = [ref];
+  let seq = ref.seq, backward = 0;
+  if (same(ref)) {
+    for (let i = 1; i < NET_LAG_HISTORY; i++) {
+      const n = lagRingSample(ring, epoch, (seq = (seq + 1) & 0xffff));
+      if (!n || !same(n)) break;
+      forward.push(n);
+    }
+    seq = ref.seq;
+    for (let i = 1; i < NET_LAG_HISTORY; i++) {
+      const n = lagRingSample(ring, epoch, (seq = (seq - 1) & 0xffff));
+      if (!n || !same(n)) break;
+      backward++;
+    }
+  }
+  return { forward, run: same(ref) ? backward + forward.length : 0 };
+}
+
+/* Everything the validator needs. `ctx` carries the live authority state:
+ * {lastInputSeq, lastHintSeq, hinterSide, prevPose, current, newestSeq}. */
+function lagBuildView(ring, epoch, hint, nowMs, ctx) {
+  const history = lagRingSample(ring, epoch, hint.stateSeq);
+  const view = {
+    nowMs,
+    lastInputSeq: ctx.lastInputSeq,
+    lastHintSeq: ctx.lastHintSeq,
+    hinterSide: ctx.hinterSide,
+    prevPose: ctx.prevPose,
+    current: ctx.current,
+    history,
+    trajectory: null,
+    warm: false,
+  };
+  if (history) {
+    const t = lagRingTrajectory(ring, epoch, history);
+    view.trajectory = t.forward;
+    view.warm = t.run >= NET_LAG_WARMUP_SAMPLES;
+    // The live puck is a valid final endpoint only when the scan reached the
+    // newest published sample (no gap between the last sample and "now").
+    view.endpointValid = t.forward[t.forward.length - 1].seq === (ctx.newestSeq & 0xffff);
+  }
+  return view;
+}
+
+/* The production validator. Pure: it reads only `hint`, `view` and the physics
+ * constants, so the data fixtures, the browser authority and the dedicated
+ * server run the same code. Returns {ok, reason, contact?}. The nine gates of
+ * the design doc are numbered below; the superseded-touch check (gate 8) runs
+ * before the trajectory scan because a changed touch serial makes the scan
+ * meaningless. Same rejection set, more accurate reason. */
+function lagValidateContactHint(hint, view) {
+  const no = (reason, detail) => ({ ok: false, reason, detail });
+  const fin = Number.isFinite;
+
+  // Gate 1: protocol and sequence.
+  if (!hint || typeof hint !== 'object' ||
+      !Number.isInteger(hint.inputSeq) || hint.inputSeq < 0 || hint.inputSeq > 0xffff ||
+      !Number.isInteger(hint.stateSeq) || hint.stateSeq < 0 || hint.stateSeq > 0xffff ||
+      !fin(hint.malletX) || !fin(hint.malletY) || !fin(hint.malletVx) || !fin(hint.malletVy))
+    return no('malformed');
+  if (view.lastHintSeq !== null && view.lastHintSeq !== undefined &&
+      !rtSeqNewer(hint.inputSeq, view.lastHintSeq)) return no('duplicate-or-replay');
+  const history = view.history;
+  if (!history || history.seq !== hint.stateSeq || view.warm === false) return no('missing-history');
+  if (view.lastInputSeq !== null && view.lastInputSeq !== undefined) {
+    const lead = (hint.inputSeq - view.lastInputSeq) & 0xffff;
+    if (lead > NET_LAG_MAX_INPUT_LEAD && lead < 0x8000) return no('input-lead');
+  }
+
+  // Gate 2: age, from the authority's monotonic clock (never from sequence distance).
+  const age = view.nowMs - history.timeMs;
+  if (!fin(age) || age > NET_LAG_MAX_REWIND_MS || age < -1) return no('stale', age);
+
+  // Gate 3: point and state continuity.
+  const cur = view.current;
+  if (history.pointSerial !== cur.pointSerial || history.state !== 'play' || cur.state !== 'play')
+    return no('point-state');
+
+  // Gate 4: the claimed pose must lie inside the hinting player's half.
+  const side = view.hinterSide === 0 ? 0 : 1;
+  const xMin = side === 0 ? PX + MALLET_R : CX + 8, xMax = side === 0 ? CX - 8 : PX + PW - MALLET_R;
+  const yMin = PY + MALLET_R, yMax = PY + PH - MALLET_R, tol = NET_LAG_SIDE_TOLERANCE;
+  if (hint.malletX < xMin - tol || hint.malletX > xMax + tol ||
+      hint.malletY < yMin - tol || hint.malletY > yMax + tol) return no('side-bounds');
+
+  // Gate 5: mallet speed plausibility (reported speed + reachability).
+  const cap = PLAYER_CAP * NET_LAG_SPEED_TOLERANCE;
+  if (Math.hypot(hint.malletVx, hint.malletVy) > cap) return no('velocity', 'speed');
+  if (view.prevPose) {
+    const dt = (view.nowMs - view.prevPose.timeMs) / 1000;
+    if (dt >= 0 && dt < 2 &&
+        Math.hypot(hint.malletX - view.prevPose.x, hint.malletY - view.prevPose.y) > cap * (dt + 0.12))
+      return no('velocity', 'hop');
+  }
+  if (fin(history.guestMalletX) && fin(history.guestMalletY) && (history.guestMalletX || history.guestMalletY) &&
+      Math.hypot(hint.malletX - history.guestMalletX, hint.malletY - history.guestMalletY) >
+        cap * (2 * age / 1000 + 0.05) + 2) return no('velocity', 'reach');
+
+  // Gate 8 (early): any later authoritative touch supersedes the claim.
+  if (cur.touchSerial !== history.touchSerial) return no('superseded');
+
+  // Gate 6: scan the authority's own trajectory forward from the referenced
+  // sample for the earliest intersection with the claimed mallet.
+  const samples = (view.trajectory && view.trajectory.length ? view.trajectory : [history]).slice();
+  const last = samples[samples.length - 1];
+  if (view.endpointValid !== false && last.pointSerial === cur.pointSerial && cur.state === 'play' &&
+      cur.touchSerial === history.touchSerial)
+    samples.push({
+      timeMs: view.nowMs, puckX: cur.puckX, puckY: cur.puckY,
+      puckVx: fin(cur.puckVx) ? cur.puckVx : last.puckVx, puckVy: fin(cur.puckVy) ? cur.puckVy : last.puckVy,
+      puckW: fin(cur.puckW) ? cur.puckW : last.puckW,
+    });
+  const radius = PUCK_R + MALLET_R + NET_LAG_CONTACT_TOLERANCE;
+  let contact = null, unsafe = false;
+  for (let i = 0; i < samples.length && !contact; i++) {
+    const a = samples[i], b = samples[i + 1];
+    let t = null;
+    if (Math.hypot(a.puckX - hint.malletX, a.puckY - hint.malletY) <= radius) t = 0;
+    else if (b) t = lagSegmentEntry(a, b, hint.malletX, hint.malletY, radius);
+    if (t !== null) {
+      const u = b ? t : 0, mix = (k, d) => b && fin(b[k]) ? a[k] + (b[k] - a[k]) * u : (fin(a[k]) ? a[k] : d);
+      contact = {
+        timeMs: b ? a.timeMs + (b.timeMs - a.timeMs) * u : a.timeMs,
+        puckX: mix('puckX', 0), puckY: mix('puckY', 0),
+        puckVx: mix('puckVx', 0), puckVy: mix('puckVy', 0), puckW: mix('puckW', 0),
+      };
+    } else if (lagNearRail(a.puckX, a.puckY) || (b && lagNearRail(b.puckX, b.puckY))) {
+      unsafe = true; break;
+    }
+  }
+  if (!contact) return no(unsafe ? 'unsafe-transition' : 'geometry');
+
+  // Gate 7: closing motion at the selected contact (same physics as collideMallet).
+  const dx = contact.puckX - hint.malletX, dy = contact.puckY - hint.malletY, d = Math.hypot(dx, dy);
+  if (d < 1e-6) return no('geometry');
+  contact.nx = dx / d; contact.ny = dy / d;
+  const closing = malletImpulseVelocity({
+    puckVx: contact.puckVx, puckVy: contact.puckVy,
+    malletVx: hint.malletVx, malletVy: hint.malletVy, nx: contact.nx, ny: contact.ny,
+  });
+  if (!closing) return no('separating');
+
+  // Gate 9: no ambiguous transition (rail/goal guard, impossible live puck).
+  if (lagNearRail(contact.puckX, contact.puckY) || lagNearRail(cur.puckX, cur.puckY))
+    return no('unsafe-transition');
+  const sinceContact = Math.max(0, (view.nowMs - contact.timeMs) / 1000);
+  if (Math.hypot(cur.puckX - contact.puckX, cur.puckY - contact.puckY) > PUCK_MAX * sinceContact + MALLET_R)
+    return no('unsafe-transition', 'inconsistent');
+
+  return { ok: true, reason: 'accepted', contact, age };
+}
+
+/* Apply an accepted contact: recompute the outcome from the authority's own
+ * physics and set ONLY the live puck's velocity/spin. No position change.
+ * Returns the solver result or null. */
+function lagApplyContact(puck, contact, hint) {
+  const hit = solveMalletImpulse({
+    puckVx: contact.puckVx, puckVy: contact.puckVy,
+    malletVx: hint.malletVx, malletVy: hint.malletVy, nx: contact.nx, ny: contact.ny,
+  });
+  if (!hit) return null;
+  puck.vx = hit.vx; puck.vy = hit.vy;
+  puck.w = Math.max(-12, Math.min(12, (Number.isFinite(puck.w) ? puck.w : 0) + hit.spin));
+  return hit;
+}
+// <<SHARED-SIM:END>>
 
 Net.validIceServers = function (servers) {
   if (!Array.isArray(servers)) return [];
@@ -1205,12 +1513,15 @@ Net.uiShow = function (mode, data) {
   };
   if (mode === 'choose') {
     T.textContent = 'Play a rival';
-    S.textContent = 'Find someone now, or open a private table.';
-    B.innerHTML = '<button id="onlineQuick" class="btn primary online-quick" type="button">' +
+    S.textContent = Net.serverMode() ? 'Host a table or join with a code.' : 'Find someone now, or open a private table.';
+    const server = Net.serverMode();
+    B.innerHTML = (server ? '' : '<button id="onlineQuick" class="btn primary online-quick" type="button">' +
       '<span>Find a rival</span><small>QUICK MATCH</small></button>' +
       '<button id="onlineWatch" class="btn online-watch" type="button">' +
       '<span>Watch a table</span><small>SPECTATE</small></button>' +
-      '<p class="online-note online-divider">Private table</p>';
+      '<p class="online-note online-divider">Private table</p>') +
+      '<p class="online-note online-mode" id="onlineMode" data-net-mode="' + (server ? 'server' : 'p2p') + '">' +
+      'Connection: ' + Net.modeLabel() + '</p>';
     const quick = $('onlineQuick'), watch = $('onlineWatch');
     if (quick) quick.onclick = () => Net.quickStart();
     if (watch) watch.onclick = () => Net.uiShow('watchjoin');
@@ -1281,7 +1592,7 @@ Net.uiShow = function (mode, data) {
     });
   } else if (mode === 'opening') {
     T.textContent = 'Opening table';
-    S.textContent = 'Preparing a secure peer-to-peer room.';
+    S.textContent = Net.serverMode() ? 'Connecting to the game server.' : 'Preparing a secure peer-to-peer room.';
     B.innerHTML = '<p class="online-note pulse">Connecting&hellip;</p>';
     setBtn(P, 'Cancel', () => Net.cancelLobby());
     setBtn(Q, null);
@@ -1325,8 +1636,10 @@ Net.uiShow = function (mode, data) {
 
 Net.inviteUrl = function (code) {
   const u = new URL(location.href);
+  const server = u.searchParams.get('netMode') === 'server'; // the joiner must meet us on the same transport
   u.search = ''; u.hash = '';
   u.searchParams.set('join', code);
+  if (server) u.searchParams.set('netMode', 'server');
   return u.toString();
 };
 Net.copyInvite = async function (code) {
@@ -1411,6 +1724,7 @@ Net.closeLobby = function () {
 };
 
 Net.create = async function (forcedCode) {
+  if (Net.serverMode()) return NetServer.start('create', forcedCode);
   const token = ++Net.opToken;
   Net.uiShow('opening');
   try {
@@ -1430,6 +1744,7 @@ Net.create = async function (forcedCode) {
 };
 
 Net.join = async function (rawCode) {
+  if (Net.serverMode()) return NetServer.start('join', rawCode);
   const token = ++Net.opToken;
   const code = (rawCode || '').toUpperCase().replace(/[^A-Z2-9]/g, '').slice(0, 6);
   if (code.length !== 6) { Net.uiError('That code needs 6 characters. Check it and try again.'); return; }
@@ -1494,11 +1809,7 @@ Net.cancelLobby = function () {
 };
 
 /* ---------------- Online V2 realtime lane ---------------- */
-Net.seqNewer = function (next, previous) {
-  if (previous === null || previous === undefined) return true;
-  const delta = (next - previous + 0x10000) & 0xffff;
-  return delta > 0 && delta < 0x8000;
-};
+Net.seqNewer = rtSeqNewer;
 
 Net.nextStateSeq = function () {
   Net.rtStateSeq = (Net.rtStateSeq + 1) & 0xffff;
@@ -1574,63 +1885,29 @@ Net.ensureRealtimeChannel = function () {
 Net.encodeRealtimeState = function (snapshot = null, seq = null) {
   const a = Array.isArray(snapshot) ? snapshot : Net.encodeSnapshot();
   if (!Number.isInteger(seq)) seq = Net.nextStateSeq();
-  else seq &= 0xffff;
-  const buffer = new ArrayBuffer(56);
-  const v = new DataView(buffer);
-  v.setUint8(0, NET_RT_STATE); v.setUint8(1, NET_RT_VERSION);
-  v.setUint16(2, seq, true);
-  let o = 4;
-  for (let i = 0; i < 8; i++, o += 4) v.setFloat32(o, a[i], true);
-  v.setUint8(36, a[8] & 0xff); v.setUint8(37, a[9] & 0xff); v.setUint8(38, a[10] & 0xff);
-  v.setUint16(39, Math.max(0, Math.min(0xffff, a[11] | 0)), true);
-  v.setUint16(41, Math.max(0, Math.min(0xffff, a[12] | 0)), true);
-  v.setUint16(43, Math.max(0, Math.min(0xffff, a[13] | 0)), true);
-  v.setUint16(45, Math.max(0, Math.min(0xffff, a[14] | 0)), true);
-  v.setFloat32(47, Number.isFinite(a[15]) ? a[15] : 0, true);
-  v.setFloat32(51, Number.isFinite(a[16]) ? a[16] : 0, true);
-  v.setInt8(55, a[17] === -1 ? -1 : a[17] === 1 ? 1 : 0);
-  return buffer;
+  return rtEncodeState(a, seq);
 };
 
 Net.decodeRealtimeState = function (v) {
-  if (v.byteLength !== 56 || v.getUint8(1) !== NET_RT_VERSION) return null;
-  const seq = v.getUint16(2, true);
-  if (!Net.seqNewer(seq, Net.rtLastStateSeq)) return null;
-  Net.rtLastStateSeq = seq;
-  const a = [];
-  let o = 4;
-  for (let i = 0; i < 8; i++, o += 4) a.push(v.getFloat32(o, true));
-  a.push(v.getUint8(36), v.getUint8(37), v.getUint8(38));
-  a.push(v.getUint16(39, true), v.getUint16(41, true), v.getUint16(43, true), v.getUint16(45, true));
-  a.push(v.getFloat32(47, true), v.getFloat32(51, true), v.getInt8(55), seq);
-  return a;
+  const d = rtDecodeState(v);
+  if (!d || !Net.seqNewer(d.seq, Net.rtLastStateSeq)) return null;
+  Net.rtLastStateSeq = d.seq;
+  return d.a;
 };
 
 Net.encodeRealtimeInput = function (tx, ty) {
-  const buffer = new ArrayBuffer(12);
-  const v = new DataView(buffer);
-  v.setUint8(0, NET_RT_INPUT); v.setUint8(1, NET_RT_VERSION);
   Net.rtInputSeq = (Net.rtInputSeq + 1) & 0xffff;
-  v.setUint16(2, Net.rtInputSeq, true);
-  v.setFloat32(4, tx, true); v.setFloat32(8, ty, true);
-  return buffer;
+  return rtEncodeInput(Net.rtInputSeq, tx, ty);
 };
 
 Net.decodeRealtimeInput = function (v) {
-  if (v.byteLength !== 12 || v.getUint8(1) !== NET_RT_VERSION) return null;
-  const seq = v.getUint16(2, true);
-  if (!Net.seqNewer(seq, Net.rtLastInputSeq)) return null;
-  Net.rtLastInputSeq = seq;
-  return [v.getFloat32(4, true), v.getFloat32(8, true)];
+  const d = rtDecodeInput(v);
+  if (!d || !Net.seqNewer(d.seq, Net.rtLastInputSeq)) return null;
+  Net.rtLastInputSeq = d.seq;
+  return [d.tx, d.ty];
 };
 
-Net.encodeRealtimeAck = function (seq) {
-  const buffer = new ArrayBuffer(4);
-  const v = new DataView(buffer);
-  v.setUint8(0, NET_RT_ACK); v.setUint8(1, NET_RT_VERSION);
-  v.setUint16(2, seq & 0xffff, true);
-  return buffer;
-};
+Net.encodeRealtimeAck = rtEncodeAck;
 
 Net.onRealtimeAck = function (v) {
   if (v.byteLength !== 4 || v.getUint8(1) !== NET_RT_VERSION) return false;
@@ -1752,40 +2029,12 @@ Net.recordLagSample = function (seq) {
   return item;
 };
 
-Net.lagSample = function (seq) {
-  const item = Net.lagRing && Net.lagRing[seq & (NET_LAG_HISTORY - 1)];
-  return item && item.seq === seq && item.epoch === Net.lagEpoch ? item : null;
-};
-
-/* Contiguous same-continuity run around a referenced sample. `forward` is the
- * authoritative trajectory from the reference onward; `run` counts consecutive
- * live-play samples of one point/touch on both sides of it (warm-up gate). */
-Net.lagTrajectory = function (ref) {
-  const same = (n) => n.pointSerial === ref.pointSerial && n.touchSerial === ref.touchSerial && n.state === 'play';
-  const forward = [ref];
-  let seq = ref.seq, backward = 0;
-  if (same(ref)) {
-    for (let i = 1; i < NET_LAG_HISTORY; i++) {
-      const n = Net.lagSample((seq = (seq + 1) & 0xffff));
-      if (!n || !same(n)) break;
-      forward.push(n);
-    }
-    seq = ref.seq;
-    for (let i = 1; i < NET_LAG_HISTORY; i++) {
-      const n = Net.lagSample((seq = (seq - 1) & 0xffff));
-      if (!n || !same(n)) break;
-      backward++;
-    }
-  }
-  return { forward, run: same(ref) ? backward + forward.length : 0 };
-};
+Net.lagSample = function (seq) { return lagRingSample(Net.lagRing, Net.lagEpoch, seq); };
 
 /* Everything the validator needs, read from live authority state. */
 Net.lagBuildView = function (hint, nowMs) {
-  const history = Net.lagSample(hint.stateSeq);
   const p = G.puck;
-  const view = {
-    nowMs,
+  return lagBuildView(Net.lagRing, Net.lagEpoch, hint, nowMs, {
     lastInputSeq: Net.rtLastInputSeq,
     lastHintSeq: Net.lagLastHintSeq,
     hinterSide: Net.remoteSide(),
@@ -1794,172 +2043,16 @@ Net.lagBuildView = function (hint, nowMs) {
       pointSerial: Net.lagPointSerial, touchSerial: Net.lagTouchSerial, state: G.state,
       puckX: p.x, puckY: p.y, puckVx: p.vx, puckVy: p.vy, puckW: Number.isFinite(p.w) ? p.w : 0,
     },
-    history,
-    trajectory: null,
-    warm: false,
-  };
-  if (history) {
-    const t = Net.lagTrajectory(history);
-    view.trajectory = t.forward;
-    view.warm = t.run >= NET_LAG_WARMUP_SAMPLES;
-    // The live puck is a valid final endpoint only when the scan reached the
-    // newest published sample (no gap between the last sample and "now").
-    const newest = Net.rtStateSeq & 0xffff;
-    view.endpointValid = t.forward[t.forward.length - 1].seq === newest;
-  }
-  return view;
-};
-
-Net.lagNearRail = function (x, y) {
-  const g = 2 * PUCK_R;
-  return x < PX + g || x > PX + PW - g || y < PY + g || y > PY + PH - g;
-};
-
-/* Earliest entry of a straight authoritative puck path into the contact circle
- * around the claimed mallet. Returns {i, t} or null. */
-Net.lagSegmentEntry = function (a, b, mx, my, radius) {
-  const fx = a.puckX - mx, fy = a.puckY - my;
-  const c = fx * fx + fy * fy - radius * radius;
-  if (c <= 0) return 0;
-  const dx = b.puckX - a.puckX, dy = b.puckY - a.puckY;
-  const A = dx * dx + dy * dy;
-  if (A < 1e-9) return null;
-  const B = 2 * (fx * dx + fy * dy);
-  const disc = B * B - 4 * A * c;
-  if (disc < 0) return null;
-  const t = (-B - Math.sqrt(disc)) / (2 * A);
-  return t >= 0 && t <= 1 ? t : null;
-};
-
-/* The production validator. Pure: it reads only `hint`, `view` and the physics
- * constants, so the data fixtures and live authority run the same code.
- * Returns {ok, reason, contact?}. The nine gates of the design doc are numbered
- * below; the superseded-touch check (gate 8) runs before the trajectory scan
- * because a changed touch serial makes the scan meaningless. Same rejection
- * set, more accurate reason. */
-Net.validateContactHint = function (hint, view) {
-  const no = (reason, detail) => ({ ok: false, reason, detail });
-  const fin = Number.isFinite;
-
-  // Gate 1: protocol and sequence.
-  if (!hint || typeof hint !== 'object' ||
-      !Number.isInteger(hint.inputSeq) || hint.inputSeq < 0 || hint.inputSeq > 0xffff ||
-      !Number.isInteger(hint.stateSeq) || hint.stateSeq < 0 || hint.stateSeq > 0xffff ||
-      !fin(hint.malletX) || !fin(hint.malletY) || !fin(hint.malletVx) || !fin(hint.malletVy))
-    return no('malformed');
-  if (view.lastHintSeq !== null && view.lastHintSeq !== undefined &&
-      !Net.seqNewer(hint.inputSeq, view.lastHintSeq)) return no('duplicate-or-replay');
-  const history = view.history;
-  if (!history || history.seq !== hint.stateSeq || view.warm === false) return no('missing-history');
-  if (view.lastInputSeq !== null && view.lastInputSeq !== undefined) {
-    const lead = (hint.inputSeq - view.lastInputSeq) & 0xffff;
-    if (lead > NET_LAG_MAX_INPUT_LEAD && lead < 0x8000) return no('input-lead');
-  }
-
-  // Gate 2: age, from the host monotonic clock (never from sequence distance).
-  const age = view.nowMs - history.timeMs;
-  if (!fin(age) || age > NET_LAG_MAX_REWIND_MS || age < -1) return no('stale', age);
-
-  // Gate 3: point and state continuity.
-  const cur = view.current;
-  if (history.pointSerial !== cur.pointSerial || history.state !== 'play' || cur.state !== 'play')
-    return no('point-state');
-
-  // Gate 4: the claimed pose must lie inside the hinting player's half.
-  const side = view.hinterSide === 0 ? 0 : 1;
-  const xMin = side === 0 ? PX + MALLET_R : CX + 8, xMax = side === 0 ? CX - 8 : PX + PW - MALLET_R;
-  const yMin = PY + MALLET_R, yMax = PY + PH - MALLET_R, tol = NET_LAG_SIDE_TOLERANCE;
-  if (hint.malletX < xMin - tol || hint.malletX > xMax + tol ||
-      hint.malletY < yMin - tol || hint.malletY > yMax + tol) return no('side-bounds');
-
-  // Gate 5: mallet speed plausibility (reported speed + reachability).
-  const cap = PLAYER_CAP * NET_LAG_SPEED_TOLERANCE;
-  if (Math.hypot(hint.malletVx, hint.malletVy) > cap) return no('velocity', 'speed');
-  if (view.prevPose) {
-    const dt = (view.nowMs - view.prevPose.timeMs) / 1000;
-    if (dt >= 0 && dt < 2 &&
-        Math.hypot(hint.malletX - view.prevPose.x, hint.malletY - view.prevPose.y) > cap * (dt + 0.12))
-      return no('velocity', 'hop');
-  }
-  if (fin(history.guestMalletX) && fin(history.guestMalletY) && (history.guestMalletX || history.guestMalletY) &&
-      Math.hypot(hint.malletX - history.guestMalletX, hint.malletY - history.guestMalletY) >
-        cap * (2 * age / 1000 + 0.05) + 2) return no('velocity', 'reach');
-
-  // Gate 8 (early): any later authoritative touch supersedes the claim.
-  if (cur.touchSerial !== history.touchSerial) return no('superseded');
-
-  // Gate 6: scan the authority's own trajectory forward from the referenced
-  // sample for the earliest intersection with the claimed mallet.
-  const samples = (view.trajectory && view.trajectory.length ? view.trajectory : [history]).slice();
-  const last = samples[samples.length - 1];
-  if (view.endpointValid !== false && last.pointSerial === cur.pointSerial && cur.state === 'play' &&
-      cur.touchSerial === history.touchSerial)
-    samples.push({
-      timeMs: view.nowMs, puckX: cur.puckX, puckY: cur.puckY,
-      puckVx: fin(cur.puckVx) ? cur.puckVx : last.puckVx, puckVy: fin(cur.puckVy) ? cur.puckVy : last.puckVy,
-      puckW: fin(cur.puckW) ? cur.puckW : last.puckW,
-    });
-  const radius = PUCK_R + MALLET_R + NET_LAG_CONTACT_TOLERANCE;
-  let contact = null, unsafe = false;
-  for (let i = 0; i < samples.length && !contact; i++) {
-    const a = samples[i], b = samples[i + 1];
-    let t = null;
-    if (Math.hypot(a.puckX - hint.malletX, a.puckY - hint.malletY) <= radius) t = 0;
-    else if (b) t = Net.lagSegmentEntry(a, b, hint.malletX, hint.malletY, radius);
-    if (t !== null) {
-      const u = b ? t : 0, mix = (k, d) => b && fin(b[k]) ? a[k] + (b[k] - a[k]) * u : (fin(a[k]) ? a[k] : d);
-      contact = {
-        timeMs: b ? a.timeMs + (b.timeMs - a.timeMs) * u : a.timeMs,
-        puckX: mix('puckX', 0), puckY: mix('puckY', 0),
-        puckVx: mix('puckVx', 0), puckVy: mix('puckVy', 0), puckW: mix('puckW', 0),
-      };
-    } else if (Net.lagNearRail(a.puckX, a.puckY) || (b && Net.lagNearRail(b.puckX, b.puckY))) {
-      unsafe = true; break;
-    }
-  }
-  if (!contact) return no(unsafe ? 'unsafe-transition' : 'geometry');
-
-  // Gate 7: closing motion at the selected contact (same physics as collideMallet).
-  const dx = contact.puckX - hint.malletX, dy = contact.puckY - hint.malletY, d = Math.hypot(dx, dy);
-  if (d < 1e-6) return no('geometry');
-  contact.nx = dx / d; contact.ny = dy / d;
-  const closing = malletImpulseVelocity({
-    puckVx: contact.puckVx, puckVy: contact.puckVy,
-    malletVx: hint.malletVx, malletVy: hint.malletVy, nx: contact.nx, ny: contact.ny,
+    newestSeq: Net.rtStateSeq,
   });
-  if (!closing) return no('separating');
-
-  // Gate 9: no ambiguous transition (rail/goal guard, impossible live puck).
-  if (Net.lagNearRail(contact.puckX, contact.puckY) || Net.lagNearRail(cur.puckX, cur.puckY))
-    return no('unsafe-transition');
-  const sinceContact = Math.max(0, (view.nowMs - contact.timeMs) / 1000);
-  if (Math.hypot(cur.puckX - contact.puckX, cur.puckY - contact.puckY) > PUCK_MAX * sinceContact + MALLET_R)
-    return no('unsafe-transition', 'inconsistent');
-
-  return { ok: true, reason: 'accepted', contact, age };
 };
 
-/* 22-byte additive realtime message. Existing packet layouts are untouched. */
-Net.encodeHitHint = function (h) {
-  const buffer = new ArrayBuffer(NET_RT_HIT_HINT_BYTES);
-  const v = new DataView(buffer);
-  v.setUint8(0, NET_RT_HIT_HINT); v.setUint8(1, NET_RT_VERSION);
-  v.setUint16(2, h.inputSeq & 0xffff, true);
-  v.setUint16(4, h.stateSeq & 0xffff, true);
-  v.setFloat32(6, h.malletX, true); v.setFloat32(10, h.malletY, true);
-  v.setFloat32(14, h.malletVx, true); v.setFloat32(18, h.malletVy, true);
-  return buffer;
-};
+/* The production validator (shared with the dedicated server): see
+ * lagValidateContactHint in the SHARED-SIM region. */
+Net.validateContactHint = lagValidateContactHint;
 
-Net.decodeHitHint = function (v) {
-  if (v.byteLength !== NET_RT_HIT_HINT_BYTES || v.getUint8(0) !== NET_RT_HIT_HINT ||
-      v.getUint8(1) !== NET_RT_VERSION) return null;
-  return {
-    inputSeq: v.getUint16(2, true), stateSeq: v.getUint16(4, true),
-    malletX: v.getFloat32(6, true), malletY: v.getFloat32(10, true),
-    malletVx: v.getFloat32(14, true), malletVy: v.getFloat32(18, true),
-  };
-};
+Net.encodeHitHint = lagEncodeHint;
+Net.decodeHitHint = lagDecodeHint;
 
 /* Guest side: evidence only (which state it reacted to, which input, its own
  * mallet pose). Rides the replaceable realtime lane; a lost hint costs nothing
@@ -1989,14 +2082,8 @@ Net.lagNoteResult = function (result) {
 /* Apply an accepted contact: recompute the outcome from the authority's own
  * physics and set ONLY the live puck's velocity/spin. No position change. */
 Net.applyCompensatedContact = function (contact, hint) {
-  const hit = solveMalletImpulse({
-    puckVx: contact.puckVx, puckVy: contact.puckVy,
-    malletVx: hint.malletVx, malletVy: hint.malletVy, nx: contact.nx, ny: contact.ny,
-  });
+  const hit = lagApplyContact(G.puck, contact, hint);
   if (!hit) return null;
-  const p = G.puck;
-  p.vx = hit.vx; p.vy = hit.vy;
-  p.w = Math.max(-12, Math.min(12, (Number.isFinite(p.w) ? p.w : 0) + hit.spin));
   Net.noteTouch();
   if (typeof onCompensatedContact === 'function') onCompensatedContact(Net.remoteSide(), contact, hit);
   return hit;
@@ -2324,6 +2411,7 @@ Net.resumeAuthoritySession = async function (checkpoint) {
 };
 
 Net.tryResumeSession = async function () {
+  if (Net.serverMode()) return NetServer.tryResume();
   const checkpoint = Net.readSessionCheckpoint();
   if (!checkpoint || Net.active || Net.room) return false;
   return checkpoint.authority
@@ -2751,6 +2839,7 @@ Net.onEvent = function (ev, peerId) {
  * (EWMA) so one slow pong doesn't swing the display. */
 Net.sendPing = function () {
   if (!Net.wire || !Net.active) return;
+  if (Net.serverMode()) { NetServer.ping(); return; }
   Net.conn.pingId++;
   const id = Net.conn.salt + '-' + Net.conn.pingId;
   if (!Net.conn.pending) Net.conn.pending = {};
@@ -2790,7 +2879,7 @@ Net.paintConn = function () {
   if (rtt < 0 || stale || !Number.isFinite(rtt)) { dot.className = 'unknown'; label.textContent = '–ms'; return; }
   dot.className = rtt < 120 ? 'good' : rtt < 300 ? 'fair' : 'poor';
   label.textContent = rtt + 'ms';
-  const route = Net.rtc.route === 'relay' ? 'Relayed' : Net.rtc.route === 'nearby' ? 'Nearby' :
+  const route = Net.rtc.route === 'server' ? 'Dedicated server' : Net.rtc.route === 'relay' ? 'Relayed' : Net.rtc.route === 'nearby' ? 'Nearby' :
     Net.rtc.route === 'direct' ? 'Direct' : 'Connection';
   const protocol = Net.rtc.protocol ? ' · ' + Net.rtc.protocol.toUpperCase() : '';
   chip.title = route + protocol + ' · ' + rtt + ' ms';
@@ -3387,7 +3476,7 @@ Net.pump = function (rdt) {
   Net.conn.paintAcc += rdt;
   if (Net.conn.paintAcc >= 1) { Net.conn.paintAcc = 0; Net.paintConn(); }
   Net.rtcAcc += rdt;
-  if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; void Net.sampleRtcStats(); }
+  if (Net.rtcAcc >= 5) { Net.rtcAcc = 0; if (!Net.serverMode()) void Net.sampleRtcStats(); }
 
   const liveState = G.state === 'count' || G.state === 'play' || G.state === 'goal';
   if (Net.isAuthority()) {
@@ -3426,7 +3515,9 @@ Net.pump = function (rdt) {
     Net.syncRequestAcc += rdt;
 
     const fastOpen = Net.rtReady && Net.rtChannel && Net.rtChannel.readyState === 'open';
-    const inputStep = fastOpen ? 1 / 60 : 1 / NET_RELIABLE_FALLBACK_HZ;
+    // Server mode: every input is a billed Durable Object request (20 messages = 1), so
+    // the client->server cadence is 30 Hz; the server drives the mallet at its own 240 Hz.
+    const inputStep = Net.serverMode() ? 1 / NET_SERVER_INPUT_HZ : fastOpen ? 1 / 60 : 1 / NET_RELIABLE_FALLBACK_HZ;
     if (Net.inAcc >= inputStep) { Net.inAcc = 0; Net.sendInput(); }
 
     if (fastOpen) {

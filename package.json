@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/build.mjs && node infra/cloudflare/air-hockey-server/build.mjs",
     "check": "node scripts/check.mjs",
-    "syntax": "node --check src/themes.js && node --check src/scoreboards.js && node --check src/net.js && node --check src/game.js && node --check src/share.js && node --check src/ui.js && node --check infra/cloudflare/turn-worker.js",
+    "syntax": "node --check src/themes.js && node --check src/scoreboards.js && node --check src/net.js && node --check src/net-server.js && node --check src/game.js && node --check src/share.js && node --check src/ui.js && node --check infra/cloudflare/turn-worker.js && node --check infra/cloudflare/air-hockey-server/worker.js",
     "unit": "node --test tests/*.test.mjs",
     "test": "npm run check && npm run syntax && npm run unit && npm run build && npm run check",
     "unit:online": "node --test tests/net-*.test.mjs"

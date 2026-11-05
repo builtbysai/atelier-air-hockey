@@ -27,7 +27,7 @@ assert.equal(index, template, 'index.html must be generated from src/template.ht
 const sw = await readFile('sw.js', 'utf8');
 assert.match(sw, new RegExp("^const CACHE = '" + await appCacheName() + "';"),
   'sw.js cache identity must match the built app');
-for (const f of ['styles.css','themes.js','scoreboards.js','net.js','game.js','ui.js']) assert.match(index, new RegExp('src/' + f.replace('.', '\\.')));
+for (const f of ['styles.css','themes.js','scoreboards.js','net.js','net-server.js','game.js','ui.js']) assert.match(index, new RegExp('src/' + f.replace('.', '\\.')));
 assert.doesNotMatch(index, /src\/app\.js/); assert.doesNotMatch(index, /<style>/); assert.doesNotMatch(index, /<script>\s/);
 assert.match(net, /\.onMessage\s*=/); assert.match(net, /\{ target: Net\.peerId \}/); assert.match(net, /onPeerJoin\s*=/);
 assert.doesNotMatch(net, /const \[sendSt/); assert.doesNotMatch(net, /createStubPair|netstub/);

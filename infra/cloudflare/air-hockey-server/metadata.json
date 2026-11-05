@@ -1,0 +1,12 @@
+{
+  "main_module": "worker.js",
+  "compatibility_date": "2025-09-01",
+  "bindings": [
+    { "type": "durable_object_namespace", "name": "MATCH", "class_name": "AirHockeyMatch" }
+  ],
+  "migrations": {
+    "new_tag": "v1",
+    "new_sqlite_classes": ["AirHockeyMatch"]
+  },
+  "observability": { "enabled": true }
+}

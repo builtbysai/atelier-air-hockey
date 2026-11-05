@@ -587,10 +587,7 @@ const paceServe = () => PACES[Settings.pace].serve;
 // ---------- physics tuning (from research) ----------
 // Real tables: puck floats on air jets - near-zero friction. A good shove
 // crosses an 8ft table several times. Damping here is exponential /s.
-const PUCK_DAMP = 0.09;              // default damping; pace setting overrides at runtime
-const WALL_REST = 0.95;              // default rail restitution; pace setting overrides at runtime
 const PUCK_MAX = 3100;               // fastest pro smash, in units/s
-const STRIKE_XFER = 1.45;            // mallet->puck velocity transfer
 const SMACK_BONUS = 0.55;            // extra punch on fast flicks
 const SUB_HZ = 240;                  // physics substeps (anti-tunnel)
 const STALL_V = 130, STALL_T = 1.4;  // anti-dead-puck trigger

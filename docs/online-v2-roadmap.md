@@ -24,6 +24,16 @@ Current staged head at this refresh:
 
 Current merged Online V2 stack includes PRs #80, #81, #84, #86, #89, #93, #95, #96, #97, #99, #100, #101, #102, #103, #107, #108, #109, #110, #111 and #113.
 
+## Dedicated server mode (2026-11-05, opt-in)
+
+A server-authoritative alternative to host-authoritative P2P now exists behind `?netMode=server`. Both players are
+equal clients of one Cloudflare Durable Object (SQLite-backed, free plan) that runs the physics, scores goals and
+survives either player dropping. P2P remains the default and is unchanged. The solver, history ring, wire codecs and
+the nine-gate validator are one shared source (the `SHARED-SIM` region of `src/net.js`, spliced into the server
+bundle by `infra/cloudflare/air-hockey-server/build.mjs`); the table physics is a parity-tested port of `game.js`.
+See `air-hockey-server-report.md` and `infra/cloudflare/air-hockey-server/DEPLOY.md`. Not deployed yet; needs a
+two-device test against the live Durable Object before it can become the default.
+
 ## Goal
 
 Make Atelier's online air hockey feel as close to local play as practical while keeping the service inexpensive and mostly peer-to-peer.

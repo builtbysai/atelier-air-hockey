@@ -3,6 +3,11 @@
 Status: design + executable contract only  
 The deterministic Network Lab, ICE/network migration recovery, Quick Match, spectators, session resurrection, and authority migration are merged. Production lag compensation must remain disabled until the integrated `main` passes `npm run unit:online`, full CI/Visual QA, the Network Lab, and the real-device direct/TURN/migration matrix.
 
+> **Dedicated server (2026-11-05).** The validator, history ring, hint codec and impulse solver now live in the
+> `SHARED-SIM` region of `src/net.js` as free functions (`lagValidateContactHint`, `lagRing*`, `lagEncodeHint`,
+> `solveMalletImpulse`). In `?netMode=server` the Durable Object runs these same bytes with the server as the only
+> authority and both seats as hinters. The design below is unchanged.
+
 ## Problem
 
 Guest-side contact prediction now makes a remote hit feel immediate on the guest device.
