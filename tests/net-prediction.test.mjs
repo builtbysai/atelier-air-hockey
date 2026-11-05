@@ -75,7 +75,14 @@ test('guest contact prediction reacts immediately and fences on an input sequenc
   assert.ok(Net.gview.pvx < 0, 'guest puck should leave the right-side mallet immediately');
   assert.equal(G.puck.vx, Net.gview.pvx);
   assert.equal(hits.length, 1, 'impact feedback should fire immediately on the guest');
-  assert.equal(sent.length, 1, 'prediction forces the current guest target onto the realtime lane');
+  assert.equal(sent.length, 2, 'prediction forces the input onto the lane and follows it with one contact hint');
+  assert.equal(new DataView(sent[0]).getUint8(0), 2, 'first packet is the 12-byte input');
+  assert.equal(sent[0].byteLength, 12);
+  const hint = new DataView(sent[1]);
+  assert.equal(hint.getUint8(0), 4, 'second packet is the type-4 contact hint');
+  assert.equal(sent[1].byteLength, 22);
+  assert.equal(hint.getUint16(2, true), 1, 'hint correlates with the forced input sequence');
+  assert.equal(hint.getUint16(4, true), 10, 'hint references the last host state sequence');
 });
 
 test('guest prediction preserves production fast-smack impulse', async () => {

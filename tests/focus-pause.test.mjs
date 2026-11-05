@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { malletSolverSource } from './helpers/net-solver.mjs';
 
 function makeEl() {
   const classes = new Set(['hidden']); // every overlay starts hidden
@@ -35,6 +36,7 @@ function chainCtx() {
 async function loadGame() {
   const sb = await readFile(new URL('../src/scoreboards.js', import.meta.url), 'utf8');
   const source = await readFile(new URL('../src/game.js', import.meta.url), 'utf8');
+  const solver = await malletSolverSource(); // shared collision solver lives in net.js
   const els = {};
   const audioCalls = [];
   const ac = {
@@ -78,7 +80,7 @@ async function loadGame() {
   const context = vm.createContext({
     console, Math, JSON,
     DIFFS: [{ name: 'Rookie' }],
-    Net: { role: 'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null, sendPause() {}, pump() {} },
+    Net: { role: 'host', playerSide: () => 0, isAuthority: () => true, isPlayer: () => true, localMallet: () => null, sendPause() {}, pump() {}, noteTouch() {}, notePoint() {} },
     THEME: baseTheme,
     CX: 720, CY: 520, TAU: Math.PI * 2,
     clamp: (v, a, b) => Math.min(b, Math.max(a, v)),
@@ -105,7 +107,7 @@ async function loadGame() {
     performance: { now: () => 1000 },
   });
   vm.runInContext(
-    `${sb}\n${source}\nthis.__t = { G, Net, AudioSys, MusicSys, Settings, togglePause, pauseForFocusLoss, resumeFromFocusLoss, frame, mkBrain };`,
+    `${sb}\n${solver}\n${source}\nthis.__t = { G, Net, AudioSys, MusicSys, Settings, togglePause, pauseForFocusLoss, resumeFromFocusLoss, frame, mkBrain };`,
     context, { filename: 'src/game.js' });
   const t = context.__t;
   t.AudioSys.ctx = ac;

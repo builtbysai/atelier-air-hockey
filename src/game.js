@@ -2716,6 +2716,7 @@ function collideMallet(p, m, dt) {
     m.glueT = 0; m.ghostT = 0.08; m.touching = false;
     m.contactActive = false; m.contactStartedGoalward = false;
     G.lastTouch = m.side; G.stallT = 0;
+    Net.noteTouch();
     return;
   }
   // --- possession clock ---
@@ -2750,40 +2751,32 @@ function collideMallet(p, m, dt) {
     }
     m.glueT = 0; m.contactActive = false; G.lastTouch = m.side;
     Highlights.noteTouch(m.side);
+    Net.noteTouch();
     if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
     return;
   }
   // --- normal contact ---
   p.x = m.x + nx * minD; p.y = m.y + ny * minD;
-  const rvx = p.vx - m.vx, rvy = p.vy - m.vy;
-  const vn = rvx * nx + rvy * ny;
-  if (vn >= 0) { m.contactActive = false; m.contactStartedGoalward = false; return; } // separating
   // Speed-dependent restitution: a still/slow mallet SMOTHERS the puck
   // (real goalie play - the puck drops dead for possession), a driven
   // mallet bounces it lively. This is what makes traps, dribbles and
-  // possession possible instead of endless pinball.
-  const msp0 = hyp(m.vx, m.vy);
-  const e = lerp(0.35, 0.92, clamp(msp0 / 1200, 0, 1));
-  let j = -(1 + e) * vn;
-  // smack bonus: mallet driving into the puck adds extra punch
-  const mvn = m.vx * nx + m.vy * ny; // >0 means mallet moving toward puck
+  // possession possible instead of endless pinball. The impulse math lives
+  // in net.js (malletImpulseVelocity) so guest prediction and host lag
+  // compensation share this exact solver.
   const pvx0 = p.vx; // pre-impulse: save detection reads the puck's intent, not its rebound
-  if (mvn > 0) j += mvn * SMACK_BONUS;
-  p.vx += nx * j; p.vy += ny * j;
-  const aiControlledClear = aiControlledBlock(m, p, preTouchVx);
-  // safety: a genuinely driven hit never dies
-  const sp = hyp(p.vx, p.vy);
-  const msp = hyp(m.vx, m.vy);
-  if (sp < 250 && msp > 800) {
-    p.vx = nx * 250; p.vy = ny * 250;
-  }
-  const nsp = hyp(p.vx, p.vy);
-  if (nsp > PUCK_MAX) { p.vx *= PUCK_MAX / nsp; p.vy *= PUCK_MAX / nsp; }
+  const hit = malletImpulseVelocity({
+    puckVx: p.vx, puckVy: p.vy, malletVx: m.vx, malletVy: m.vy, nx, ny,
+  });
+  if (!hit) { m.contactActive = false; m.contactStartedGoalward = false; return; } // separating
+  const { vn, mvn, msp: msp0 } = hit; // mvn > 0 means mallet moving toward puck
+  p.vx = hit.vx; p.vy = hit.vy;
+  aiControlledBlock(m, p, preTouchVx);
+  // safety: a genuinely driven hit never dies; nothing beats the pro-smash cap
+  const limited = limitMalletRebound(p.vx, p.vy, nx, ny, msp0);
+  p.vx = limited.vx; p.vy = limited.vy;
   // english: tangential mallet velocity at contact becomes puck spin -
   // the Magnus curve is applied in stepPhysics
-  const tx = -ny, ty = nx;
-  const tang = (m.vx - p.vx) * tx + (m.vy - p.vy) * ty;
-  p.w = clamp((p.w || 0) + tang / 260, -12, 12);
+  p.w = clamp((p.w || 0) + malletSpinDelta(m.vx, m.vy, p.vx, p.vy, nx, ny), -12, 12);
   G.lastTouch = m.side;
   if (RivalLab.active) RivalLab.noteTouch(m.side, preTouchVx, preTouchVy, p.vx, p.vy);
   G.stallT = 0;
@@ -2798,6 +2791,7 @@ function collideMallet(p, m, dt) {
   // distinct hit registered for each bounce.
   if (!m.contactActive) {
     Highlights.noteTouch(m.side);
+    Net.noteTouch(); // lag compensation: one serial per leading-edge contact episode
     const impact = -vn + Math.max(0, mvn);
     let savedThisHit = false;
     // SAVE: a fast lateral block of a puck bound for your own goal gets the
@@ -2832,6 +2826,24 @@ function collideMallet(p, m, dt) {
     onMalletHit(p.x, p.y, impact, nx, ny, savedThisHit);
   }
   m.contactActive = true;
+}
+
+// ONLINE: the current authority accepted a lag-compensated guest strike. Net
+// already set only the puck's velocity/spin from the shared solver; this adds
+// the bookkeeping and feedback a normal leading-edge contact would have.
+function onCompensatedContact(side, contact, hit) {
+  const p = G.puck, m = side === 1 ? G.m2 : G.m1;
+  G.lastTouch = side; G.stallT = 0;
+  Highlights.noteTouch(side);
+  noteRallyTouch(side);
+  if (m) {
+    // If the host's own copy of that mallet is already overlapping the puck,
+    // the claimed contact has consumed it: skip one physics pass so the same
+    // strike cannot be applied twice.
+    const dx = p.x - m.x, dy = p.y - m.y, minD = p.r + m.r;
+    if (dx * dx + dy * dy < minD * minD) m.ghostT = Math.max(m.ghostT || 0, NET_LAG_GHOST_S);
+  }
+  onMalletHit(p.x, p.y, hit.impact, contact.nx, contact.ny, false);
 }
 
 function stepPhysics(dt) {
@@ -3963,6 +3975,7 @@ function dismissHint(markSeen) {
   if (markSeen) { try { localStorage.setItem(HINT_KEY, '1'); } catch (e) {} }
 }
 function startCount() {
+  Net.notePoint(); // lag compensation: a new point/restart invalidates every older contact claim
   G.state = 'count'; G.countT = 0; G.countN = 3; G.goPlayed = false;
   if (G.score[0] === 0 && G.score[1] === 0) MusicSys.setIntensity(0); // fresh match: the bed at rest
   MusicSys.alignBeat(); // both peers start the same phrase on the countdown downbeat
@@ -4123,6 +4136,7 @@ function announceGoalStatus(scorer) {
     G.score[0] + ' to ' + G.score[1] + '.' + moment + reward;
 }
 function beginGoalCeremony(scorer) {
+  Net.notePoint(); // lag compensation: a goal ends the point
   G.pausedGoalCeremony = null;
   boardKick(scorer);
   G.goalSide = scorer;
