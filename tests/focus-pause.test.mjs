@@ -58,6 +58,15 @@ async function loadGame() {
     font: { body: 'sans-serif', display: 'sans-serif' },
     drawRails() {}, drawSurface() {}, drawMarkings() {}, drawGoalTrim() {},
   };
+  const template = await readFile(new URL('../src/template.html', import.meta.url), 'utf8');
+  const markup = { overlays: [], chrome: [] };
+  for (const m of template.matchAll(/<div\b([^>]*)>/g)) {
+    const id = /\bid="([^"]+)"/.exec(m[1])?.[1];
+    if (!id) continue;
+    if (/\bclass="[^"]*\boverlay\b/.test(m[1]) && !/data-persistent-overlay/.test(m[1])) markup.overlays.push(id);
+    if (/data-game-chrome/.test(m[1])) markup.chrome.push(id);
+  }
+  assert.ok(markup.overlays.includes('pauseov') && !markup.overlays.includes('focusov'), 'markup parse sanity');
   const getEl = (id) => {
     if (!els[id]) {
       els[id] = id === 'game'
@@ -82,7 +91,13 @@ async function loadGame() {
       getElementById: getEl,
       createElement: () => ({ getContext: () => null, width: 0, height: 0, style: {} }),
       addEventListener() {}, hidden: false, title: '',
-      querySelectorAll: () => [],
+      // hideAll() is structural, so the stub answers its two selectors from the
+      // real markup: .overlay (minus data-persistent-overlay) and data-game-chrome.
+      querySelectorAll: (sel) => {
+        if (sel === '.overlay:not([data-persistent-overlay])') return markup.overlays.map(getEl);
+        if (sel === '[data-game-chrome]') return markup.chrome.map(getEl);
+        return [];
+      },
     },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     navigator: {},
@@ -299,4 +314,42 @@ test('canvas context loss waits for restoration and then repaints', async () => 
   assert.match(ui, /canvas\.addEventListener\('contextrestored', \(\) => markCanvasContextRestored\(\)\)/);
   assert.doesNotMatch(ui, /contextlost'[\s\S]{0,120}preventDefault/,
     '2D context loss should allow the browser to perform its default restoration');
+});
+
+test('a fully muted game stays suspended on resume, and unmuting wakes it', async () => {
+  const { t, ac } = await loadGame();
+  t.G.state = 'menu';
+  t.Settings.soundVolume = 0; t.Settings.musicVolume = 0;
+  t.pauseForFocusLoss();
+  assert.equal(ac.state, 'suspended');
+  t.resumeFromFocusLoss(); // the veil tap
+  assert.equal(t.G.focusLost, false, 'the freeze still clears');
+  assert.equal(ac.state, 'suspended', 'muted: no reason to restart the audio thread');
+  t.Settings.soundVolume = 80; // user unmutes
+  t.AudioSys.wakeAudioIfAudible();
+  assert.equal(ac.state, 'running', 'unmuting brings audio back');
+});
+
+test('wakeAudioIfAudible never undermines the focus veil', async () => {
+  const { t, ac } = await loadGame();
+  t.G.state = 'menu';
+  t.pauseForFocusLoss();
+  t.AudioSys.wakeAudioIfAudible(); // e.g. a slider event firing while the tab is frozen
+  assert.equal(ac.state, 'suspended', 'frozen tab stays silent until the veil is tapped');
+});
+
+test('page close, hide and blur all suspend audio through one path, and return resumes it', async () => {
+  const ui = await readFile(new URL('../src/ui.js', import.meta.url), 'utf8');
+  for (const [name, re] of [
+    ['visibilitychange', /addEventListener\('visibilitychange', \(\) => \{[\s\S]*?if \(document\.hidden\) \{[\s\S]*?pauseForFocusLoss\(\)/],
+    ['blur', /addEventListener\('blur', \(\) => \{[\s\S]*?pauseForFocusLoss\(\)/],
+    ['pagehide', /addEventListener\('pagehide', \(\) => \{[\s\S]*?pauseForFocusLoss\(\)/],
+  ]) assert.match(ui, re, name + ' must route through pauseForFocusLoss (suspends the AudioContext)');
+  // and the shared path really suspends, then a user gesture resumes
+  const { t, ac } = await loadGame();
+  t.G.state = 'play'; t.G.mode = 'ai';
+  t.pauseForFocusLoss();
+  assert.equal(ac.state, 'suspended');
+  t.resumeFromFocusLoss();
+  assert.equal(ac.state, 'running');
 });

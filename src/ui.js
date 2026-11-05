@@ -254,6 +254,7 @@ function setSetting(key, val) {
     Settings[key === 'soundVolume' ? 'soundBeforeMute' : 'musicBeforeMute'] = val;
   }
   saveSettings();
+  if (key === 'soundVolume' || key === 'musicVolume') AudioSys.wakeAudioIfAudible(); // slider drag out of mute
   if (key === 'touchOffset') resetTransientControls();
   applySettingsToUI();
   // the menu's table thumbnails draw the goal mouth - repaint so the
@@ -898,6 +899,7 @@ function wireUI() {
     // One source of truth: global mute changes the visible channel sliders,
     // and direct slider changes derive the global muted state in return.
     AudioSys.setMasterMuted(!AudioSys.isMasterMuted());
+    AudioSys.wakeAudioIfAudible(); // unmuting restarts a context suspended while muted
     applySettingsToUI();
   });
   window.addEventListener('keydown', e => {
@@ -960,9 +962,22 @@ function wireUI() {
     pauseForFocusLoss();
   });
   window.addEventListener('focus', () => recoverCanvasSurface());
+  // Page close / navigation away / bfcache entry: checkpoint the session, drop
+  // the wake lock, and take the same focus-loss path as a hidden tab so the
+  // AudioContext suspends instead of playing into a closing page. A page
+  // restored from the back/forward cache returns frozen behind the veil.
   window.addEventListener('pagehide', () => {
     try { Net.saveSessionCheckpoint(); } catch (e) {}
     WakeSys.release();
+    keyDrive.clear();
+    resetTransientControls();
+    pauseForFocusLoss();
+  });
+  window.addEventListener('pageshow', e => {
+    if (!e.persisted) return;
+    recoverCanvasSurface();
+    WakeSys.sync();
+    UpdateSys.sync();
   });
   canvas.addEventListener('contextlost', () => markCanvasContextLost());
   canvas.addEventListener('contextrestored', () => markCanvasContextRestored());

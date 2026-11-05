@@ -45,7 +45,7 @@ async function loadGame() {
     requestAnimationFrame() {}, setTimeout() {}, clearTimeout() {},
     performance: { now: () => 0 },
   });
-  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, touchOffsetScreen, touchTargetRink, resize, loadSettings, Settings, G, win: window, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; } };`,
+  vm.runInContext(`${sb}\n${source}\nthis.__t = { screenToRink, touchOffsetScreen, touchTargetRink, resize, loadSettings, Settings, G, win: window, get view() { return view; }, set view(v) { view = v; }, get VW() { return VW; }, get VH() { return VH; }, get CX() { return CX; }, get MALLET_R() { return MALLET_R; } };`,
     context, { filename: 'src/game.js' });
   return context.__t;
 }
@@ -166,9 +166,22 @@ test('touch target tapers near center so the mallet never develops a sticky dead
     return t.touchTargetRink(0, sc.x, sc.y);
   };
 
-  // Far from center there is room for the full one-diameter visual offset.
-  const far = targetAt(500);
-  assert.ok(Math.abs(far.x - 592) < 1e-6, 'open-space touch should keep the full offset');
+  // Far from center there is room for the FULL offset: exactly what
+  // touchOffsetScreen asks for, undiminished by the taper. The size is a tuning
+  // constant (#130 raised it above one diameter so the thumb never covers the
+  // puck contact), so assert the contract, not the number. "Far" means beyond
+  // the taper zone, i.e. more than two offset-lengths short of the center clamp.
+  const probe = rinkToScreen(t, 400, 520, false);
+  const fullOff = t.touchOffsetScreen(0, probe.x, probe.y);
+  const offRink = t.screenToRink(probe.x + fullOff.x, probe.y + fullOff.y).x - t.screenToRink(probe.x, probe.y).x;
+  assert.ok(offRink >= 2 * t.MALLET_R, 'full offset must clear at least one mallet diameter');
+  const farX = (t.CX - 8) - 2 * offRink - 20;
+  assert.ok(farX > 200 + t.MALLET_R, 'harness sanity: an open-space point exists on this phone view');
+  const farScreen = rinkToScreen(t, farX, 520, false);
+  const far = targetAt(farX);
+  const fullTarget = t.screenToRink(farScreen.x + fullOff.x, farScreen.y + fullOff.y);
+  assert.ok(Math.abs(far.x - fullTarget.x) < 1e-6 && Math.abs(far.y - fullTarget.y) < 1e-6,
+    'open-space touch should keep the full offset');
 
   // Inside the taper zone, moving the finger toward center must still move the
   // mallet toward center. A fixed offset would clamp both targets to the same X.

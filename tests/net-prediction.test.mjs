@@ -35,7 +35,7 @@ async function loadWorld() {
   return { Net: context.__Net, G, hits, context };
 }
 
-function armRealtime(Net) {
+function armRealtime(Net, proven = true) {
   const sent = [];
   Net.active = true;
   Net.role = 'guest';
@@ -47,7 +47,16 @@ function armRealtime(Net) {
     bufferedAmount: 0,
     send(data) { sent.push(data); },
   };
+  if (proven) markLaneProven(Net);
   return sent;
+}
+
+// Since #132 the guest only predicts on a PROVEN realtime lane: a fresh state
+// frame and a fresh input ACK must both have arrived. An open-but-silent lane
+// is never trusted (see 'unproven lane' test below).
+function markLaneProven(Net) {
+  Net.rtLastStateRxT = performance.now();
+  Net.rtLastAckRxT = performance.now();
 }
 
 test('guest contact prediction reacts immediately and fences on an input sequence', async () => {
@@ -169,4 +178,21 @@ test('snapshot teleport guard does not erase an active speculative hit', async (
   Net.guestPrediction = { inputSeq: 2, stateSeq: 5, age: 0.05, reconciling: false, reconcileT: 0 };
   Net.onSnapshot([100,300,0,0,120,300,610,300,0,0,2,0,0,0,0,0,0,1], 'rival');
   assert.equal(Net.gview.px, 700, 'large stale snapshot should not hard-seed the predicted puck');
+});
+
+test('guest never predicts on an open but unproven realtime lane', async () => {
+  const { Net, G, hits } = await loadWorld();
+  const sent = armRealtime(Net, false);
+  Net.gview = { px: 550, py: 300, pvx: 0, pvy: 0 };
+  Net.rtLastStateSeq = 10;
+
+  assert.equal(Net.realtimeHealthy(), false);
+  assert.equal(Net.tryPredictGuestHit(), false);
+  assert.equal(Net.guestPrediction, null);
+  assert.equal(G.puck.vx, 0);
+  assert.equal(hits.length, 0);
+  assert.equal(sent.length, 0);
+
+  markLaneProven(Net);
+  assert.equal(Net.tryPredictGuestHit(), true, 'same contact predicts once the lane is proven');
 });

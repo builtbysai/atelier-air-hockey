@@ -65,9 +65,14 @@ test('keyboard shortcuts share the same menu routing', () => {
 
 
 test('Match Rules participates in the shared overlay stack', () => {
-  assert.match(game,
-    /\['menu', 'progress', 'help', 'rules', 'settings', 'pauseov'/,
-    'hideAll must include the Match Rules overlay');
+  // hideAll() is structural (every .overlay except data-persistent-overlay), so
+  // Match Rules participates by being a plain overlay, not by being listed.
+  assert.match(game, /function hideAll\(\) \{[\s\S]*?querySelectorAll\('\.overlay:not\(\[data-persistent-overlay\]\)'\)\.forEach\(el => el\.classList\.add\('hidden'\)\)/,
+    'hideAll must structurally hide every non-persistent overlay');
+  const rules = template.match(/<div class="([^"]*)" id="rules"[^>]*>/);
+  assert.ok(rules, 'Match Rules overlay exists');
+  assert.ok(rules[1].split(' ').includes('overlay'), 'Match Rules must be a shared .overlay');
+  assert.doesNotMatch(rules[0], /data-persistent-overlay/, 'Match Rules must not opt out of central hiding');
   assert.match(ui, /function closeRules\(\) \{[\s\S]*?hideAll\(\);[\s\S]*?\$\('menu'\)\.classList\.remove\('hidden'\)/,
     'Done must close Match Rules before restoring the menu');
 });
@@ -124,7 +129,11 @@ test('Match Rules detail is centered and compact labels remain visible on phones
 });
 
 test('all overlays centrally hide gameplay chrome', () => {
-  assert.match(game, /function hideAll\(\)[\s\S]*?\$\('topbar'\)\.classList\.add\('hidden'\)/);
+  assert.match(game, /function hideAll\(\) \{[\s\S]*?querySelectorAll\('\[data-game-chrome\]'\)\.forEach\(el => el\.classList\.add\('hidden'\)\)/,
+    'hideAll must structurally hide all gameplay chrome');
+  for (const id of ['topbar', 'hint', 'replayHud', 'replayOffer', 'workshopHud'])
+    assert.match(template, new RegExp('<[a-z]+ id="' + id + '"[^>]*data-game-chrome'),
+      id + ' must be tagged data-game-chrome so overlays hide it');
 });
 
 test('dialog focus trap ignores controls hidden from the tab order', () => {

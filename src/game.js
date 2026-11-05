@@ -639,7 +639,14 @@ const AudioSys = {
   // Promises are caught - resume() without a user gesture stays suspended
   // (browser policy) instead of throwing an unhandled rejection.
   suspend() { try { if (this.ctx && this.ctx.state === 'running') { const p = this.ctx.suspend(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
-  resume() { try { if (this.ctx && this.ctx.state === 'suspended') { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
+  // A fully muted game stays suspended: nothing audible is playing, so there is
+  // no reason to spin the audio thread back up (battery). Unmuting calls
+  // resume() again from the user's click, see wakeAudioIfAudible().
+  resume() { try { if (this.ctx && this.ctx.state === 'suspended' && !this.isMasterMuted()) { const p = this.ctx.resume(); if (p && p.catch) p.catch(() => {}); } } catch (e) {} },
+  // After a volume/mute change from a user gesture: bring a muted-and-suspended
+  // context back, unless the tab is currently frozen behind the focus veil
+  // (that path resumes on its own tap).
+  wakeAudioIfAudible() { if (!G.focusLost) this.resume(); },
   // layered clack: noise transient + tonal body, pitch mapped to impact, ±5% variance.
   // pitchMul climbs ~3% per rally hit so long rallies audibly tighten.
   hit(power, pitchMul = 1) {

@@ -24,7 +24,10 @@ test('Wake Lock is wanted only during active match and replay states', () => {
 test('Wake Lock releases on hidden/pagehide and can reacquire on return', () => {
   assert.match(ui, /if \(document\.hidden\) \{[\s\S]*?WakeSys\.release\(\);[\s\S]*?pauseForFocusLoss\(\)/);
   assert.match(ui, /else \{[\s\S]*?WakeSys\.sync\(\)/);
-  assert.match(ui, /pagehide[^\n]*WakeSys\.release/);
+  // pagehide: wake lock released AND the focus-loss path (AudioContext suspend)
+  assert.match(ui, /addEventListener\('pagehide', \(\) => \{[\s\S]*?WakeSys\.release\(\);[\s\S]*?pauseForFocusLoss\(\);[\s\S]*?\}\);/);
+  // bfcache restore re-fits the canvas and re-syncs the wake lock
+  assert.match(ui, /addEventListener\('pageshow', e => \{[\s\S]*?e\.persisted[\s\S]*?WakeSys\.sync\(\)/);
 });
 
 test('a delayed Wake Lock grant is released after pagehide or visibility loss', async () => {

@@ -2252,7 +2252,9 @@ Net.onEvent = function (ev, peerId) {
       // Fresh-match hello is for whichever player is currently non-authority.
       // After migration that can be the original host, so do not gate on the
       // historical guest role.
-      if (Net.isPlayer() && !Net.active) Net.onHello(ev);
+      // A rematch hello also arrives while the previous match is still on the
+      // result screen (state 'win'); a hello mid-point must never rewrite rules.
+      if (Net.isPlayer() && !Net.isAuthority() && (!Net.active || G.state === 'win')) Net.onHello(ev);
       break;
     case 'countdown':
       if (Net.isPlayer() && !Net.isAuthority()) Net.onCountdown(ev);
@@ -2677,7 +2679,10 @@ Net.onCountdown = function (ev) {
   const fresh = ev?.fresh === true || !Net.matchStarted || G.state === 'win';
   if (ev && (ev.authoritySide === 0 || ev.authoritySide === 1)) Net.authoritySide = ev.authoritySide;
   if (ev && Number.isInteger(ev.authorityEpoch)) Net.authorityEpoch = Math.max(Net.authorityEpoch, ev.authorityEpoch);
-  if (ev && Number.isFinite(+ev.mseed)) {
+  // The hello normally delivered this seed already; only re-apply when the
+  // countdown carries a different one (missed hello, late rejoin). Reseeding
+  // an identical seed would needlessly restart the running sequence.
+  if (ev && Number.isFinite(+ev.mseed) && ((+ev.mseed) >>> 0) !== (Net.musicSeed >>> 0)) {
     Net.musicSeed = (+ev.mseed) >>> 0;
     try { MusicSys.setSessionSeed(Net.musicSeed); } catch (e) {}
   }
@@ -3214,6 +3219,10 @@ Net.restartMatchAsAuthority = function () {
   const side = Net.playerSide(), authoritySide = Net.authoritySide, epoch = Net.authorityEpoch;
   Net.beginMatch(role);
   Net.side = side; Net.authoritySide = authoritySide; Net.authorityEpoch = epoch;
+  Net.resetConn(); // the previous match's RTT chip is stale
+  // Re-announce the rules: the authority may have changed Match Rules or the
+  // table on the result screen, and the rival only learns them from a hello.
+  Net.sendHello();
   startCount();
   rollServe(Math.random() < 0.5 ? 1 : -1);
   Net.sendCountdown(true);

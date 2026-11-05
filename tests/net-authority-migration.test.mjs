@@ -83,7 +83,7 @@ test('non-authority side promotes from the last host-authored snapshot', async (
   assert.equal(Net.authoritySide,1);
   assert.equal(Net.authorityEpoch,2);
   assert.equal(Net.rtStateSeq,321);
-  assert.deepEqual(G.score,[4,3]);
+  assert.deepEqual(Array.from(G.score),[4,3]); // Array.from: G lives in a vm realm
   assert.equal(G.puck.x,760);
   assert.equal(G.m1.x,390);
   assert.equal(G.m2.x,1050);
@@ -109,7 +109,7 @@ test('former host adopts a higher guest authority epoch and converged state', as
   assert.equal(Net.authorityEpoch,2);
   assert.equal(Net.isAuthority(),false);
   assert.equal(G.puck.x,810);
-  assert.deepEqual(G.score,[5,4]);
+  assert.deepEqual(Array.from(G.score),[5,4]);
   assert.equal(Net.reconnectState,'play');
 });
 

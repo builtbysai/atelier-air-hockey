@@ -23,7 +23,7 @@ async function loadWorld(clock) {
     performance:{ now:() => clock.now },
     G,
     Settings:{ firstTo:7, pace:'classic' },
-    PX:60, PW:680, PY:80, PH:440, CY:300,
+    PX:60, PW:680, PY:80, PH:440, CX:400, CY:300, // CX = PX + PW / 2, as in game.js
     ...NET_TEST_PHYSICS,
     goalW:()=>200,
     paceDamp:()=>0.07,
@@ -109,6 +109,10 @@ async function runPredictionProfile(name, profile) {
   };
   Net.snapT = 0;
   Net.rtLastStateSeq = hostStateSeq;
+  // Prediction requires a proven lane (fresh state + fresh ACK, #132). The
+  // match has been running before this contact; later live traffic keeps it fresh.
+  Net.rtLastStateRxT = Math.max(1, clock.now); // gate needs a stamp > 0
+  Net.rtLastAckRxT = Math.max(1, clock.now);
 
   const originalPredict = Net.tryPredictGuestHit.bind(Net);
   Net.tryPredictGuestHit = () => {

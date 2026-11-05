@@ -155,11 +155,37 @@ test('late host restart republishes spectators after the previous match closed t
   Net.sendHello = () => {};
   Net.sendCountdown = () => {};
   Net.peerAuthorityVersion = 1;
+  // Restart ownership is authority-based: the previous match closed (active
+  // false) and this side still owns authority, as the original host does.
+  Net.role = 'host'; Net.side = 0; Net.authoritySide = 0; Net.active = false;
 
-  Net.restartMatchAsHost();
+  assert.equal(Net.restartMatchAsHost(), true);
 
   assert.equal(Net.isAuthority(), true);
   assert.equal(opened, 1, 'a fresh match after rival loss must reopen spectator publishing');
+});
+
+test('a promoted guest republishes spectators on restart; a non-authority side does not', async () => {
+  const stub = Net => {
+    const calls = { opened: 0 };
+    Net.openSpectatorHost = async () => { calls.opened++; };
+    Net.beginMatch = role => { Net.role = role; Net.active = true; };
+    Net.resetConn = () => {}; Net.sendHello = () => {}; Net.sendCountdown = () => {};
+    Net.peerAuthorityVersion = 1;
+    return calls;
+  };
+  const promoted = (await loadNet()).Net;
+  const a = stub(promoted);
+  promoted.role = 'guest'; promoted.side = 1; promoted.authoritySide = 1; promoted.active = false;
+  assert.equal(promoted.restartMatchAsHost(), true);
+  assert.equal(promoted.side, 1, 'promoted guest keeps its own side');
+  assert.equal(a.opened, 1);
+
+  const passive = (await loadNet()).Net;
+  const b = stub(passive);
+  passive.role = 'guest'; passive.side = 1; passive.authoritySide = 0; passive.active = false;
+  assert.equal(passive.restartMatchAsHost(), false);
+  assert.equal(b.opened, 0);
 });
 
 test('game loop never gives a spectator physics or input authority', async () => {

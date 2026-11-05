@@ -247,6 +247,31 @@ test('rematch hello keeps the guest preferences saved for leaving the room', asy
   assert.deepEqual([...G.score], [0, 0]);
 });
 
+test('rematch: the authority re-announces rules in a hello before the fresh countdown', async () => {
+  const { Net, G, context } = await loadNetWorld();
+  Net.role = 'host'; Net.side = 0; Net.authoritySide = 0; Net.authorityEpoch = 1;
+  Net.active = true; G.state = 'win';
+  context.Settings.firstTo = 11; // changed on the result screen
+  const sent = liveWire({ Net });
+  Net.restartMatchAsAuthority();
+  const kinds = sent.map(e => e.t);
+  assert.ok(kinds.indexOf('hello') !== -1, 'rematch must carry a hello');
+  assert.ok(kinds.indexOf('hello') < kinds.indexOf('countdown'), 'hello precedes the countdown');
+  assert.equal(sent.find(e => e.t === 'hello').firstTo, 11);
+  assert.equal(sent.find(e => e.t === 'countdown').fresh, true);
+});
+
+test('a hello mid-point never rewrites the guest rules; only idle or result screens accept one', async () => {
+  const { Net, G, context } = await loadNetWorld();
+  Net.role = 'guest'; Net.active = true; G.state = 'play';
+  context.Settings.firstTo = 5;
+  Net.onEvent({ t:'hello', firstTo:11, pace:'classic', theme:'deco' }, 'peer');
+  assert.equal(context.Settings.firstTo, 5, 'live match rules stay put');
+  G.state = 'win';
+  Net.onEvent({ t:'hello', firstTo:11, pace:'classic', theme:'deco' }, 'peer');
+  assert.equal(context.Settings.firstTo, 11, 'result screen accepts the rematch hello');
+});
+
 test('guest dead reckoning stays bounded under 150ms RTT', async () => {
   const h = await loadNetWorld(), g = await loadNetWorld();
   link(h, g, 75);
@@ -609,7 +634,7 @@ test('guest sends reliable input while realtime lane is open but not proven heal
   Net.pump(1 / 30);
 
   assert.ok(reliableInputs.length > 0, 'guest target survives an asymmetric/broken fast lane');
-  assert.deepEqual(reliableInputs.at(-1), [620, 310]);
+  assert.deepEqual(Array.from(reliableInputs.at(-1)), [620, 310]);
 });
 
 test('state starvation requests an immediate authoritative reliable keyframe', async () => {
